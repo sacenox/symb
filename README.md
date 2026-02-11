@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/symb.svg" alt="Symb Logo" width="200"/>
+</p>
+
 # Symb
 
 _Pronounced "sim"_
