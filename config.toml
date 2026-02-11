@@ -1,0 +1,19 @@
+# Smith Configuration File
+
+[llm]
+provider = "ollama"  # Options: "ollama", "opencode-zen"
+model = "llama3.2"
+base_url = "http://localhost:11434"
+api_key = ""
+
+[editor]
+tab_size = 4
+show_line_nums = true
+syntax_theme = "monokai"
+
+[git]
+enable_sandbox = false  # Enable git worktree sandboxing (experimental)
+
+[ui]
+theme = "matrix"
+split_ratio = 0.5  # Editor:Agent pane split ratio (0.0-1.0)

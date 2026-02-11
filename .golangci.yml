@@ -1,0 +1,45 @@
+run:
+  timeout: 5m
+  go: '1.23'
+
+linters:
+  enable:
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Vet examines Go source code
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis
+    - unused        # Check for unused constants, variables, functions
+    - gofmt         # Check formatting
+    - goimports     # Check imports
+    - misspell      # Check for commonly misspelled words
+    - revive        # Fast, configurable, extensible linter
+    - stylecheck    # Replacement for golint
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Report unused function parameters
+    - goconst       # Find repeated strings that could be constants
+    - gocyclo       # Check cyclomatic complexity
+    - dupl          # Check for duplicate code
+    - godot         # Check if comments end in a period
+    - gosec         # Security problems
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  
+  dupl:
+    threshold: 100
+  
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec

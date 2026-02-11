@@ -9,7 +9,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
 ## Minimum viable product:
 
 - Agentic UI:
-  - Support for highlighted code snippets. Git diffs and shell outputs. (Mini editor components?)
+  - Support for clicking file references/diffs/snippets to open in Editor side.
   - Optional Human-in-the-middle LLM tool call loop (with configurable permissions in global config)
   - Auto Context, LLM is aware of file/project in question probably via tree-sitter?
   - AGENTS.md support
@@ -23,7 +23,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
 
 - LLM Tools:
   - Run in sandboxed version of the working directory to allow multiple agents working on the same file. Use git to merge sandboxed changes to real repo.
-  - Grep, Read, Write: optimized for code changes (LSP and linting checks after each edit). These appear in agentic UI as a diff. Clicking on it takes us to that edit in the editor tab.
+  - Grep, Read, Write: optimized for code changes (LSP and linting checks after each edit). These appear in agentic UI as a diff message (not actual diff). Clicking on it takes us to that edit in the editor tab.
   - Undo: Either perform an intelligent step back or use git to reset.
   - Subagent tool: Performs a single task based on prompt.
   - Mutation tools create a new branch worktress for the sandboxed environment. Perform the mutation. Once the user approves the mutation or tells the agent to merge, a git merge happens. 
@@ -71,7 +71,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
 
 - True ELM architecture (no exceptions ever).
   - Strict project structure with separation of concern by internal modules.
-- Go (see https://github.com/tj/go-tea) For ELM architecture in TUI app.
+- Go (see https://github.com/tj/go-tea) For ELM architecture in TUI app (documentation).
 - BubbleTea:
   - Base library for TUI, use their bubbles, and all of the ecosystem.
   - Golden files based testing for the TUI.
@@ -109,3 +109,21 @@ State Management. You have three asynchronous "gods" to serve:
 
 BubbleTea's ELM architecture (Update() loop) is perfect for this if you keep the heavy lifting (LLM/LSP) in separate Go routines that send messages back to the main thread. If you block the main thread, the UI will freeze.
 Confidence Level: High for a prototype. The ecosystem is ready.
+
+## MVP Phases:
+
+1. Phase 1: Basic TUI with editor + agent pane (no LSP, no git sandbox)
+   - File viewer with syntax highlighting
+   - Agent conversation with tool calls (Read/Write/Grep)
+   - Simple diff preview before applying
+2. Phase 2: Git integration
+   - Show git status in editor
+   - Ctrl+g for diffs
+   - Agent commits to real repo (no sandbox yet)
+3. Phase 3: LSP integration
+   - Start with diagnostics only
+   - Add go-to-definition later
+4. Phase 4: Advanced features
+   - Sandboxed worktrees
+   - Sub-agents
+   - Context optimization with tree-sitter
