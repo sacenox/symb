@@ -10,6 +10,12 @@ A symbiotic code/pair programming TUI for developers who use agents in their mai
 
 Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use to cooperate in coding and development.
 
+# Preview
+
+<p align="center">
+  <img src="assets/Screenshot_20260211_224648.png" alt="Symb Screenshot"/>
+</p>
+
 ## Features
 
 - **Dual-pane TUI**: Code editor on one side, agent conversation on the other

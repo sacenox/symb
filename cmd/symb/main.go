@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/config"
 	"github.com/xonecas/symb/internal/mcp"
+	"github.com/xonecas/symb/internal/mcp_tools"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/tui"
 )
@@ -93,13 +94,13 @@ func main() {
 	var p *tea.Program
 
 	// Register local tools that need program reference (before listing tools)
-	openForUserTool := mcp.NewOpenForUserTool()
-	openForUserHandler := mcp.MakeOpenForUserHandler(&p)
+	openForUserTool := mcp_tools.NewOpenForUserTool()
+	openForUserHandler := mcp_tools.MakeOpenForUserHandler(&p)
 	proxy.RegisterTool(openForUserTool, openForUserHandler)
 
 	// Register grep tool
-	grepTool := mcp.NewGrepTool()
-	grepHandler := mcp.MakeGrepHandler()
+	grepTool := mcp_tools.NewGrepTool()
+	grepHandler := mcp_tools.MakeGrepHandler()
 	proxy.RegisterTool(grepTool, grepHandler)
 
 	// List all tools (local + upstream)

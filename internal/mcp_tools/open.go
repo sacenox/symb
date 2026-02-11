@@ -1,4 +1,4 @@
-package mcp
+package mcp_tools
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/xonecas/symb/internal/mcp"
 )
 
 // OpenForUserArgs represents arguments for Open tool.
@@ -26,7 +27,7 @@ type OpenForUserMsg struct {
 }
 
 // NewOpenForUserTool creates the Open tool definition.
-func NewOpenForUserTool() Tool {
+func NewOpenForUserTool() mcp.Tool {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -48,7 +49,7 @@ func NewOpenForUserTool() Tool {
 
 	schemaJSON, _ := json.Marshal(schema)
 
-	return Tool{
+	return mcp.Tool{
 		Name:        "Open",
 		Description: "Opens a file (or file range) in the user's editor with correct syntax highlighting. If start/end are provided, only that line range is shown.",
 		InputSchema: schemaJSON,
@@ -57,19 +58,19 @@ func NewOpenForUserTool() Tool {
 
 // MakeOpenForUserHandler creates a handler for Open tool.
 // programPtr should point to the tea.Program instance (can be set after creation).
-func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
-	return func(ctx context.Context, arguments json.RawMessage) (*ToolResult, error) {
+func MakeOpenForUserHandler(programPtr **tea.Program) mcp.ToolHandler {
+	return func(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
 		var args OpenForUserArgs
 		if err := json.Unmarshal(arguments, &args); err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
 				IsError: true,
 			}, nil
 		}
 
 		if args.File == "" {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: "File path cannot be empty"}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: "File path cannot be empty"}},
 				IsError: true,
 			}, nil
 		}
@@ -77,8 +78,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 		// Security: Convert to absolute path and validate
 		absPath, err := filepath.Abs(args.File)
 		if err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid file path: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid file path: %v", err)}},
 				IsError: true,
 			}, nil
 		}
@@ -86,8 +87,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 		// Get current working directory for validation
 		workingDir, err := os.Getwd()
 		if err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to get working directory: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to get working directory: %v", err)}},
 				IsError: true,
 			}, nil
 		}
@@ -95,8 +96,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 		// Security: Prevent path traversal - only allow files within or below working directory
 		relPath, err := filepath.Rel(workingDir, absPath)
 		if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: "Access denied: path outside working directory"}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: "Access denied: path outside working directory"}},
 				IsError: true,
 			}, nil
 		}
@@ -104,8 +105,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 		// Read file content
 		content, err := os.ReadFile(absPath)
 		if err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to read file: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to read file: %v", err)}},
 				IsError: true,
 			}, nil
 		}
@@ -125,8 +126,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 
 			// Validate start is in range
 			if start < 1 || start > len(lines) {
-				return &ToolResult{
-					Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Start line %d out of range (file has %d lines)", start, len(lines))}},
+				return &mcp.ToolResult{
+					Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Start line %d out of range (file has %d lines)", start, len(lines))}},
 					IsError: true,
 				}, nil
 			}
@@ -138,8 +139,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 
 			// Validate range
 			if start > end {
-				return &ToolResult{
-					Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid range: start (%d) > end (%d)", start, end)}},
+				return &mcp.ToolResult{
+					Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid range: start (%d) > end (%d)", start, end)}},
 					IsError: true,
 				}, nil
 			}
@@ -162,8 +163,8 @@ func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 			})
 		}
 
-		return &ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s in editor", args.File)}},
+		return &mcp.ToolResult{
+			Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s in editor", args.File)}},
 			IsError: false,
 		}, nil
 	}

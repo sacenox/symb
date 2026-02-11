@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
+	"github.com/xonecas/symb/internal/mcp_tools"
 	"github.com/xonecas/symb/internal/provider"
 	editorarea "github.com/xonecas/symb/internal/tui/textarea"
 )
@@ -492,7 +493,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conversation = append(m.conversation, separator)
 		return m, nil // Done listening
 
-	case mcp.OpenForUserMsg:
+	case mcp_tools.OpenForUserMsg:
 		// Update editor with file content
 		m.editor.SetValue(msg.Content)
 		m.editor.Language = msg.Language

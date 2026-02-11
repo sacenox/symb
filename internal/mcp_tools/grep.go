@@ -1,4 +1,4 @@
-package mcp
+package mcp_tools
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/xonecas/symb/internal/filesearch"
+	"github.com/xonecas/symb/internal/mcp"
 )
 
 // GrepArgs represents arguments for the grep tool.
@@ -19,7 +20,7 @@ type GrepArgs struct {
 }
 
 // NewGrepTool creates the grep tool definition.
-func NewGrepTool() Tool {
+func NewGrepTool() mcp.Tool {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -45,27 +46,27 @@ func NewGrepTool() Tool {
 
 	schemaJSON, _ := json.Marshal(schema)
 
-	return Tool{
-		Name:        "grep",
+	return mcp.Tool{
+		Name:        "Grep",
 		Description: "Search for files by name (fuzzy) or search file contents (grep). Respects .gitignore. Use content_search=false for finding files, content_search=true for searching content.",
 		InputSchema: schemaJSON,
 	}
 }
 
 // MakeGrepHandler creates a handler for the grep tool.
-func MakeGrepHandler() ToolHandler {
-	return func(ctx context.Context, arguments json.RawMessage) (*ToolResult, error) {
+func MakeGrepHandler() mcp.ToolHandler {
+	return func(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
 		var args GrepArgs
 		if err := json.Unmarshal(arguments, &args); err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
 				IsError: true,
 			}, nil
 		}
 
 		if args.Pattern == "" {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: "Pattern cannot be empty"}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: "Pattern cannot be empty"}},
 				IsError: true,
 			}, nil
 		}
@@ -78,8 +79,8 @@ func MakeGrepHandler() ToolHandler {
 		// Get current working directory
 		cwd, err := os.Getwd()
 		if err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to get working directory: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to get working directory: %v", err)}},
 				IsError: true,
 			}, nil
 		}
@@ -87,8 +88,8 @@ func MakeGrepHandler() ToolHandler {
 		// Create searcher
 		searcher, err := filesearch.NewSearcher(cwd)
 		if err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to create searcher: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to create searcher: %v", err)}},
 				IsError: true,
 			}, nil
 		}
@@ -103,8 +104,8 @@ func MakeGrepHandler() ToolHandler {
 		})
 
 		if err != nil {
-			return &ToolResult{
-				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Search failed: %v", err)}},
+			return &mcp.ToolResult{
+				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Search failed: %v", err)}},
 				IsError: true,
 			}, nil
 		}
@@ -131,8 +132,8 @@ func MakeGrepHandler() ToolHandler {
 			}
 		}
 
-		return &ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: output.String()}},
+		return &mcp.ToolResult{
+			Content: []mcp.ContentBlock{{Type: "text", Text: output.String()}},
 			IsError: false,
 		}, nil
 	}
