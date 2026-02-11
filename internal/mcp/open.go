@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// OpenForUserArgs represents arguments for open_for_user tool.
+// OpenForUserArgs represents arguments for Open tool.
 type OpenForUserArgs struct {
 	File  string `json:"file"`
 	Start int    `json:"start,omitempty"` // Optional: start line (1-indexed)
@@ -25,7 +25,7 @@ type OpenForUserMsg struct {
 	FilePath string
 }
 
-// NewOpenForUserTool creates the open_for_user tool definition.
+// NewOpenForUserTool creates the Open tool definition.
 func NewOpenForUserTool() Tool {
 	schema := map[string]interface{}{
 		"type": "object",
@@ -49,13 +49,13 @@ func NewOpenForUserTool() Tool {
 	schemaJSON, _ := json.Marshal(schema)
 
 	return Tool{
-		Name:        "open_for_user",
+		Name:        "Open",
 		Description: "Opens a file (or file range) in the user's editor with correct syntax highlighting. If start/end are provided, only that line range is shown.",
 		InputSchema: schemaJSON,
 	}
 }
 
-// MakeOpenForUserHandler creates a handler for open_for_user tool.
+// MakeOpenForUserHandler creates a handler for Open tool.
 // programPtr should point to the tea.Program instance (can be set after creation).
 func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
 	return func(ctx context.Context, arguments json.RawMessage) (*ToolResult, error) {

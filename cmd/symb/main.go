@@ -97,6 +97,11 @@ func main() {
 	openForUserHandler := mcp.MakeOpenForUserHandler(&p)
 	proxy.RegisterTool(openForUserTool, openForUserHandler)
 
+	// Register grep tool
+	grepTool := mcp.NewGrepTool()
+	grepHandler := mcp.MakeGrepHandler()
+	proxy.RegisterTool(grepTool, grepHandler)
+
 	// List all tools (local + upstream)
 	tools, err := proxy.ListTools(context.Background())
 	if err != nil {
