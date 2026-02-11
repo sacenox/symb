@@ -154,9 +154,21 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 
 # TODO:
 
+Potential Mouse Improvements:
+
+1. Click to focus between editor and input panes
+2. Click in conversation log to select/copy text
+3. Scroll conversation with mouse wheel (currently auto-scrolls to bottom only)
+4. Click to position cursor in editor and input areas
+5. Text selection with mouse drag
+6. Resize panes by dragging the divider
+
+- Copy text selection to clipboard (ctrl c)
+
+- Scroll the coversation log with mouse.
 - `stub.go` is bleeding into prod runs, the llm sees those tools.
 - Credentials tools need to be deleted
 - OpenForUser(file, start, end) tool for llm -> sends file contents to editor in a new buffer with correct filetype syntax
-- file opened keybind and opened buffers (no fzf yet)
+- file searching and opening, buffer switching.
 - sendUserEditor(content) tool to add a "buffer"
 - streamed assistant response

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,18 @@ type Model struct {
 	updateChan   chan tea.Msg // Channel for streaming LLM updates
 	ctx          context.Context
 	cancel       context.CancelFunc
+
+	// Conversation scroll state
+	conversationScrollOffset int // Lines scrolled from bottom (0 = stick to bottom)
+
+	// Conversation selection state
+	conversationSelecting   bool // True when dragging to select
+	conversationSelectStart int  // Line index where selection started
+	conversationSelectEnd   int  // Line index where selection ends
+
+	// Pane resize state
+	resizingPane    bool // True when dragging divider
+	customHalfWidth int  // Custom half width (0 = use default calculated value)
 }
 
 // New creates a new TUI model
@@ -217,6 +230,148 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle mouse events
+		halfWidth := m.width / 2
+		if m.customHalfWidth > 0 {
+			halfWidth = m.customHalfWidth
+		}
+		contentHeight := m.height - 2
+		inputStartRow := contentHeight - 3
+		separatorRow := contentHeight - 4
+
+		// Handle pane resizing
+		if msg.X == halfWidth && msg.Button == tea.MouseButtonLeft {
+			if msg.Action == tea.MouseActionPress {
+				m.resizingPane = true
+			} else if msg.Action == tea.MouseActionRelease {
+				m.resizingPane = false
+			}
+		}
+
+		if m.resizingPane && msg.Action == tea.MouseActionMotion {
+			// Update pane width based on mouse position
+			newHalfWidth := msg.X
+			minWidth := 20
+			maxWidth := m.width - 20
+			if newHalfWidth >= minWidth && newHalfWidth <= maxWidth {
+				m.customHalfWidth = newHalfWidth
+				m.rightPaneWidth = m.width - newHalfWidth - 1
+
+				// Update component sizes
+				m.editor.SetWidth(newHalfWidth - 1)
+				m.agentInput.SetWidth(m.width - newHalfWidth - 4)
+			}
+			return m, nil
+		}
+
+		// Determine which pane the mouse is in and translate coordinates
+		if msg.X < halfWidth {
+			// Left pane (editor)
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+				m.agentInput.Blur()
+				m.editor.Focus()
+			}
+			// Forward mouse event to editor (coordinates are already correct for left pane)
+			var cmd tea.Cmd
+			m.editor, cmd = m.editor.Update(msg)
+			cmds = append(cmds, cmd)
+
+		} else if msg.X > halfWidth && msg.Y >= inputStartRow && msg.Y < contentHeight {
+			// Right pane input area
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+				m.editor.Blur()
+				m.agentInput.Focus()
+			}
+			// Translate coordinates for input area (remove left offset and input start offset)
+			translatedMsg := msg
+			translatedMsg.X = msg.X - halfWidth - 1
+			translatedMsg.Y = msg.Y - inputStartRow
+			var cmd tea.Cmd
+			m.agentInput, cmd = m.agentInput.Update(translatedMsg)
+			cmds = append(cmds, cmd)
+
+		} else if msg.X > halfWidth && msg.Y < separatorRow {
+			// Right pane conversation area
+			switch msg.Button {
+			case tea.MouseButtonLeft:
+				// Calculate which line was clicked
+				totalLines := len(m.conversation)
+				visibleLines := separatorRow
+				startLine := 0
+				if totalLines > visibleLines {
+					startLine = totalLines - visibleLines - m.conversationScrollOffset
+					if startLine < 0 {
+						startLine = 0
+					}
+				}
+				clickedLine := startLine + msg.Y
+
+				if msg.Action == tea.MouseActionPress {
+					// Start selection
+					m.conversationSelecting = true
+					m.conversationSelectStart = clickedLine
+					m.conversationSelectEnd = clickedLine
+				} else if msg.Action == tea.MouseActionMotion && m.conversationSelecting {
+					// Update selection end
+					m.conversationSelectEnd = clickedLine
+				} else if msg.Action == tea.MouseActionRelease {
+					// End selection and copy to clipboard
+					m.conversationSelecting = false
+					if m.conversationSelectStart != m.conversationSelectEnd {
+						// Copy selected lines to clipboard
+						start := m.conversationSelectStart
+						end := m.conversationSelectEnd
+						if start > end {
+							start, end = end, start
+						}
+						if start < 0 {
+							start = 0
+						}
+						if end >= totalLines {
+							end = totalLines - 1
+						}
+
+						var selectedText strings.Builder
+						for i := start; i <= end && i < totalLines; i++ {
+							// Strip ANSI codes for clipboard
+							line := ansi.Strip(m.conversation[i])
+							selectedText.WriteString(line)
+							if i < end {
+								selectedText.WriteString("\n")
+							}
+						}
+
+						// Copy to clipboard (best effort, ignore errors)
+						_ = clipboard.WriteAll(selectedText.String())
+					}
+					// Clear selection
+					m.conversationSelectStart = 0
+					m.conversationSelectEnd = 0
+				}
+
+			case tea.MouseButtonWheelUp:
+				totalLines := len(m.conversation)
+				visibleLines := separatorRow
+				maxScroll := totalLines - visibleLines
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				m.conversationScrollOffset += 3 // Scroll 3 lines at a time
+				if m.conversationScrollOffset > maxScroll {
+					m.conversationScrollOffset = maxScroll
+				}
+
+			case tea.MouseButtonWheelDown:
+				m.conversationScrollOffset -= 3 // Scroll 3 lines at a time
+				if m.conversationScrollOffset < 0 {
+					m.conversationScrollOffset = 0
+				}
+			}
+		}
+		// Don't forward mouse events to components below since we handled them above
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -225,15 +380,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.agentInput.Focused() {
 				m.agentInput.Blur()
+			} else if m.editor.Focused() {
+				m.editor.Blur()
 			}
 			return m, nil
 		case "enter":
+			// In agent input: Enter sends message, use the textarea's default behavior otherwise
+			// In editor: Enter inserts newline (textarea handles it)
 			if m.agentInput.Focused() && m.agentInput.Value() != "" {
 				userMsg := m.agentInput.Value()
 				m.agentInput.Reset()
 				return m, m.sendToLLM(userMsg)
 			}
-			return m, nil
+			// If editor is focused or agentInput is empty, let the key pass through to components
 		}
 
 	case llmUserMsg:
@@ -261,6 +420,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		m.conversation = append(m.conversation, separator)
 		m.conversation = append(m.conversation, "")
+		// Reset scroll to stick to bottom on new message
+		m.conversationScrollOffset = 0
 		// Start LLM processing and wait for updates
 		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 
@@ -330,6 +491,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		halfWidth := m.width / 2
+		if m.customHalfWidth > 0 {
+			// Maintain custom width if set, but constrain to new terminal size
+			minWidth := 20
+			maxWidth := m.width - 20
+			if m.customHalfWidth < minWidth {
+				m.customHalfWidth = minWidth
+			}
+			if m.customHalfWidth > maxWidth {
+				m.customHalfWidth = maxWidth
+			}
+			halfWidth = m.customHalfWidth
+		}
 		contentHeight := m.height - 2 // -2 for status separator and status bar
 		m.rightPaneWidth = m.width - halfWidth - 1
 
@@ -342,18 +515,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentInput.SetHeight(3)
 	}
 
-	// Update spinner
+	// Update spinner (always)
 	var cmd tea.Cmd
 	m.spinner, cmd = m.spinner.Update(msg)
 	cmds = append(cmds, cmd)
 
-	// Update editor
-	m.editor, cmd = m.editor.Update(msg)
-	cmds = append(cmds, cmd)
+	// Update editor and agent input only for non-mouse messages
+	// (mouse messages are handled specially above with coordinate translation)
+	if _, isMouseMsg := msg.(tea.MouseMsg); !isMouseMsg {
+		m.editor, cmd = m.editor.Update(msg)
+		cmds = append(cmds, cmd)
 
-	// Update agent input
-	m.agentInput, cmd = m.agentInput.Update(msg)
-	cmds = append(cmds, cmd)
+		m.agentInput, cmd = m.agentInput.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	return m, tea.Batch(cmds...)
 }
@@ -364,8 +539,11 @@ func (m Model) View() string {
 		return ""
 	}
 
-	// Split width in half for left/right panes
+	// Split width in half for left/right panes (or use custom width)
 	halfWidth := m.width / 2
+	if m.customHalfWidth > 0 {
+		halfWidth = m.customHalfWidth
+	}
 
 	// Content height = total - status separator - status bar
 	contentHeight := m.height - 2
@@ -409,22 +587,51 @@ func (m Model) View() string {
 		inputStartRow := contentHeight - 3 // 3 rows for input
 		if i < separatorRow {
 			// Conversation area - show conversation log
-			// Calculate which line to show (scroll to show newest at bottom)
+			// Calculate which line to show (scroll based on offset)
 			totalLines := len(m.conversation)
 			visibleLines := separatorRow
 			startLine := 0
 			if totalLines > visibleLines {
-				startLine = totalLines - visibleLines
+				// Start from bottom and scroll up by offset
+				startLine = totalLines - visibleLines - m.conversationScrollOffset
+				if startLine < 0 {
+					startLine = 0
+				}
 			}
 			lineIdx := startLine + i
 
 			if lineIdx < totalLines {
 				line := m.conversation[lineIdx]
+
+				// Check if this line is selected
+				isSelected := false
+				if m.conversationSelectStart != m.conversationSelectEnd {
+					selStart := m.conversationSelectStart
+					selEnd := m.conversationSelectEnd
+					if selStart > selEnd {
+						selStart, selEnd = selEnd, selStart
+					}
+					if lineIdx >= selStart && lineIdx <= selEnd {
+						isSelected = true
+					}
+				}
+
+				// Apply selection highlighting if selected
+				if isSelected {
+					selStyle := lipgloss.NewStyle().Background(lipgloss.Color("#444444"))
+					line = selStyle.Render(line)
+				}
+
 				lineWidth := lipgloss.Width(line)
 				b.WriteString(line)
 				// Pad to full width
 				if lineWidth < m.rightPaneWidth {
-					b.WriteString(strings.Repeat(" ", m.rightPaneWidth-lineWidth))
+					padding := strings.Repeat(" ", m.rightPaneWidth-lineWidth)
+					if isSelected {
+						selStyle := lipgloss.NewStyle().Background(lipgloss.Color("#444444"))
+						padding = selStyle.Render(padding)
+					}
+					b.WriteString(padding)
 				}
 			} else {
 				b.WriteString(strings.Repeat(" ", m.rightPaneWidth))
