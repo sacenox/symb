@@ -1,8 +1,15 @@
+# Rules
+
 **ALWAYS USE YAGNI**
 
 **DON'T WASTE TOKENS**
 
-- No one cares about your fancy documentation, stop wasting tokens. The user will ask when he wants documentation written.
+- The user will ask when he wants documentation or summaries written.
 - Short answers only, the user will ask for more details if he wants.
 
-**DON'T EDIT DESIGN.md**
+**DON'T EDIT DOCS/DESIGN.md**
+
+## Project info
+
+- Always use `docs/TUI_TESTING.md` when working on the TUI. Use golden tests.
+- Always use ELM architecture.
