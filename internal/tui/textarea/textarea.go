@@ -1151,16 +1151,21 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	}
 
 	newRow, newCol := m.cursorLineNumber(), m.col
+	cursorMoved := (newRow != oldRow || newCol != oldCol)
+
 	var cmd tea.Cmd
 	m.Cursor, cmd = m.Cursor.Update(msg)
-	if (newRow != oldRow || newCol != oldCol) && m.Cursor.Mode() == cursor.CursorBlink {
+	if cursorMoved && m.Cursor.Mode() == cursor.CursorBlink {
 		m.Cursor.Blink = false
 		cmd = m.Cursor.BlinkCmd()
 	}
 	cmds = append(cmds, cmd)
 
-	// Reposition viewport BEFORE viewport.Update to avoid race condition
-	m.repositionView()
+	// Only reposition viewport when cursor actually moved
+	// This allows manual scrolling without cursor anchoring
+	if cursorMoved {
+		m.repositionView()
+	}
 
 	vp, cmd := m.viewport.Update(msg)
 	m.viewport = &vp

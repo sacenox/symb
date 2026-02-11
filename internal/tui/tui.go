@@ -392,13 +392,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if maxScroll < 0 {
 					maxScroll = 0
 				}
-				m.conversationScrollOffset += 3 // Scroll 3 lines at a time
+				m.conversationScrollOffset += 1 // Scroll 1 line at a time
 				if m.conversationScrollOffset > maxScroll {
 					m.conversationScrollOffset = maxScroll
 				}
 
 			case tea.MouseButtonWheelDown:
-				m.conversationScrollOffset -= 3 // Scroll 3 lines at a time
+				m.conversationScrollOffset -= 1 // Scroll 1 line at a time
 				if m.conversationScrollOffset < 0 {
 					m.conversationScrollOffset = 0
 				}
