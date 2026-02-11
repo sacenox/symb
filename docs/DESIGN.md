@@ -154,6 +154,9 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 
 # TODO:
 
-- Conversation log ordering is all broken.
 - `stub.go` is bleeding into prod runs, the llm sees those tools.
 - Credentials tools need to be deleted
+- OpenForUser(file, start, end) tool for llm -> sends file contents to editor in a new buffer with correct filetype syntax
+- file opened keybind and opened buffers (no fzf yet)
+- sendUserEditor(content) tool to add a "buffer"
+- streamed assistant response

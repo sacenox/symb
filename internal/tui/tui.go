@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
@@ -17,11 +18,12 @@ import (
 
 // Model is the application model
 type Model struct {
-	width      int
-	height     int
-	spinner    spinner.Model
-	editor     editorarea.Model // Left pane: code editor
-	agentInput textarea.Model   // Right pane: agent input box
+	width          int
+	height         int
+	rightPaneWidth int // Width of conversation pane for wrapping
+	spinner        spinner.Model
+	editor         editorarea.Model // Left pane: code editor
+	agentInput     textarea.Model   // Right pane: agent input box
 
 	// LLM components
 	provider     provider.Provider
@@ -84,24 +86,49 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, editorarea.Blink)
 }
 
+// wrapText wraps text to the conversation pane width, applying style after wrapping.
+// Returns lines that fit within the pane width.
+func (m Model) wrapText(text string, style lipgloss.Style) []string {
+	if m.rightPaneWidth <= 0 {
+		// Fallback if width not set yet
+		lines := strings.Split(text, "\n")
+		result := make([]string, len(lines))
+		for i, line := range lines {
+			result[i] = style.Render(line)
+		}
+		return result
+	}
+
+	// Word wrap first, then apply style to each line
+	// ansi.Wordwrap preserves ANSI codes and handles wide characters
+	wrapped := ansi.Wordwrap(text, m.rightPaneWidth, "")
+	lines := strings.Split(wrapped, "\n")
+
+	// Apply style to each wrapped line
+	result := make([]string, len(lines))
+	for i, line := range lines {
+		result[i] = style.Render(line)
+	}
+	return result
+}
+
 // llmUserMsg adds user message to conversation (ELM Msg)
 type llmUserMsg struct {
 	content string
 }
 
-// llmAssistantMsg adds assistant message (ELM Msg)
+// llmAssistantMsg adds complete assistant message block (ELM Msg)
+// Includes reasoning, content, and tool calls as a single cohesive unit
 type llmAssistantMsg struct {
-	content string
-}
-
-// llmToolCallMsg adds tool call (ELM Msg)
-type llmToolCallMsg struct {
-	name string
+	reasoning string
+	content   string
+	toolCalls []provider.ToolCall
 }
 
 // llmToolResultMsg adds tool result (ELM Msg)
 type llmToolResultMsg struct {
-	content string
+	toolCallID string
+	content    string
 }
 
 // llmDoneMsg adds timestamp separator (ELM Msg)
@@ -152,18 +179,18 @@ func (m Model) processLLM() tea.Cmd {
 					m.updateChan <- llmHistoryMsg{msg: msg}
 
 					if msg.Role == "assistant" {
-						// Send tool calls
-						for _, tc := range msg.ToolCalls {
-							m.updateChan <- llmToolCallMsg{name: tc.Name}
-						}
-						// Send assistant content
-						if msg.Content != "" {
-							m.updateChan <- llmAssistantMsg{content: msg.Content}
+						// Send complete assistant message as single block
+						m.updateChan <- llmAssistantMsg{
+							reasoning: msg.Reasoning,
+							content:   msg.Content,
+							toolCalls: msg.ToolCalls,
 						}
 					} else if msg.Role == "tool" {
-						// Send tool result
-						firstLine := strings.Split(msg.Content, "\n")[0]
-						m.updateChan <- llmToolResultMsg{content: firstLine}
+						// Send full tool result (wrapping will be handled by wrapText)
+						m.updateChan <- llmToolResultMsg{
+							toolCallID: msg.ToolCallID,
+							content:    msg.Content,
+						}
 					}
 				},
 			}
@@ -219,9 +246,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		// Format and display user message first
 		grayStyle := lipgloss.NewStyle().Foreground(ColorGray)
-		for _, line := range strings.Split(msg.content, "\n") {
-			m.conversation = append(m.conversation, grayStyle.Render(line))
-		}
+		wrappedLines := m.wrapText(msg.content, grayStyle)
+		m.conversation = append(m.conversation, wrappedLines...)
 		m.conversation = append(m.conversation, "")
 		// Add timestamp separator after message
 		timestamp := now.Format("15:04")
@@ -244,18 +270,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitForLLMUpdate() // Continue listening
 
 	case llmAssistantMsg:
-		for _, line := range strings.Split(msg.content, "\n") {
-			m.conversation = append(m.conversation, line)
-		}
-		m.conversation = append(m.conversation, "")
-		return m, m.waitForLLMUpdate() // Continue listening
+		// Display complete assistant message block: reasoning, content, then tool calls
+		plainStyle := lipgloss.NewStyle()
+		grayStyle := lipgloss.NewStyle().Foreground(ColorGray)
 
-	case llmToolCallMsg:
-		m.conversation = append(m.conversation, "→  "+msg.name+"(...)")
+		// Display reasoning if present
+		if msg.reasoning != "" {
+			wrappedLines := m.wrapText(msg.reasoning, grayStyle)
+			m.conversation = append(m.conversation, wrappedLines...)
+			m.conversation = append(m.conversation, "")
+		}
+
+		// Display content
+		if msg.content != "" {
+			wrappedLines := m.wrapText(msg.content, plainStyle)
+			m.conversation = append(m.conversation, wrappedLines...)
+			m.conversation = append(m.conversation, "")
+		}
+
+		// Display tool calls
+		for _, tc := range msg.toolCalls {
+			wrappedLines := m.wrapText("→  "+tc.Name+"(...)", plainStyle)
+			m.conversation = append(m.conversation, wrappedLines...)
+		}
+
 		return m, m.waitForLLMUpdate() // Continue listening
 
 	case llmToolResultMsg:
-		m.conversation = append(m.conversation, "←  "+msg.content)
+		plainStyle := lipgloss.NewStyle()
+		wrappedLines := m.wrapText("←  "+msg.content, plainStyle)
+		m.conversation = append(m.conversation, wrappedLines...)
 		return m, m.waitForLLMUpdate() // Continue listening
 
 	case llmErrorMsg:
@@ -287,6 +331,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		halfWidth := m.width / 2
 		contentHeight := m.height - 2 // -2 for status separator and status bar
+		m.rightPaneWidth = m.width - halfWidth - 1
 
 		// Left pane: editor
 		m.editor.SetWidth(halfWidth - 1)
@@ -336,8 +381,7 @@ func (m Model) View() string {
 	agentInputView := m.agentInput.View()
 	agentInputLines := strings.Split(agentInputView, "\n")
 
-	// Content rows
-	rightPaneWidth := m.width - halfWidth - 1
+	// Content rows - use the stored rightPaneWidth from model
 	for i := 0; i < contentHeight; i++ {
 		// Left pane: editor
 		if i < len(editorLines) {
@@ -377,32 +421,31 @@ func (m Model) View() string {
 			if lineIdx < totalLines {
 				line := m.conversation[lineIdx]
 				lineWidth := lipgloss.Width(line)
-				if lineWidth > rightPaneWidth {
-					line = line[:rightPaneWidth]
-					lineWidth = rightPaneWidth
-				}
 				b.WriteString(line)
-				b.WriteString(strings.Repeat(" ", rightPaneWidth-lineWidth))
+				// Pad to full width
+				if lineWidth < m.rightPaneWidth {
+					b.WriteString(strings.Repeat(" ", m.rightPaneWidth-lineWidth))
+				}
 			} else {
-				b.WriteString(strings.Repeat(" ", rightPaneWidth))
+				b.WriteString(strings.Repeat(" ", m.rightPaneWidth))
 			}
 		} else if i == separatorRow {
 			// Separator line
-			b.WriteString(borderStyle.Render(strings.Repeat("─", rightPaneWidth)))
+			b.WriteString(borderStyle.Render(strings.Repeat("─", m.rightPaneWidth)))
 		} else {
 			// Input area (last 3 rows)
 			lineIdx := i - inputStartRow
 			if lineIdx < len(agentInputLines) {
 				line := agentInputLines[lineIdx]
 				lineWidth := lipgloss.Width(line)
-				if lineWidth > rightPaneWidth {
-					line = line[:rightPaneWidth]
-					lineWidth = rightPaneWidth
+				if lineWidth > m.rightPaneWidth {
+					line = line[:m.rightPaneWidth]
+					lineWidth = m.rightPaneWidth
 				}
 				b.WriteString(line)
-				b.WriteString(strings.Repeat(" ", rightPaneWidth-lineWidth))
+				b.WriteString(strings.Repeat(" ", m.rightPaneWidth-lineWidth))
 			} else {
-				b.WriteString(strings.Repeat(" ", rightPaneWidth))
+				b.WriteString(strings.Repeat(" ", m.rightPaneWidth))
 			}
 		}
 
