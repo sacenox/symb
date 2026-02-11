@@ -15,3 +15,4 @@
 - Always use [ELM](https://guide.elm-lang.org/architecture/) architecture.
 - Go & Golintci
 - Bubbletea, Bubbles and Lipgloss.
+- Use Makefile commands to build, lint and test.

@@ -64,8 +64,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update textarea size to fit left pane
 		halfWidth := m.width / 2
-		contentHeight := m.height - 4
-		m.textarea.SetWidth(halfWidth - 3) // -3 for borders and padding
+		contentHeight := m.height - 2      // -2 for status separator and status bar
+		m.textarea.SetWidth(halfWidth - 1) // -1 for center divider
 		m.textarea.SetHeight(contentHeight)
 	}
 
@@ -90,19 +90,11 @@ func (m Model) View() string {
 	// Split width in half for left/right panes
 	halfWidth := m.width / 2
 
-	// Content height = total - top border - status separator - status bar - bottom border
-	contentHeight := m.height - 4
+	// Content height = total - status separator - status bar
+	contentHeight := m.height - 2
 
 	var b strings.Builder
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-
-	// Top border: ╭───...───┬───...───╮
-	b.WriteString(borderStyle.Render("╭"))
-	b.WriteString(borderStyle.Render(strings.Repeat("─", halfWidth-1)))
-	b.WriteString(borderStyle.Render("┬"))
-	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-halfWidth-2)))
-	b.WriteString(borderStyle.Render("╮"))
-	b.WriteString("\n")
 
 	// Render textarea in left pane
 	textareaView := m.textarea.View()
@@ -110,58 +102,46 @@ func (m Model) View() string {
 
 	// Content rows
 	for i := 0; i < contentHeight; i++ {
-		b.WriteString(borderStyle.Render("│"))
-
 		// Left pane: textarea
 		if i < len(textareaLines) {
 			line := textareaLines[i]
 			lineWidth := lipgloss.Width(line)
-			padding := halfWidth - 1 - lineWidth
+			padding := halfWidth - lineWidth
 			if padding < 0 {
 				padding = 0
 			}
 			b.WriteString(line)
 			b.WriteString(strings.Repeat(" ", padding))
 		} else {
-			b.WriteString(strings.Repeat(" ", halfWidth-1))
+			b.WriteString(strings.Repeat(" ", halfWidth))
 		}
 
 		b.WriteString(borderStyle.Render("│"))
 
 		// Right pane: empty for now
-		b.WriteString(strings.Repeat(" ", m.width-halfWidth-2))
+		b.WriteString(strings.Repeat(" ", m.width-halfWidth-1))
 
-		b.WriteString(borderStyle.Render("│"))
 		b.WriteString("\n")
 	}
 
-	// Status separator: ├───...───┴───...───┤
-	b.WriteString(borderStyle.Render("├"))
-	b.WriteString(borderStyle.Render(strings.Repeat("─", halfWidth-1)))
+	// Status separator: ───...───┴───...───
+	b.WriteString(borderStyle.Render(strings.Repeat("─", halfWidth)))
 	b.WriteString(borderStyle.Render("┴"))
-	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-halfWidth-2)))
-	b.WriteString(borderStyle.Render("┤"))
+	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-halfWidth-1)))
 	b.WriteString("\n")
 
-	// Status bar: │ master* │<spaces>spinner │
-	statusLeft := borderStyle.Render("│") + " master* " + borderStyle.Render("│")
+	// Status bar: master* │<spaces>spinner
+	statusTextStyle := lipgloss.NewStyle().Foreground(ColorGray)
+	statusLeft := statusTextStyle.Render(" gitbranch/working dir")
 	spinnerView := strings.TrimSpace(m.spinner.View())
-	statusRight := " " + borderStyle.Render("│")
 	// Use lipgloss.Width for accurate display width
 	leftWidth := lipgloss.Width(statusLeft)
-	rightWidth := lipgloss.Width(statusRight)
 	spinnerWidth := lipgloss.Width(spinnerView)
-	spacesNeeded := m.width - leftWidth - spinnerWidth - rightWidth
+	spacesNeeded := m.width - leftWidth - spinnerWidth - 1
 	b.WriteString(statusLeft)
 	b.WriteString(strings.Repeat(" ", spacesNeeded))
 	b.WriteString(spinnerView)
-	b.WriteString(statusRight)
-	b.WriteString("\n")
-
-	// Bottom border: ╰───...───╯
-	b.WriteString(borderStyle.Render("╰"))
-	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-2)))
-	b.WriteString(borderStyle.Render("╯"))
+	b.WriteString(" ")
 
 	return b.String()
 }
