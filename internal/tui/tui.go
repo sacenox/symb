@@ -217,7 +217,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content:   msg.content,
 			CreatedAt: now,
 		})
-		// Add timestamp separator first (will appear below in reversed display)
+		// Format and display user message first
+		grayStyle := lipgloss.NewStyle().Foreground(ColorGray)
+		for _, line := range strings.Split(msg.content, "\n") {
+			m.conversation = append(m.conversation, grayStyle.Render(line))
+		}
+		m.conversation = append(m.conversation, "")
+		// Add timestamp separator after message
 		timestamp := now.Format("15:04")
 		rightPaneWidth := m.width/2 - 1
 		dashCount := rightPaneWidth - len("0s "+timestamp+" ")
@@ -228,12 +234,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			"0s " + timestamp + " " + strings.Repeat("─", dashCount),
 		)
 		m.conversation = append(m.conversation, separator)
-		m.conversation = append(m.conversation, "")
-		// Format and display user message
-		grayStyle := lipgloss.NewStyle().Foreground(ColorGray)
-		for _, line := range strings.Split(msg.content, "\n") {
-			m.conversation = append(m.conversation, grayStyle.Render(line))
-		}
 		m.conversation = append(m.conversation, "")
 		// Start LLM processing and wait for updates
 		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
@@ -365,8 +365,17 @@ func (m Model) View() string {
 		inputStartRow := contentHeight - 3 // 3 rows for input
 		if i < separatorRow {
 			// Conversation area - show conversation log
-			if i < len(m.conversation) {
-				line := m.conversation[len(m.conversation)-1-i] // Show newest at bottom
+			// Calculate which line to show (scroll to show newest at bottom)
+			totalLines := len(m.conversation)
+			visibleLines := separatorRow
+			startLine := 0
+			if totalLines > visibleLines {
+				startLine = totalLines - visibleLines
+			}
+			lineIdx := startLine + i
+
+			if lineIdx < totalLines {
+				line := m.conversation[lineIdx]
 				lineWidth := lipgloss.Width(line)
 				if lineWidth > rightPaneWidth {
 					line = line[:rightPaneWidth]

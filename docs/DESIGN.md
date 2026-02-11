@@ -155,3 +155,5 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 # TODO:
 
 - Conversation log ordering is all broken.
+- `stub.go` is bleeding into prod runs, the llm sees those tools.
+- Credentials tools need to be deleted
