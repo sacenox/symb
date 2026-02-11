@@ -61,6 +61,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
 	editor := editorarea.New()
 	editor.ShowLineNumbers = true
 	editor.Prompt = ""
+	editor.ReadOnly = true
 	editor.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(lipgloss.NoColor{})
 	editor.FocusedStyle.LineNumber = lipgloss.NewStyle().Foreground(ColorBorder)
 	editor.Cursor.Style = cursorStyle

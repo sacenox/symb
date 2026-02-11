@@ -225,6 +225,10 @@ type Model struct {
 	// EndOfBufferCharacter is displayed at the end of the input.
 	EndOfBufferCharacter rune
 
+	// ReadOnly, if enabled, prevents all text modifications
+	// while still allowing navigation and scrolling.
+	ReadOnly bool
+
 	// KeyMap encodes the keybindings recognized by the widget.
 	KeyMap KeyMap
 
@@ -997,6 +1001,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.KeyMap.DeleteAfterCursor):
+			if m.ReadOnly {
+				break
+			}
 			m.col = clamp(m.col, 0, len(m.value[m.row]))
 			if m.col >= len(m.value[m.row]) {
 				m.mergeLineBelow(m.row)
@@ -1004,6 +1011,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			m.deleteAfterCursor()
 		case key.Matches(msg, m.KeyMap.DeleteBeforeCursor):
+			if m.ReadOnly {
+				break
+			}
 			m.col = clamp(m.col, 0, len(m.value[m.row]))
 			if m.col <= 0 {
 				m.mergeLineAbove(m.row)
@@ -1011,6 +1021,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			m.deleteBeforeCursor()
 		case key.Matches(msg, m.KeyMap.DeleteCharacterBackward):
+			if m.ReadOnly {
+				break
+			}
 			m.col = clamp(m.col, 0, len(m.value[m.row]))
 			if m.col <= 0 {
 				m.mergeLineAbove(m.row)
@@ -1023,6 +1036,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, m.KeyMap.DeleteCharacterForward):
+			if m.ReadOnly {
+				break
+			}
 			if len(m.value[m.row]) > 0 && m.col < len(m.value[m.row]) {
 				m.value[m.row] = append(m.value[m.row][:m.col], m.value[m.row][m.col+1:]...)
 			}
@@ -1031,12 +1047,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				break
 			}
 		case key.Matches(msg, m.KeyMap.DeleteWordBackward):
+			if m.ReadOnly {
+				break
+			}
 			if m.col <= 0 {
 				m.mergeLineAbove(m.row)
 				break
 			}
 			m.deleteWordLeft()
 		case key.Matches(msg, m.KeyMap.DeleteWordForward):
+			if m.ReadOnly {
+				break
+			}
 			m.col = clamp(m.col, 0, len(m.value[m.row]))
 			if m.col >= len(m.value[m.row]) {
 				m.mergeLineBelow(m.row)
@@ -1044,6 +1066,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			m.deleteWordRight()
 		case key.Matches(msg, m.KeyMap.InsertNewline):
+			if m.ReadOnly {
+				break
+			}
 			if m.MaxHeight > 0 && len(m.value) >= m.MaxHeight {
 				return m, nil
 			}
@@ -1060,6 +1085,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(msg, m.KeyMap.WordForward):
 			m.wordRight()
 		case key.Matches(msg, m.KeyMap.Paste):
+			if m.ReadOnly {
+				break
+			}
 			return m, Paste
 		case key.Matches(msg, m.KeyMap.CharacterBackward):
 			m.characterLeft(false /* insideLine */)
@@ -1072,20 +1100,36 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(msg, m.KeyMap.InputEnd):
 			m.moveToEnd()
 		case key.Matches(msg, m.KeyMap.LowercaseWordForward):
+			if m.ReadOnly {
+				break
+			}
 			m.lowercaseRight()
 		case key.Matches(msg, m.KeyMap.UppercaseWordForward):
+			if m.ReadOnly {
+				break
+			}
 			m.uppercaseRight()
 		case key.Matches(msg, m.KeyMap.CapitalizeWordForward):
+			if m.ReadOnly {
+				break
+			}
 			m.capitalizeRight()
 		case key.Matches(msg, m.KeyMap.TransposeCharacterBackward):
+			if m.ReadOnly {
+				break
+			}
 			m.transposeLeft()
 
 		default:
-			m.insertRunesFromUserInput(msg.Runes)
+			if !m.ReadOnly {
+				m.insertRunesFromUserInput(msg.Runes)
+			}
 		}
 
 	case pasteMsg:
-		m.insertRunesFromUserInput([]rune(msg))
+		if !m.ReadOnly {
+			m.insertRunesFromUserInput([]rune(msg))
+		}
 
 	case pasteErrMsg:
 		m.Err = msg

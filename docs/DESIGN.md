@@ -14,11 +14,11 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
   - Auto Context, LLM is aware of file/project in question probably via tree-sitter?
   - AGENTS.md support
 
-- Code/Diff viewer UI:
+- Code/Diff viewer (currently editor in read-only) UI:
   - Line numbers, syntax highlighting
   - LSP support
   - Git integration (show file git status)
-  - Simple editting support, no advanced usages or keybinds. ** DONE **
+  - Simple editting support, no advanced usages or keybinds. ** DONE BUT UNUSED FOR NOW, KEEP!! **
   - Code browsing mouse features: click to go to definition/references. Search for word under cursor.
 
 - LLM Tools:
@@ -91,6 +91,12 @@ XXs 00:00 ───────────────────────�
 
 ```
 
+### Post mvp:
+
+- Send input text to editor and send editor text to input/llm via keybinds
+- Send cursor position/filename to llm via keybind
+- Send selected text to llm via keybind
+
 ## Tech:
 
 - True ELM architecture (no exceptions ever).
@@ -154,21 +160,16 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 
 # TODO:
 
-Potential Mouse Improvements:
+- file and filesystem combined search with fuzzy matching in the current directory tree.
+- respects gitignore if it exists.
+- will be used by both tool for llm (Grep()) and for user later. So make a internal/filesearch separate from the Grep tool definition. Keep it decoupled.
 
-1. Click to focus between editor and input panes
-2. Click in conversation log to select/copy text
-3. Scroll conversation with mouse wheel (currently auto-scrolls to bottom only)
-4. Click to position cursor in editor and input areas
-5. Text selection with mouse drag
-6. Resize panes by dragging the divider
+- Enter on editor area send empty message.
 
-- Copy text selection to clipboard (ctrl c)
+- Copy text selection to clipboard (shift + arrows) then (ctrl c)
 
-- Scroll the coversation log with mouse.
-- `stub.go` is bleeding into prod runs, the llm sees those tools.
-- Credentials tools need to be deleted
-- OpenForUser(file, start, end) tool for llm -> sends file contents to editor in a new buffer with correct filetype syntax
 - file searching and opening, buffer switching.
+
 - sendUserEditor(content) tool to add a "buffer"
+
 - streamed assistant response
