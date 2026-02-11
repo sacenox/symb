@@ -128,3 +128,33 @@ Confidence Level: High for a prototype. The ecosystem is ready.
    - Sandboxed worktrees
    - Sub-agents
    - Context optimization with tree-sitter
+
+# Agent message:
+
+````text
+
+Done! The textarea is now wired to send messages to the LLM when the user presses Enter:
+  1. Model - Added LLM components (provider, proxy, tools, history)
+  2. New() - Takes provider, proxy, and tools as parameters
+  3. sendToLLM() - ELM command that processes user input through LLM
+  4. Enter key - Captures input, clears textarea, sends to LLM
+  5. main.go - Initializes all components and passes to TUI
+
+→  Read(...)
+←  Write(...)
+
+All done!
+
+XXs 00:00 ───────────────────────── // DarkGray color, timestamp and duration of the LLM response: `10s 19:57`
+```
+
+# User Message
+
+```
+Thanks! Can you look into these: // User messages use GrayColor
+  - one
+  - two
+
+XXs 00:00 ───────────────────────── // DarkGray color
+
+````

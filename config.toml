@@ -1,19 +1,55 @@
 # Symb Configuration File
 
-[llm]
-provider = "ollama"  # Options: "ollama", "opencode-zen"
-model = "llama3.2"
-base_url = "http://localhost:11434"
-api_key = ""
+# Default provider (optional - if not set, first provider in map is used)
+default_provider = "ollama-qwen"
 
-[editor]
-tab_size = 4
-show_line_nums = true
+# Ollama providers (local)
+[providers.ollama-qwen]
+endpoint = "http://localhost:11434"
+model = "qwen3:8b"
+temperature = 0.3
+
+[providers.ollama-qwen-small]
+endpoint = "http://localhost:11434"
+model = "qwen3:4b"
+temperature = 0.3
+
+[providers.ollama-llama]
+endpoint = "http://localhost:11434"
+model = "llama3.1:8b"
+temperature = 0.3
+
+[providers.ollama-llama32]
+endpoint = "http://localhost:11434"
+model = "llama3.2"
+temperature = 0.3
+
+[providers.mfd-deepseek]
+endpoint = "http://localhost:11434"
+model = "MFDoom/deepseek-r1-tool-calling:14b"
+temperature = 0.3
+
+# OpenCode Zen providers (cloud)
+[providers.zen-nano]
+endpoint = "https://opencode.ai/zen/v1"
+model = "gpt-5-nano"
+api_key_name = "opencode_zen"
+temperature = 0.3
+
+[providers.zen-pickle]
+endpoint = "https://opencode.ai/zen/v1"
+model = "big-pickle"
+api_key_name = "opencode_zen"
+temperature = 0.3
+
+[mcp]
+upstream = ""
+
+# UI settings for Symb TUI
+[ui]
+theme = "molokai"
+split_ratio = 0.5
 syntax_theme = "monokai"
 
 [git]
-enable_sandbox = false  # Enable git worktree sandboxing (experimental)
-
-[ui]
-theme = "molokai" # Cursor and spinner color.
-split_ratio = 0.5  # Editor:Agent pane split ratio (0.0-1.0)
+enable_sandbox = false

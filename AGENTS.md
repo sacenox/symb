@@ -16,3 +16,4 @@
 - Go & Golintci
 - Bubbletea, Bubbles and Lipgloss.
 - Use Makefile commands to build, lint and test.
+- Use `journalctl -u ollama --no-pager -n 100` to see ollama logs
