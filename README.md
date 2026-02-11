@@ -13,7 +13,7 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 # Preview
 
 <p align="center">
-  <img src="assets/Screenshot_20260211_224648.png" alt="Symb Screenshot"/>
+  <img src="assets/preview.gif" alt="Symb Demo"/>
 </p>
 
 ## Features

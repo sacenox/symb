@@ -164,11 +164,9 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 
 - Enter on editor area send empty message. Both text areas are Focused, should be mutually exclusive.
 
-- Copy text selection to clipboard (shift + arrows) then (ctrl c)
+- Copy text selection to clipboard (shift + arrows) then (ctrl + shift + c)
 
-- file searching and opening, buffer switching.
-
-- sendUserEditor(content) tool to add a "buffer"
+- file searching and opening, buffer switching. // do I even want this, just make llm tools and ask it.
 
 - streamed assistant response
 
