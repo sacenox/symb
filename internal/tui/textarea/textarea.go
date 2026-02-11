@@ -300,6 +300,9 @@ type Model struct {
 	// Language for syntax highlighting (e.g., "go", "python", "javascript")
 	// If empty, no syntax highlighting is applied.
 	Language string
+
+	// highlightCache caches highlighted lines to avoid re-highlighting on every frame
+	highlightCache map[string]string
 }
 
 // New creates a new model with default settings.
@@ -323,6 +326,7 @@ func New() Model {
 		ShowLineNumbers:      true,
 		Cursor:               cur,
 		KeyMap:               DefaultKeyMap,
+		highlightCache:       make(map[string]string),
 
 		value: make([][]rune, minHeight, maxLines),
 		focus: false,
@@ -383,6 +387,9 @@ func (m *Model) InsertRune(r rune) {
 
 // insertRunesFromUserInput inserts runes at the current cursor position.
 func (m *Model) insertRunesFromUserInput(runes []rune) {
+	// Clear highlight cache since text is being modified
+	m.highlightCache = make(map[string]string)
+
 	// Clean up any special characters in the input provided by the
 	// clipboard. This avoids bugs due to e.g. tab characters and
 	// whatnot.
@@ -622,6 +629,8 @@ func (m *Model) Reset() {
 	m.row = 0
 	m.viewport.GotoTop()
 	m.SetCursor(0)
+	// Clear highlight cache on reset
+	m.highlightCache = make(map[string]string)
 }
 
 // san initializes or retrieves the rune sanitizer.
@@ -637,6 +646,7 @@ func (m *Model) san() runeutil.Sanitizer {
 // deleteBeforeCursor deletes all text before the cursor. Returns whether or
 // not the cursor blink should be reset.
 func (m *Model) deleteBeforeCursor() {
+	m.highlightCache = make(map[string]string)
 	m.value[m.row] = m.value[m.row][m.col:]
 	m.SetCursor(0)
 }
@@ -645,6 +655,7 @@ func (m *Model) deleteBeforeCursor() {
 // the cursor blink should be reset. If input is masked delete everything after
 // the cursor so as not to reveal word breaks in the masked input.
 func (m *Model) deleteAfterCursor() {
+	m.highlightCache = make(map[string]string)
 	m.value[m.row] = m.value[m.row][:m.col]
 	m.SetCursor(len(m.value[m.row]))
 }
@@ -672,6 +683,7 @@ func (m *Model) deleteWordLeft() {
 	if m.col == 0 || len(m.value[m.row]) == 0 {
 		return
 	}
+	m.highlightCache = make(map[string]string)
 
 	// Linter note: it's critical that we acquire the initial cursor position
 	// here prior to altering it via SetCursor() below. As such, moving this
@@ -711,6 +723,7 @@ func (m *Model) deleteWordRight() {
 	if m.col >= len(m.value[m.row]) || len(m.value[m.row]) == 0 {
 		return
 	}
+	m.highlightCache = make(map[string]string)
 
 	oldCol := m.col
 
@@ -1024,6 +1037,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.ReadOnly {
 				break
 			}
+			m.highlightCache = make(map[string]string)
 			m.col = clamp(m.col, 0, len(m.value[m.row]))
 			if m.col <= 0 {
 				m.mergeLineAbove(m.row)
@@ -1039,6 +1053,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.ReadOnly {
 				break
 			}
+			m.highlightCache = make(map[string]string)
 			if len(m.value[m.row]) > 0 && m.col < len(m.value[m.row]) {
 				m.value[m.row] = append(m.value[m.row][:m.col], m.value[m.row][m.col+1:]...)
 			}
@@ -1135,11 +1150,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.Err = msg
 	}
 
-	vp, cmd := m.viewport.Update(msg)
-	m.viewport = &vp
-	cmds = append(cmds, cmd)
-
 	newRow, newCol := m.cursorLineNumber(), m.col
+	var cmd tea.Cmd
 	m.Cursor, cmd = m.Cursor.Update(msg)
 	if (newRow != oldRow || newCol != oldCol) && m.Cursor.Mode() == cursor.CursorBlink {
 		m.Cursor.Blink = false
@@ -1147,7 +1159,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	}
 	cmds = append(cmds, cmd)
 
+	// Reposition viewport BEFORE viewport.Update to avoid race condition
 	m.repositionView()
+
+	vp, cmd := m.viewport.Update(msg)
+	m.viewport = &vp
+	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -1225,16 +1242,19 @@ func (m Model) View() string {
 			}
 			// Apply syntax highlighting if language is set
 			lineText := string(wrappedLine)
-			if m.Language != "" {
+			isCursorLine := m.row == l && lineInfo.RowOffset == wl
+
+			if m.Language != "" && !isCursorLine {
+				// Only highlight non-cursor lines here
 				lineText = m.highlightLine(lineText)
 			}
 
-			if m.row == l && lineInfo.RowOffset == wl {
-				// For cursor line, we need to handle highlighting carefully
-				// Split the line at cursor position
+			if isCursorLine {
+				// For cursor line, work with the original text and split it
 				beforeCursor := string(wrappedLine[:lineInfo.ColumnOffset])
 				afterCursor := string(wrappedLine[lineInfo.ColumnOffset+1:])
 
+				// Highlight the segments individually (still need 2 calls due to cursor split)
 				if m.Language != "" {
 					beforeCursor = m.highlightLine(beforeCursor)
 					afterCursor = m.highlightLine(afterCursor)
@@ -1552,9 +1572,15 @@ func clamp(v, low, high int) int {
 
 // highlightLine applies Chroma syntax highlighting to a line of text.
 // Returns the original text if highlighting fails or language is empty.
-func (m Model) highlightLine(text string) string {
+func (m *Model) highlightLine(text string) string {
 	if m.Language == "" || text == "" {
 		return text
+	}
+
+	// Check cache first
+	cacheKey := m.Language + ":" + text
+	if highlighted, ok := m.highlightCache[cacheKey]; ok {
+		return highlighted
 	}
 
 	// Get lexer for language
@@ -1590,5 +1616,10 @@ func (m Model) highlightLine(text string) string {
 	}
 
 	// Remove trailing newline if added by formatter
-	return strings.TrimSuffix(buf.String(), "\n")
+	result := strings.TrimSuffix(buf.String(), "\n")
+
+	// Cache the result
+	m.highlightCache[cacheKey] = result
+
+	return result
 }

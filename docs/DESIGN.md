@@ -160,11 +160,9 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 
 # TODO:
 
-- file and filesystem combined search with fuzzy matching in the current directory tree.
-- respects gitignore if it exists.
-- will be used by both tool for llm (Grep()) and for user later. So make a internal/filesearch separate from the Grep tool definition. Keep it decoupled.
+- TUI is extremly lagging, if I scroll or hold a key down. Cursor blocks scrolling, needs to follow it. ** MAJOR ISSUE **
 
-- Enter on editor area send empty message.
+- Enter on editor area send empty message. Both text areas are Focused, should be mutually exclusive.
 
 - Copy text selection to clipboard (shift + arrows) then (ctrl c)
 
@@ -173,3 +171,5 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 - sendUserEditor(content) tool to add a "buffer"
 
 - streamed assistant response
+
+- Fun: Show icon in unicode and a highlight color clock centered in the right panel when there are no messages.

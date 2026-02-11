@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -48,6 +49,15 @@ type Model struct {
 	// Pane resize state
 	resizingPane    bool // True when dragging divider
 	customHalfWidth int  // Custom half width (0 = use default calculated value)
+
+	// Wrap cache to avoid re-wrapping unchanged text
+	wrapCache    map[string][]string
+	wrapCacheKey string // Key for current conversation state
+
+	// Pre-allocated styles to avoid repeated allocations
+	borderStyle       lipgloss.Style
+	selectionStyle    lipgloss.Style
+	conversationWidth int // Track width for style invalidation
 }
 
 // New creates a new TUI model
@@ -82,17 +92,20 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return Model{
-		spinner:      s,
-		editor:       editor,
-		agentInput:   agentInput,
-		provider:     prov,
-		mcpProxy:     proxy,
-		mcpTools:     tools,
-		history:      []provider.Message{},
-		conversation: []string{},
-		updateChan:   updateChan,
-		ctx:          ctx,
-		cancel:       cancel,
+		spinner:        s,
+		editor:         editor,
+		agentInput:     agentInput,
+		provider:       prov,
+		mcpProxy:       proxy,
+		mcpTools:       tools,
+		history:        []provider.Message{},
+		conversation:   []string{},
+		updateChan:     updateChan,
+		ctx:            ctx,
+		cancel:         cancel,
+		wrapCache:      make(map[string][]string),
+		borderStyle:    lipgloss.NewStyle().Foreground(ColorBorder),
+		selectionStyle: lipgloss.NewStyle().Background(ColorDarkGray),
 	}
 }
 
@@ -103,7 +116,7 @@ func (m Model) Init() tea.Cmd {
 
 // wrapText wraps text to the conversation pane width, applying style after wrapping.
 // Returns lines that fit within the pane width.
-func (m Model) wrapText(text string, style lipgloss.Style) []string {
+func (m *Model) wrapText(text string, style lipgloss.Style) []string {
 	if m.rightPaneWidth <= 0 {
 		// Fallback if width not set yet
 		lines := strings.Split(text, "\n")
@@ -112,6 +125,14 @@ func (m Model) wrapText(text string, style lipgloss.Style) []string {
 			result[i] = style.Render(line)
 		}
 		return result
+	}
+
+	// Create cache key from text and width
+	cacheKey := fmt.Sprintf("%d:%s", m.rightPaneWidth, text)
+
+	// Check cache
+	if cached, ok := m.wrapCache[cacheKey]; ok {
+		return cached
 	}
 
 	// Word wrap first, then apply style to each line
@@ -124,6 +145,13 @@ func (m Model) wrapText(text string, style lipgloss.Style) []string {
 	for i, line := range lines {
 		result[i] = style.Render(line)
 	}
+
+	// Cache result (limit cache size to prevent memory issues)
+	if len(m.wrapCache) > 1000 {
+		m.wrapCache = make(map[string][]string)
+	}
+	m.wrapCache[cacheKey] = result
+
 	return result
 }
 
@@ -411,18 +439,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			CreatedAt: now,
 		})
 		// Format and display user message first
-		grayStyle := lipgloss.NewStyle().Foreground(ColorGray)
+		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.NoColor{})
 		wrappedLines := m.wrapText(msg.content, grayStyle)
 		m.conversation = append(m.conversation, wrappedLines...)
 		m.conversation = append(m.conversation, "")
 		// Add timestamp separator after message
-		timestamp := now.Format("15:04")
+		timestamp := now.Format("15:04:05")
 		rightPaneWidth := m.width/2 - 1
 		dashCount := rightPaneWidth - len("0s "+timestamp+" ")
 		if dashCount < 0 {
 			dashCount = 0
 		}
-		separator := lipgloss.NewStyle().Foreground(ColorGray).Render(
+		separator := lipgloss.NewStyle().Foreground(ColorDarkGray).Render(
 			"0s " + timestamp + " " + strings.Repeat("─", dashCount),
 		)
 		m.conversation = append(m.conversation, separator)
@@ -473,7 +501,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmErrorMsg:
 		// Display error message
 		m.conversation = append(m.conversation, "")
-		errLine := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Render("Error: " + msg.err.Error())
+		errLine := lipgloss.NewStyle().Foreground(ColorError).Render("Error: " + msg.err.Error())
 		m.conversation = append(m.conversation, errLine)
 		m.conversation = append(m.conversation, "")
 		return m, nil // Done listening
@@ -483,11 +511,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conversation = append(m.conversation, "")
 		durationStr := msg.duration.Round(time.Second).String()
 		rightPaneWidth := m.width/2 - 1
-		dashCount := rightPaneWidth - len(durationStr+" "+msg.timestamp+" ")
+		dashCount := rightPaneWidth - len(durationStr+" "+msg.timestamp+" ") // TODO: Using `leg` should be using lipgloss
 		if dashCount < 0 {
 			dashCount = 0
 		}
-		separator := lipgloss.NewStyle().Foreground(ColorGray).Render(
+		separator := lipgloss.NewStyle().Foreground(ColorDarkGray).Render(
 			durationStr + " " + msg.timestamp + " " + strings.Repeat("─", dashCount),
 		)
 		m.conversation = append(m.conversation, separator)
@@ -568,7 +596,6 @@ func (m Model) View() string {
 	contentHeight := m.height - 2
 
 	var b strings.Builder
-	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 
 	// Render editor in left pane
 	editorView := m.editor.View()
@@ -577,6 +604,10 @@ func (m Model) View() string {
 	// Render agent input box (3 rows + 2 for borders = 5 total)
 	agentInputView := m.agentInput.View()
 	agentInputLines := strings.Split(agentInputView, "\n")
+
+	// Calculate row boundaries
+	inputStartRow := contentHeight - 3 // 3 rows for input
+	separatorRow := contentHeight - 4  // Separator before input
 
 	// Content rows - use the stored rightPaneWidth from model
 	for i := 0; i < contentHeight; i++ {
@@ -593,17 +624,10 @@ func (m Model) View() string {
 		} else {
 			b.WriteString(strings.Repeat(" ", halfWidth))
 		}
-
-		// Middle divider (or T connection on separator row)
-		separatorRow := contentHeight - 4 // 1 row for separator
-		if i == separatorRow {
-			b.WriteString(borderStyle.Render("├"))
-		} else {
-			b.WriteString(borderStyle.Render("│"))
-		}
+		// Divider
+		b.WriteString(m.borderStyle.Render("│"))
 
 		// Right pane: conversation area (top), separator, input at bottom
-		inputStartRow := contentHeight - 3 // 3 rows for input
 		if i < separatorRow {
 			// Conversation area - show conversation log
 			// Calculate which line to show (scroll based on offset)
@@ -637,8 +661,7 @@ func (m Model) View() string {
 
 				// Apply selection highlighting if selected
 				if isSelected {
-					selStyle := lipgloss.NewStyle().Background(lipgloss.Color("#444444"))
-					line = selStyle.Render(line)
+					line = m.selectionStyle.Render(line)
 				}
 
 				lineWidth := lipgloss.Width(line)
@@ -647,8 +670,7 @@ func (m Model) View() string {
 				if lineWidth < m.rightPaneWidth {
 					padding := strings.Repeat(" ", m.rightPaneWidth-lineWidth)
 					if isSelected {
-						selStyle := lipgloss.NewStyle().Background(lipgloss.Color("#444444"))
-						padding = selStyle.Render(padding)
+						padding = m.selectionStyle.Render(padding)
 					}
 					b.WriteString(padding)
 				}
@@ -657,7 +679,7 @@ func (m Model) View() string {
 			}
 		} else if i == separatorRow {
 			// Separator line
-			b.WriteString(borderStyle.Render(strings.Repeat("─", m.rightPaneWidth)))
+			b.WriteString(m.borderStyle.Render(strings.Repeat("─", m.rightPaneWidth)))
 		} else {
 			// Input area (last 3 rows)
 			lineIdx := i - inputStartRow
@@ -679,9 +701,9 @@ func (m Model) View() string {
 	}
 
 	// Status separator: ───...───┴───...───
-	b.WriteString(borderStyle.Render(strings.Repeat("─", halfWidth)))
-	b.WriteString(borderStyle.Render("┴"))
-	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-halfWidth-1)))
+	b.WriteString(m.borderStyle.Render(strings.Repeat("─", halfWidth)))
+	b.WriteString(m.borderStyle.Render("┴"))
+	b.WriteString(m.borderStyle.Render(strings.Repeat("─", m.width-halfWidth-1)))
 	b.WriteString("\n")
 
 	// Status bar: master* │<spaces>spinner
