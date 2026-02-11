@@ -4,9 +4,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/xonecas/smith/internal/tui/textarea"
 )
 
 // Model is the application model
@@ -29,6 +29,7 @@ func New() Model {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(lipgloss.NoColor{})
 	ta.FocusedStyle.LineNumber = lipgloss.NewStyle().Foreground(ColorBorder)
 	ta.Cursor.Style = lipgloss.NewStyle().Foreground(ColorMatrix)
+	ta.Language = "go" // Enable syntax highlighting for Go
 	ta.Focus()
 
 	return Model{

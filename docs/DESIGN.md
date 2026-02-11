@@ -18,7 +18,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
   - Line numbers, syntax highlighting
   - LSP support
   - Git integration (show file git status)
-  - Simple editting support, no advanced usages or keybinds.
+  - Simple editting support, no advanced usages or keybinds. ** DONE **
   - Code browsing mouse features: click to go to definition/references. Search for word under cursor.
 
 - LLM Tools:
