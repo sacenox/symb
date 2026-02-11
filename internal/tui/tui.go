@@ -19,7 +19,7 @@ type Model struct {
 func New() Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Matrix green
+	s.Style = lipgloss.NewStyle().Foreground(ColorMatrix) // Matrix green
 	return Model{
 		spinner: s,
 	}
@@ -64,34 +64,38 @@ func (m Model) View() string {
 	contentHeight := m.height - 4
 
 	var b strings.Builder
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 
 	// Top border: ╭───...───┬───...───╮
-	b.WriteString("╭")
-	b.WriteString(strings.Repeat("─", halfWidth-1))
-	b.WriteString("┬")
-	b.WriteString(strings.Repeat("─", m.width-halfWidth-2))
-	b.WriteString("╮\n")
+	b.WriteString(borderStyle.Render("╭"))
+	b.WriteString(borderStyle.Render(strings.Repeat("─", halfWidth-1)))
+	b.WriteString(borderStyle.Render("┬"))
+	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-halfWidth-2)))
+	b.WriteString(borderStyle.Render("╮"))
+	b.WriteString("\n")
 
 	// Content rows
 	for i := 0; i < contentHeight; i++ {
-		b.WriteString("│")
+		b.WriteString(borderStyle.Render("│"))
 		b.WriteString(strings.Repeat(" ", halfWidth-1))
-		b.WriteString("│")
+		b.WriteString(borderStyle.Render("│"))
 		b.WriteString(strings.Repeat(" ", m.width-halfWidth-2))
-		b.WriteString("│\n")
+		b.WriteString(borderStyle.Render("│"))
+		b.WriteString("\n")
 	}
 
 	// Status separator: ├───...───┴───...───┤
-	b.WriteString("├")
-	b.WriteString(strings.Repeat("─", halfWidth-1))
-	b.WriteString("┴")
-	b.WriteString(strings.Repeat("─", m.width-halfWidth-2))
-	b.WriteString("┤\n")
+	b.WriteString(borderStyle.Render("├"))
+	b.WriteString(borderStyle.Render(strings.Repeat("─", halfWidth-1)))
+	b.WriteString(borderStyle.Render("┴"))
+	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-halfWidth-2)))
+	b.WriteString(borderStyle.Render("┤"))
+	b.WriteString("\n")
 
 	// Status bar: │ master* │<spaces>spinner │
-	statusLeft := "│ master* │"
+	statusLeft := borderStyle.Render("│") + " master* " + borderStyle.Render("│")
 	spinnerView := strings.TrimSpace(m.spinner.View())
-	statusRight := " │"
+	statusRight := " " + borderStyle.Render("│")
 	// Use lipgloss.Width for accurate display width
 	leftWidth := lipgloss.Width(statusLeft)
 	rightWidth := lipgloss.Width(statusRight)
@@ -104,9 +108,9 @@ func (m Model) View() string {
 	b.WriteString("\n")
 
 	// Bottom border: ╰───...───╯
-	b.WriteString("╰")
-	b.WriteString(strings.Repeat("─", m.width-2))
-	b.WriteString("╯")
+	b.WriteString(borderStyle.Render("╰"))
+	b.WriteString(borderStyle.Render(strings.Repeat("─", m.width-2)))
+	b.WriteString(borderStyle.Render("╯"))
 
 	return b.String()
 }
