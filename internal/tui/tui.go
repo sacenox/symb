@@ -30,6 +30,8 @@ type Model struct {
 	history      []provider.Message
 	conversation []string     // Formatted conversation log for display
 	updateChan   chan tea.Msg // Channel for streaming LLM updates
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // New creates a new TUI model
@@ -59,7 +61,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
 	agentInput.Cursor.Style = cursorStyle
 	agentInput.Focus()
 
-	updateChan := make(chan tea.Msg, 100)
+	updateChan := make(chan tea.Msg, 500)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return Model{
 		spinner:      s,
@@ -71,6 +74,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
 		history:      []provider.Message{},
 		conversation: []string{},
 		updateChan:   updateChan,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
@@ -105,6 +110,16 @@ type llmDoneMsg struct {
 	timestamp string
 }
 
+// llmHistoryMsg updates history with new message (ELM Msg)
+type llmHistoryMsg struct {
+	msg provider.Message
+}
+
+// llmErrorMsg handles LLM errors (ELM Msg)
+type llmErrorMsg struct {
+	err error
+}
+
 // sendToLLM sends user message to LLM (ELM Cmd)
 func (m Model) sendToLLM(userInput string) tea.Cmd {
 	return func() tea.Msg {
@@ -123,9 +138,9 @@ func (m Model) waitForLLMUpdate() tea.Cmd {
 // processLLM runs LLM turn in background (ELM Cmd)
 func (m Model) processLLM() tea.Cmd {
 	return func() tea.Msg {
-		startTime := time.Now()
-
 		go func() {
+			startTime := time.Now()
+
 			opts := llm.ProcessTurnOptions{
 				Provider:      m.provider,
 				Proxy:         m.mcpProxy,
@@ -133,6 +148,9 @@ func (m Model) processLLM() tea.Cmd {
 				History:       m.history,
 				MaxToolRounds: 20,
 				OnMessage: func(msg provider.Message) {
+					// Send message to update history
+					m.updateChan <- llmHistoryMsg{msg: msg}
+
 					if msg.Role == "assistant" {
 						// Send tool calls
 						for _, tc := range msg.ToolCalls {
@@ -150,7 +168,11 @@ func (m Model) processLLM() tea.Cmd {
 				},
 			}
 
-			_ = llm.ProcessTurn(context.Background(), opts)
+			err := llm.ProcessTurn(m.ctx, opts)
+			if err != nil {
+				m.updateChan <- llmErrorMsg{err: err}
+				return
+			}
 
 			// Send done message
 			m.updateChan <- llmDoneMsg{
@@ -159,8 +181,7 @@ func (m Model) processLLM() tea.Cmd {
 			}
 		}()
 
-		// Start waiting for updates
-		return m.waitForLLMUpdate()
+		return nil
 	}
 }
 
@@ -172,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
+			m.cancel() // Cancel any running goroutines
 			return m, tea.Quit
 		case "esc":
 			if m.agentInput.Focused() {
@@ -213,8 +235,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.conversation = append(m.conversation, grayStyle.Render(line))
 		}
 		m.conversation = append(m.conversation, "")
-		// Start LLM processing
-		return m, m.processLLM()
+		// Start LLM processing and wait for updates
+		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
+
+	case llmHistoryMsg:
+		// Update history with message from LLM
+		m.history = append(m.history, msg.msg)
+		return m, m.waitForLLMUpdate() // Continue listening
 
 	case llmAssistantMsg:
 		for _, line := range strings.Split(msg.content, "\n") {
@@ -230,6 +257,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmToolResultMsg:
 		m.conversation = append(m.conversation, "←  "+msg.content)
 		return m, m.waitForLLMUpdate() // Continue listening
+
+	case llmErrorMsg:
+		// Display error message
+		m.conversation = append(m.conversation, "")
+		errLine := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Render("Error: " + msg.err.Error())
+		m.conversation = append(m.conversation, errLine)
+		m.conversation = append(m.conversation, "")
+		return m, nil // Done listening
 
 	case llmDoneMsg:
 		// Add timestamp separator (blank line first, then separator)

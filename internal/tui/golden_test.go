@@ -26,7 +26,7 @@ func TestLayout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := New(nil, nil, nil)
 			updated, _ := m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
 			m = updated.(Model)
 
