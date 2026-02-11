@@ -35,6 +35,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
     - Up/Down arrows select item in the list.
     - Enter opens the currently matched/selected file.
     - Includes the currently "opened" buffers in search at the top of the matches.
+    - We should find a library that does this for us, before trying to code our own fuzzy
 
   - `<CTRL> + <g>`: Open git diff in the editor.
 

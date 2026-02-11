@@ -15,5 +15,5 @@ syntax_theme = "monokai"
 enable_sandbox = false  # Enable git worktree sandboxing (experimental)
 
 [ui]
-theme = "matrix"
+theme = "molokai" # Cursor and spinner color.
 split_ratio = 0.5  # Editor:Agent pane split ratio (0.0-1.0)
