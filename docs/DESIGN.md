@@ -18,7 +18,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
   - Line numbers, syntax highlighting
   - LSP support
   - Git integration (show file git status)
-  - Simple editting support, no advanced usages or keybinds. 
+  - Simple editting support, no advanced usages or keybinds.
   - Code browsing mouse features: click to go to definition/references. Search for word under cursor.
 
 - LLM Tools:
@@ -26,7 +26,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
   - Grep, Read, Write: optimized for code changes (LSP and linting checks after each edit). These appear in agentic UI as a diff message (not actual diff). Clicking on it takes us to that edit in the editor tab.
   - Undo: Either perform an intelligent step back or use git to reset.
   - Subagent tool: Performs a single task based on prompt.
-  - Mutation tools create a new branch worktress for the sandboxed environment. Perform the mutation. Once the user approves the mutation or tells the agent to merge, a git merge happens. 
+  - Mutation tools create a new branch worktress for the sandboxed environment. Perform the mutation. Once the user approves the mutation or tells the agent to merge, a git merge happens.
 
 - Features:
   - `<CTRL> + <f>`: Search files by filename or content (fuzzy matches, fast)
@@ -63,7 +63,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
 │ 115                                 │ │ /bash cargo check              │ │ // Input box, user can cycle history with arrows *up/down*
 │ 116                                 │ └────────────────────────────────┘ │ // - Input supports commands /Read /Grep /Write (call the same tools as the LLM sees)
 ├─────────────────────────────────────┴────────────────────────────────────┤
-│ master* │ src/matrix/core.rs[+]                                        ⣽ │ // Git branch, current file if any ending with an
+│ master* │ src/matrix/core.rs[+]                                        ⣽ │ // Git branch, current file if any. ending with an
 ╰──────────────────────────────────────────────────────────────────────────╯ // animated icon: fast animation when LLM is thinking, slow when idle.
 ```
 
