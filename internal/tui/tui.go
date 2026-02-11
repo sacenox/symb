@@ -160,6 +160,11 @@ type llmErrorMsg struct {
 	err error
 }
 
+// UpdateToolsMsg updates the tools list (ELM Msg)
+type UpdateToolsMsg struct {
+	Tools []mcp.Tool
+}
+
 // sendToLLM sends user message to LLM (ELM Cmd)
 func (m Model) sendToLLM(userInput string) tea.Cmd {
 	return func() tea.Msg {
@@ -485,6 +490,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		m.conversation = append(m.conversation, separator)
 		return m, nil // Done listening
+
+	case mcp.OpenForUserMsg:
+		// Update editor with file content
+		m.editor.SetValue(msg.Content)
+		m.editor.Language = msg.Language
+		m.editor.Focus()
+		return m, nil
+
+	case UpdateToolsMsg:
+		// Update tools list
+		m.mcpTools = msg.Tools
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width

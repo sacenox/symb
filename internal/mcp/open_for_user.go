@@ -1,0 +1,245 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// OpenForUserArgs represents arguments for open_for_user tool.
+type OpenForUserArgs struct {
+	File  string `json:"file"`
+	Start int    `json:"start,omitempty"` // Optional: start line (1-indexed)
+	End   int    `json:"end,omitempty"`   // Optional: end line (1-indexed)
+}
+
+// OpenForUserMsg is the message sent to TUI to open file content in editor.
+type OpenForUserMsg struct {
+	Content  string
+	Language string
+	FilePath string
+}
+
+// NewOpenForUserTool creates the open_for_user tool definition.
+func NewOpenForUserTool() Tool {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"file": map[string]interface{}{
+				"type":        "string",
+				"description": "Path to the file to open",
+			},
+			"start": map[string]interface{}{
+				"type":        "integer",
+				"description": "Optional: starting line number (1-indexed, inclusive)",
+			},
+			"end": map[string]interface{}{
+				"type":        "integer",
+				"description": "Optional: ending line number (1-indexed, inclusive)",
+			},
+		},
+		"required": []string{"file"},
+	}
+
+	schemaJSON, _ := json.Marshal(schema)
+
+	return Tool{
+		Name:        "open_for_user",
+		Description: "Opens a file (or file range) in the user's editor with correct syntax highlighting. If start/end are provided, only that line range is shown.",
+		InputSchema: schemaJSON,
+	}
+}
+
+// MakeOpenForUserHandler creates a handler for open_for_user tool.
+// programPtr should point to the tea.Program instance (can be set after creation).
+func MakeOpenForUserHandler(programPtr **tea.Program) ToolHandler {
+	return func(ctx context.Context, arguments json.RawMessage) (*ToolResult, error) {
+		var args OpenForUserArgs
+		if err := json.Unmarshal(arguments, &args); err != nil {
+			return &ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
+				IsError: true,
+			}, nil
+		}
+
+		if args.File == "" {
+			return &ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: "File path cannot be empty"}},
+				IsError: true,
+			}, nil
+		}
+
+		// Security: Convert to absolute path and validate
+		absPath, err := filepath.Abs(args.File)
+		if err != nil {
+			return &ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid file path: %v", err)}},
+				IsError: true,
+			}, nil
+		}
+
+		// Get current working directory for validation
+		workingDir, err := os.Getwd()
+		if err != nil {
+			return &ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to get working directory: %v", err)}},
+				IsError: true,
+			}, nil
+		}
+
+		// Security: Prevent path traversal - only allow files within or below working directory
+		relPath, err := filepath.Rel(workingDir, absPath)
+		if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
+			return &ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: "Access denied: path outside working directory"}},
+				IsError: true,
+			}, nil
+		}
+
+		// Read file content
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			return &ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to read file: %v", err)}},
+				IsError: true,
+			}, nil
+		}
+
+		lines := strings.Split(string(content), "\n")
+
+		// Extract line range if specified
+		var selectedContent string
+		if args.Start > 0 || args.End > 0 {
+			start := args.Start
+			end := args.End
+
+			// Default start to 1 if not specified
+			if start <= 0 {
+				start = 1
+			}
+
+			// Validate start is in range
+			if start < 1 || start > len(lines) {
+				return &ToolResult{
+					Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Start line %d out of range (file has %d lines)", start, len(lines))}},
+					IsError: true,
+				}, nil
+			}
+
+			// Default end to end of file if not specified or out of range
+			if end <= 0 || end > len(lines) {
+				end = len(lines)
+			}
+
+			// Validate range
+			if start > end {
+				return &ToolResult{
+					Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid range: start (%d) > end (%d)", start, end)}},
+					IsError: true,
+				}, nil
+			}
+
+			// Extract range (convert to 0-indexed)
+			selectedContent = strings.Join(lines[start-1:end], "\n")
+		} else {
+			selectedContent = string(content)
+		}
+
+		// Detect language from file extension
+		language := detectLanguage(args.File)
+
+		// Send message to TUI to update editor
+		if programPtr != nil && *programPtr != nil {
+			(*programPtr).Send(OpenForUserMsg{
+				Content:  selectedContent,
+				Language: language,
+				FilePath: args.File,
+			})
+		}
+
+		return &ToolResult{
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s in editor", args.File)}},
+			IsError: false,
+		}, nil
+	}
+}
+
+// detectLanguage returns the Chroma language identifier based on file extension.
+func detectLanguage(path string) string {
+	// Map common extensions to Chroma language identifiers
+	languageMap := map[string]string{
+		".go":         "go",
+		".py":         "python",
+		".js":         "javascript",
+		".ts":         "typescript",
+		".jsx":        "jsx",
+		".tsx":        "tsx",
+		".java":       "java",
+		".c":          "c",
+		".cpp":        "cpp",
+		".cc":         "cpp",
+		".h":          "c",
+		".hpp":        "cpp",
+		".cs":         "csharp",
+		".rb":         "ruby",
+		".php":        "php",
+		".rs":         "rust",
+		".swift":      "swift",
+		".kt":         "kotlin",
+		".scala":      "scala",
+		".sh":         "bash",
+		".bash":       "bash",
+		".zsh":        "zsh",
+		".fish":       "fish",
+		".ps1":        "powershell",
+		".r":          "r",
+		".sql":        "sql",
+		".html":       "html",
+		".htm":        "html",
+		".xml":        "xml",
+		".css":        "css",
+		".scss":       "scss",
+		".sass":       "sass",
+		".less":       "less",
+		".json":       "json",
+		".yaml":       "yaml",
+		".yml":        "yaml",
+		".toml":       "toml",
+		".ini":        "ini",
+		".conf":       "nginx",
+		".md":         "markdown",
+		".markdown":   "markdown",
+		".tex":        "tex",
+		".vim":        "vim",
+		".lua":        "lua",
+		".perl":       "perl",
+		".pl":         "perl",
+		".dockerfile": "docker",
+		".proto":      "protobuf",
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+	if lang, ok := languageMap[ext]; ok {
+		return lang
+	}
+
+	// Check for specific filenames
+	base := strings.ToLower(filepath.Base(path))
+	switch base {
+	case "dockerfile":
+		return "docker"
+	case "makefile":
+		return "make"
+	case "gemfile":
+		return "ruby"
+	case "rakefile":
+		return "ruby"
+	}
+
+	return "text" // Default fallback
+}

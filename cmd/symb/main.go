@@ -81,8 +81,6 @@ func main() {
 	var mcpClient mcp.UpstreamClient
 	if cfg.MCP.Upstream != "" {
 		mcpClient = mcp.NewClient(cfg.MCP.Upstream)
-	} else {
-		mcpClient = mcp.NewStubClient()
 	}
 
 	proxy := mcp.NewProxy(mcpClient)
@@ -91,7 +89,15 @@ func main() {
 	}
 	defer proxy.Close()
 
-	// List tools
+	// Create program pointer that will be set after program creation
+	var p *tea.Program
+
+	// Register local tools that need program reference (before listing tools)
+	openForUserTool := mcp.NewOpenForUserTool()
+	openForUserHandler := mcp.MakeOpenForUserHandler(&p)
+	proxy.RegisterTool(openForUserTool, openForUserHandler)
+
+	// List all tools (local + upstream)
 	tools, err := proxy.ListTools(context.Background())
 	if err != nil {
 		fmt.Printf("Warning: Failed to list tools: %v\n", err)
@@ -99,7 +105,7 @@ func main() {
 	}
 
 	// Create the BubbleTea program
-	p := tea.NewProgram(
+	p = tea.NewProgram(
 		tui.New(prov, proxy, tools),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),

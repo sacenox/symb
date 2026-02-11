@@ -14,6 +14,7 @@
 - Always use `docs/TUI_TESTING.md` when working on the TUI. Use golden tests.
 - Always use [ELM](https://guide.elm-lang.org/architecture/) architecture.
 - Go & Golintci
-- Bubbletea, Bubbles and Lipgloss.
+- [Bubbletea, Bubbles](https://github.com/charmbracelet/bubbletea)
+- [Lipgloss](https://github.com/charmbracelet/lipgloss).
 - Use Makefile commands to build, lint and test.
 - Use `journalctl -u ollama --no-pager -n 100` to see ollama logs
