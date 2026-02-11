@@ -1,4 +1,4 @@
-module github.com/xonecas/smith
+module github.com/xonecas/symb
 
 go 1.25.6
 

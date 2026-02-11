@@ -1,6 +1,6 @@
-# (agent) Smith
+# Symb (pronounced "sim")
 
-A code/pair programming tool for developers who use agents in their main workflows. Inspired by the Agent Smith character in the popular movie "The Matrix". The developer has an agentic UI that provides the interface to the LLM, and a set of tools the LLM can use to cooperate in coding/development with the user.
+A code/pair programming tool for developers who use agents in their main workflows. Symbiotic pairing between developer and LLM. The developer has an agentic UI that provides the interface to the LLM, and a set of tools the LLM can use to cooperate in coding/development with the user.
 
 Simple UI. Being a TUI, the goal is to be fast, have low memory usage, and avoid being a distraction to the code/content. Simple unicode border around the window. Agentic conversation on one side, code editor on the other. Matrix green for color (used rarely, only when a color is absolutely needed).
 
@@ -47,7 +47,7 @@ A TUI from the future. We want feature parity with a GUI editor: mouse selection
 
 ```text
 ╭─────────────────────────────────────┬────────────────────────────────────╮
-│ 102                                 │ ● Agent Smith                     │ // Flexible height.
+│ 102                                 │ ● Symb                            │ // Flexible height.
 │ 103  pub fn wake_up(neo: &User) {   │                                    │ // Panes split 50% each
 │ 104      // TODO: Implement signal  │ ┌─ Assistant ────────────────────┐ │
 │ 105      let signal = Signal::new();│ │ I see you're working on the    │ │ // Assistant message

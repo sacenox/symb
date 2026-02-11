@@ -34,7 +34,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	rw "github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
-	"github.com/xonecas/smith/internal/constants"
+	"github.com/xonecas/symb/internal/constants"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/xonecas/smith/internal/tui"
+	"github.com/xonecas/symb/internal/tui"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 
 	// Run the program
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Error running smith: %v\n", err)
+		fmt.Printf("Error running symb: %v\n", err)
 		os.Exit(1)
 	}
 }

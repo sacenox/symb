@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xonecas/smith/internal/tui/textarea"
+	"github.com/xonecas/symb/internal/tui/textarea"
 )
 
 // Model is the application model

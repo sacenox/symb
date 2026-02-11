@@ -2,11 +2,11 @@
 
 # Build the binary
 build:
-	go build -o bin/smith ./cmd/smith
+	go build -o bin/symb ./cmd/symb
 
 # Run the application
 run:
-	go run ./cmd/smith
+	go run ./cmd/symb
 
 # Run tests
 test:
@@ -28,7 +28,7 @@ install:
 
 # Development mode (with hot reload if you add air later)
 dev: install
-	go run ./cmd/smith
+	go run ./cmd/symb
 
 # Show coverage
 coverage: test

@@ -1,4 +1,4 @@
-# Smith Configuration File
+# Symb Configuration File
 
 [llm]
 provider = "ollama"  # Options: "ollama", "opencode-zen"
