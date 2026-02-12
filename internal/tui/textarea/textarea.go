@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/alecthomas/chroma/v2"
@@ -47,6 +48,12 @@ const (
 
 	// XXX: in v2, make max lines dynamic and default max lines configurable.
 	maxLines = 10000
+)
+
+// Global syntax highlighting cache (external to Model for ELM compliance)
+var (
+	highlightCache   = make(map[string]string)
+	highlightCacheMu sync.RWMutex
 )
 
 // Internal messages for clipboard operations.
@@ -300,9 +307,6 @@ type Model struct {
 	// Language for syntax highlighting (e.g., "go", "python", "javascript")
 	// If empty, no syntax highlighting is applied.
 	Language string
-
-	// highlightCache caches highlighted lines to avoid re-highlighting on every frame
-	highlightCache map[string]string
 }
 
 // New creates a new model with default settings.
@@ -326,7 +330,6 @@ func New() Model {
 		ShowLineNumbers:      true,
 		Cursor:               cur,
 		KeyMap:               DefaultKeyMap,
-		highlightCache:       make(map[string]string),
 
 		value: make([][]rune, minHeight, maxLines),
 		focus: false,
@@ -387,9 +390,6 @@ func (m *Model) InsertRune(r rune) {
 
 // insertRunesFromUserInput inserts runes at the current cursor position.
 func (m *Model) insertRunesFromUserInput(runes []rune) {
-	// Clear highlight cache since text is being modified
-	m.highlightCache = make(map[string]string)
-
 	// Clean up any special characters in the input provided by the
 	// clipboard. This avoids bugs due to e.g. tab characters and
 	// whatnot.
@@ -629,8 +629,6 @@ func (m *Model) Reset() {
 	m.row = 0
 	m.viewport.GotoTop()
 	m.SetCursor(0)
-	// Clear highlight cache on reset
-	m.highlightCache = make(map[string]string)
 }
 
 // san initializes or retrieves the rune sanitizer.
@@ -646,7 +644,6 @@ func (m *Model) san() runeutil.Sanitizer {
 // deleteBeforeCursor deletes all text before the cursor. Returns whether or
 // not the cursor blink should be reset.
 func (m *Model) deleteBeforeCursor() {
-	m.highlightCache = make(map[string]string)
 	m.value[m.row] = m.value[m.row][m.col:]
 	m.SetCursor(0)
 }
@@ -655,7 +652,6 @@ func (m *Model) deleteBeforeCursor() {
 // the cursor blink should be reset. If input is masked delete everything after
 // the cursor so as not to reveal word breaks in the masked input.
 func (m *Model) deleteAfterCursor() {
-	m.highlightCache = make(map[string]string)
 	m.value[m.row] = m.value[m.row][:m.col]
 	m.SetCursor(len(m.value[m.row]))
 }
@@ -683,7 +679,6 @@ func (m *Model) deleteWordLeft() {
 	if m.col == 0 || len(m.value[m.row]) == 0 {
 		return
 	}
-	m.highlightCache = make(map[string]string)
 
 	// Linter note: it's critical that we acquire the initial cursor position
 	// here prior to altering it via SetCursor() below. As such, moving this
@@ -723,7 +718,6 @@ func (m *Model) deleteWordRight() {
 	if m.col >= len(m.value[m.row]) || len(m.value[m.row]) == 0 {
 		return
 	}
-	m.highlightCache = make(map[string]string)
 
 	oldCol := m.col
 
@@ -1037,7 +1031,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.ReadOnly {
 				break
 			}
-			m.highlightCache = make(map[string]string)
 			m.col = clamp(m.col, 0, len(m.value[m.row]))
 			if m.col <= 0 {
 				m.mergeLineAbove(m.row)
@@ -1053,7 +1046,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.ReadOnly {
 				break
 			}
-			m.highlightCache = make(map[string]string)
 			if len(m.value[m.row]) > 0 && m.col < len(m.value[m.row]) {
 				m.value[m.row] = append(m.value[m.row][:m.col], m.value[m.row][m.col+1:]...)
 			}
@@ -1577,16 +1569,20 @@ func clamp(v, low, high int) int {
 
 // highlightLine applies Chroma syntax highlighting to a line of text.
 // Returns the original text if highlighting fails or language is empty.
-func (m *Model) highlightLine(text string) string {
+// Uses a global cache for performance (external to Model for ELM compliance).
+func (m Model) highlightLine(text string) string {
 	if m.Language == "" || text == "" {
 		return text
 	}
 
-	// Check cache first
+	// Check cache first (with read lock)
 	cacheKey := m.Language + ":" + text
-	if highlighted, ok := m.highlightCache[cacheKey]; ok {
+	highlightCacheMu.RLock()
+	if highlighted, ok := highlightCache[cacheKey]; ok {
+		highlightCacheMu.RUnlock()
 		return highlighted
 	}
+	highlightCacheMu.RUnlock()
 
 	// Get lexer for language
 	lexer := lexers.Get(m.Language)
@@ -1623,8 +1619,17 @@ func (m *Model) highlightLine(text string) string {
 	// Remove trailing newline if added by formatter
 	result := strings.TrimSuffix(buf.String(), "\n")
 
-	// Cache the result
-	m.highlightCache[cacheKey] = result
+	// Cache the result (with write lock)
+	highlightCacheMu.Lock()
+	// Limit cache size to prevent unbounded growth
+	if len(highlightCache) > 1000 {
+		// Clear map instead of replacing to avoid orphaning readers
+		for k := range highlightCache {
+			delete(highlightCache, k)
+		}
+	}
+	highlightCache[cacheKey] = result
+	highlightCacheMu.Unlock()
 
 	return result
 }

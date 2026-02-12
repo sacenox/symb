@@ -125,8 +125,8 @@ func (m Model) Init() tea.Cmd {
 }
 
 // wrapText wraps text to the conversation pane width, applying style after wrapping.
-// Returns lines that fit within the pane width.
-func (m *Model) wrapText(text string, style lipgloss.Style) []string {
+// Returns lines that fit within the pane width and the updated model with cache.
+func (m Model) wrapText(text string, style lipgloss.Style) ([]string, Model) {
 	if m.rightPaneWidth <= 0 {
 		// Fallback if width not set yet
 		lines := strings.Split(text, "\n")
@@ -134,7 +134,7 @@ func (m *Model) wrapText(text string, style lipgloss.Style) []string {
 		for i, line := range lines {
 			result[i] = style.Render(line)
 		}
-		return result
+		return result, m
 	}
 
 	// Create cache key from text and width
@@ -142,7 +142,7 @@ func (m *Model) wrapText(text string, style lipgloss.Style) []string {
 
 	// Check cache
 	if cached, ok := m.wrapCache[cacheKey]; ok {
-		return cached
+		return cached, m
 	}
 
 	// Word wrap first, then apply style to each line
@@ -162,7 +162,7 @@ func (m *Model) wrapText(text string, style lipgloss.Style) []string {
 	}
 	m.wrapCache[cacheKey] = result
 
-	return result
+	return result, m
 }
 
 // llmUserMsg adds user message to conversation (ELM Msg)
@@ -205,6 +205,20 @@ type UpdateToolsMsg struct {
 	Tools []mcp.Tool
 }
 
+// clipboardCopyMsg is sent to copy text to clipboard (ELM Msg)
+type clipboardCopyMsg struct {
+	text string
+}
+
+// copyToClipboardCmd copies text to clipboard asynchronously (ELM Cmd)
+func copyToClipboardCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		// Fire and forget - clipboard operations are best effort
+		_ = clipboard.WriteAll(text)
+		return nil
+	}
+}
+
 // sendToLLM sends user message to LLM (ELM Cmd)
 func (m Model) sendToLLM(userInput string) tea.Cmd {
 	return func() tea.Msg {
@@ -222,30 +236,42 @@ func (m Model) waitForLLMUpdate() tea.Cmd {
 
 // processLLM runs LLM turn in background (ELM Cmd)
 func (m Model) processLLM() tea.Cmd {
+	// Copy values to avoid capturing model state
+	prov := m.provider
+	proxy := m.mcpProxy
+	// Copy tools slice
+	tools := make([]mcp.Tool, len(m.mcpTools))
+	copy(tools, m.mcpTools)
+	// Copy history slice
+	history := make([]provider.Message, len(m.history))
+	copy(history, m.history)
+	updateChan := m.updateChan
+	ctx := m.ctx
+
 	return func() tea.Msg {
 		go func() {
 			startTime := time.Now()
 
 			opts := llm.ProcessTurnOptions{
-				Provider:      m.provider,
-				Proxy:         m.mcpProxy,
-				Tools:         m.mcpTools,
-				History:       m.history,
+				Provider:      prov,
+				Proxy:         proxy,
+				Tools:         tools,
+				History:       history,
 				MaxToolRounds: 20,
 				OnMessage: func(msg provider.Message) {
 					// Send message to update history
-					m.updateChan <- llmHistoryMsg{msg: msg}
+					updateChan <- llmHistoryMsg{msg: msg}
 
 					if msg.Role == "assistant" {
 						// Send complete assistant message as single block
-						m.updateChan <- llmAssistantMsg{
+						updateChan <- llmAssistantMsg{
 							reasoning: msg.Reasoning,
 							content:   msg.Content,
 							toolCalls: msg.ToolCalls,
 						}
 					} else if msg.Role == "tool" {
 						// Send full tool result (wrapping will be handled by wrapText)
-						m.updateChan <- llmToolResultMsg{
+						updateChan <- llmToolResultMsg{
 							toolCallID: msg.ToolCallID,
 							content:    msg.Content,
 						}
@@ -253,14 +279,14 @@ func (m Model) processLLM() tea.Cmd {
 				},
 			}
 
-			err := llm.ProcessTurn(m.ctx, opts)
+			err := llm.ProcessTurn(ctx, opts)
 			if err != nil {
-				m.updateChan <- llmErrorMsg{err: err}
+				updateChan <- llmErrorMsg{err: err}
 				return
 			}
 
 			// Send done message
-			m.updateChan <- llmDoneMsg{
+			updateChan <- llmDoneMsg{
 				duration:  time.Since(startTime),
 				timestamp: startTime.Format("15:04"),
 			}
@@ -387,8 +413,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 						}
 
-						// Copy to clipboard (best effort, ignore errors)
-						_ = clipboard.WriteAll(selectedText.String())
+						// Copy to clipboard via command
+						cmds = append(cmds, copyToClipboardCmd(selectedText.String()))
 					}
 					// Clear selection
 					m.conversationSelectStart = 0
@@ -450,7 +476,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		// Format and display user message first
 		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.NoColor{})
-		wrappedLines := m.wrapText(msg.content, grayStyle)
+		wrappedLines, m := m.wrapText(msg.content, grayStyle)
 		m.conversation = append(m.conversation, wrappedLines...)
 		m.conversation = append(m.conversation, "")
 		// Add timestamp separator after message
@@ -482,21 +508,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Display reasoning if present
 		if msg.reasoning != "" {
-			wrappedLines := m.wrapText(msg.reasoning, grayStyle)
+			var wrappedLines []string
+			wrappedLines, m = m.wrapText(msg.reasoning, grayStyle)
 			m.conversation = append(m.conversation, wrappedLines...)
 			m.conversation = append(m.conversation, "")
 		}
 
 		// Display content
 		if msg.content != "" {
-			wrappedLines := m.wrapText(msg.content, plainStyle)
+			var wrappedLines []string
+			wrappedLines, m = m.wrapText(msg.content, plainStyle)
 			m.conversation = append(m.conversation, wrappedLines...)
 			m.conversation = append(m.conversation, "")
 		}
 
 		// Display tool calls
 		for _, tc := range msg.toolCalls {
-			wrappedLines := m.wrapText("→  "+tc.Name+"(...)", plainStyle)
+			var wrappedLines []string
+			wrappedLines, m = m.wrapText("→  "+tc.Name+"(...)", plainStyle)
 			m.conversation = append(m.conversation, wrappedLines...)
 		}
 
@@ -504,7 +533,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case llmToolResultMsg:
 		plainStyle := lipgloss.NewStyle()
-		wrappedLines := m.wrapText("←  "+msg.content, plainStyle)
+		wrappedLines, m := m.wrapText("←  "+msg.content, plainStyle)
 		m.conversation = append(m.conversation, wrappedLines...)
 		return m, m.waitForLLMUpdate() // Continue listening
 
