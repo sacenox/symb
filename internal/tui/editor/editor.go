@@ -207,19 +207,22 @@ func (m *Model) clampCursor() {
 	}
 }
 
+// clampScroll ensures the cursor's visual row is visible and scroll doesn't
+// exceed content bounds. m.scroll is a visual row offset.
 func (m *Model) clampScroll() {
 	if m.height <= 0 {
 		return
 	}
+	cvr := m.cursorVisualRow()
 	// Ensure cursor is visible
-	if m.row < m.scroll {
-		m.scroll = m.row
+	if cvr < m.scroll {
+		m.scroll = cvr
 	}
-	if m.row >= m.scroll+m.height {
-		m.scroll = m.row - m.height + 1
+	if cvr >= m.scroll+m.height {
+		m.scroll = cvr - m.height + 1
 	}
 	// Don't scroll past content
-	maxScroll := len(m.lines) - m.height
+	maxScroll := m.visualRowCount() - m.height
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
@@ -265,6 +268,114 @@ func (m *Model) textWidth() int {
 		w = 1
 	}
 	return w
+}
+
+// ---------------------------------------------------------------------------
+// Soft line wrapping helpers
+// ---------------------------------------------------------------------------
+
+// wrapPlain splits a plain-text string into visual rows of at most `width`
+// runes. No ANSI awareness needed — call this on the raw expanded-tab text.
+func wrapPlain(s string, width int) []string {
+	if width <= 0 {
+		return []string{s}
+	}
+	runes := []rune(s)
+	if len(runes) <= width {
+		return []string{s}
+	}
+	var rows []string
+	for len(runes) > 0 {
+		end := width
+		if end > len(runes) {
+			end = len(runes)
+		}
+		rows = append(rows, string(runes[:end]))
+		runes = runes[end:]
+	}
+	return rows
+}
+
+// visualRowCount returns the total number of visual rows across all buffer
+// lines, given the text width for wrapping.
+func (m *Model) visualRowCount() int {
+	tw := m.textWidth()
+	total := 0
+	for _, line := range m.lines {
+		expanded := expandTabs(string(line))
+		n := len([]rune(expanded))
+		if n <= tw {
+			total++
+		} else {
+			total += (n + tw - 1) / tw
+		}
+	}
+	return total
+}
+
+// cursorVisualRow returns the visual row index of the current cursor position.
+func (m *Model) cursorVisualRow() int {
+	tw := m.textWidth()
+	vr := 0
+	for i := 0; i < m.row && i < len(m.lines); i++ {
+		expanded := expandTabs(string(m.lines[i]))
+		n := len([]rune(expanded))
+		if n <= tw {
+			vr++
+		} else {
+			vr += (n + tw - 1) / tw
+		}
+	}
+	// Add the sub-row within the cursor's line
+	if m.row < len(m.lines) {
+		// The cursor col in the expanded string
+		prefix := expandTabs(string(m.lines[m.row][:m.col]))
+		runeCol := len([]rune(prefix))
+		vr += runeCol / tw
+	}
+	return vr
+}
+
+// visualToBuffer converts a visual row index to a buffer row and the rune
+// offset (in the expanded line) at the start of that visual sub-row.
+func (m *Model) visualToBuffer(visRow int) (bufRow, runeOffset int) {
+	tw := m.textWidth()
+	vr := 0
+	for i, line := range m.lines {
+		expanded := expandTabs(string(line))
+		n := len([]rune(expanded))
+		rows := 1
+		if n > tw {
+			rows = (n + tw - 1) / tw
+		}
+		if vr+rows > visRow {
+			return i, (visRow - vr) * tw
+		}
+		vr += rows
+	}
+	// Past end — return last line
+	return len(m.lines) - 1, 0
+}
+
+// expandedColToBufferCol maps a column in the expanded-tab string back to the
+// corresponding rune index in the original buffer line.
+func (m *Model) expandedColToBufferCol(bufRow, expandedCol int) int {
+	if bufRow < 0 || bufRow >= len(m.lines) {
+		return 0
+	}
+	line := m.lines[bufRow]
+	col := 0 // visual column in expanded space
+	for i, r := range line {
+		if col >= expandedCol {
+			return i
+		}
+		if r == '\t' {
+			col += tabWidth - (col % tabWidth)
+		} else {
+			col++
+		}
+	}
+	return len(line)
 }
 
 // bgForRender returns the background style. Extracts from syntax theme if
@@ -420,23 +531,23 @@ func (m *Model) selectedText() string {
 }
 
 // screenToPos converts screen-relative x,y to a buffer row,col.
+// x,y are relative to the editor component origin.
 func (m *Model) screenToPos(x, y int) pos {
-	row := m.scroll + y
-	if row < 0 {
-		row = 0
+	visRow := m.scroll + y
+	if visRow < 0 {
+		visRow = 0
 	}
-	if row >= len(m.lines) {
-		row = len(m.lines) - 1
-	}
+	bufRow, runeOffset := m.visualToBuffer(visRow)
+
 	col := x - m.gutterWidth
 	if col < 0 {
 		col = 0
 	}
-	lineLen := len(m.lines[row])
-	if col > lineLen {
-		col = lineLen
-	}
-	return pos{row: row, col: col}
+	// runeOffset is in expanded-tab space; convert back to buffer col.
+	// We need to find which buffer rune corresponds to runeOffset + col
+	// in the expanded string.
+	bufCol := m.expandedColToBufferCol(bufRow, runeOffset+col)
+	return pos{row: bufRow, col: bufCol}
 }
 
 func clampMax(v, hi int) int {
@@ -609,42 +720,102 @@ func (m Model) View() string {
 	bg := m.bgForRender()
 	lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
 
+	// Build a flat list of visual rows from visible buffer lines.
+	// Each visual row knows its buffer line index and sub-row index.
+	type visualRow struct {
+		bufRow int    // buffer line index
+		subRow int    // 0 = first wrap segment, 1 = second, etc.
+		text   string // plain text (expanded tabs) for this segment
+	}
+
+	var rows []visualRow
+
+	// Find which buffer line the scroll offset lands in.
+	startBuf, startRuneOff := m.visualToBuffer(m.scroll)
+
+	// Pre-compute the sub-row index for the starting buffer line.
+	startSubRow := 0
+	if startRuneOff > 0 && tw > 0 {
+		startSubRow = startRuneOff / tw
+	}
+
+	// Generate visual rows starting from the scroll position.
+	for bufIdx := startBuf; bufIdx < len(m.lines) && len(rows) < m.height; bufIdx++ {
+		lineStr := expandTabs(string(m.lines[bufIdx]))
+		segments := wrapPlain(lineStr, tw)
+		firstSub := 0
+		if bufIdx == startBuf {
+			firstSub = startSubRow
+		}
+		for subIdx := firstSub; subIdx < len(segments) && len(rows) < m.height; subIdx++ {
+			rows = append(rows, visualRow{bufRow: bufIdx, subRow: subIdx, text: segments[subIdx]})
+		}
+	}
+
+	// Determine cursor position in expanded-tab space for the cursor line.
+	cursorExpandedCol := -1
+	if m.focus && m.row >= 0 && m.row < len(m.lines) {
+		prefix := expandTabs(string(m.lines[m.row][:m.col]))
+		cursorExpandedCol = len([]rune(prefix))
+	}
+
 	var b strings.Builder
 
 	for vi := 0; vi < m.height; vi++ {
-		row := m.scroll + vi
 		if vi > 0 {
 			b.WriteByte('\n')
 		}
 
-		if row >= len(m.lines) {
+		if vi >= len(rows) {
 			// End-of-buffer: fill entire row with bg
 			b.WriteString(bg.Render(strings.Repeat(" ", m.width)))
 			continue
 		}
 
+		vr := rows[vi]
+
 		// -- Gutter (line numbers) -------------------------------------------
 		if m.ShowLineNumbers {
 			digits := m.gutterWidth - 1
-			num := fmt.Sprintf("%*d ", digits, row+1)
-			b.WriteString(lineNumSty.Render(num))
+			if vr.subRow == 0 {
+				num := fmt.Sprintf("%*d ", digits, vr.bufRow+1)
+				b.WriteString(lineNumSty.Render(num))
+			} else {
+				// Continuation row — blank gutter
+				b.WriteString(lineNumSty.Render(strings.Repeat(" ", m.gutterWidth)))
+			}
 		}
 
 		// -- Text content ----------------------------------------------------
-		line := m.lines[row]
-		lineStr := expandTabs(string(line))
-		isCursorRow := m.focus && row == m.row
+		segText := vr.text
+		segRuneOff := vr.subRow * tw // rune offset within the full expanded line
+		segLen := len([]rune(segText))
 
-		var rendered string
-		if isCursorRow {
-			rendered = m.renderCursorLine(lineStr)
-		} else if m.Language != "" && m.SyntaxTheme != "" {
-			rendered = cachedHighlight(lineStr, m.Language, m.SyntaxTheme)
-		} else {
-			rendered = bg.Render(lineStr)
+		// Is the cursor on this visual row?
+		// Cursor is here if it falls within this segment's rune range,
+		// OR if it's at end-of-segment and this is the last sub-row
+		// (cursor past last char sits on the last segment).
+		isCursorHere := false
+		if m.focus && vr.bufRow == m.row {
+			if cursorExpandedCol >= segRuneOff && cursorExpandedCol < segRuneOff+tw {
+				isCursorHere = true
+			} else if cursorExpandedCol == segRuneOff+segLen && segLen < tw {
+				// End-of-line cursor on a short (last) segment
+				isCursorHere = true
+			}
 		}
 
-		// Truncate to text width and pad
+		var rendered string
+		if isCursorHere {
+			localCol := cursorExpandedCol - segRuneOff
+			rendered = m.renderCursorSegment(segText, localCol)
+		} else if m.Language != "" && m.SyntaxTheme != "" {
+			rendered = cachedHighlight(segText, m.Language, m.SyntaxTheme)
+		} else {
+			rendered = bg.Render(segText)
+		}
+
+		// Pad to text width
 		rw := lipgloss.Width(rendered)
 		if rw > tw {
 			rendered = ansi.Truncate(rendered, tw, "")
@@ -659,12 +830,13 @@ func (m Model) View() string {
 	return b.String()
 }
 
-// renderCursorLine renders the cursor row with the cursor character visible.
-func (m Model) renderCursorLine(lineStr string) string {
+// renderCursorSegment renders a text segment with the cursor at localCol.
+// localCol is a rune index within segText.
+func (m Model) renderCursorSegment(segText string, localCol int) string {
 	bg := m.bgForRender()
-	runes := []rune(lineStr)
+	runes := []rune(segText)
 
-	col := m.col
+	col := localCol
 	if col > len(runes) {
 		col = len(runes)
 	}
