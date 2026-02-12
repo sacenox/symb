@@ -160,13 +160,38 @@ Confidence Level: High for a prototype. The ecosystem is ready.
 
 # TODO:
 
-- TUI is extremly lagging, if I scroll or hold a key down. Cursor blocks scrolling, needs to follow it. ** MAJOR ISSUE **
+- Grep is not matching pathname:
 
-- Enter on editor area send empty message. Both text areas are Focused, should be mutually exclusive.
+```
+The Grep tool was called with the following arguments:
+
+- `pattern`: `"mcp_tools.go"`
+- `content_search`: `false` (filename search, not content grep)
+- `case_sensitive`: `false` (default, case-insensitive)
+- `max_results`: `100` (default)
+
+This means the tool was searching for files named
+`mcp_tools.go` (or similar, due to fuzzy matching) in the
+current directory and tracked paths (while respecting
+`.gitignore`). Let me know if you'd like to tweak these
+parameters!
+```
+
+- Show tool call arguments expanded:
+
+```
+  Grep(pattern="...", ...)
+```
+
+- Open() should return the openned content to the LLM, and still open the snippet in the editor.
+
+- Add Prompt, and AGENTS.md support.
+
+- Make file references clickable in coversation (including tool calls output.)
 
 - Copy text selection to clipboard (shift + arrows) then (ctrl + shift + c)
 
-- file searching and opening, buffer switching. // do I even want this, just make llm tools and ask it.
+- file searching and opening, buffer switching. do I even want this, just make llm tools and ask it.
 
 - streamed assistant response
 

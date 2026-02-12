@@ -1,3 +1,4 @@
+// Package mcp_tools provides local MCP tool implementations.
 package mcp_tools
 
 import (

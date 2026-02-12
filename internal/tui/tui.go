@@ -51,13 +51,11 @@ type Model struct {
 	customHalfWidth int  // Custom half width (0 = use default calculated value)
 
 	// Wrap cache to avoid re-wrapping unchanged text
-	wrapCache    map[string][]string
-	wrapCacheKey string // Key for current conversation state
+	wrapCache map[string][]string
 
 	// Pre-allocated styles to avoid repeated allocations
-	borderStyle       lipgloss.Style
-	selectionStyle    lipgloss.Style
-	conversationWidth int // Track width for style invalidation
+	borderStyle    lipgloss.Style
+	selectionStyle lipgloss.Style
 }
 
 // New creates a new TUI model

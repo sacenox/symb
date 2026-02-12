@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zoea Nova's TUI test suite uses three complementary testing approaches:
+Symb's TUI test suite uses three complementary testing approaches:
 1. **Unit tests** - Model state and business logic
 2. **Golden file tests** - Visual regression testing
 3. **Integration tests** - End-to-end user flows with teatest
@@ -322,7 +322,7 @@ This prevents the Unicode overlap bug previously fixed in commit fb1d0b6.
 
 1. **Test in primary terminal** (Alacritty, Kitty, WezTerm recommended):
    ```bash
-   ./bin/zoea --offline
+   ./bin/symb
    ```
 
 2. **Verify spinner animation:**
@@ -829,9 +829,9 @@ Decorative elements (icons, indicators) must be rendered OUTSIDE styled areas to
 ### 4. Tests Don't Replace Manual Verification
 Always run the actual TUI application to verify visual changes. Tests validate logic and catch regressions, but human eyes catch visual issues tests miss.
 
-Use offline mode for safe UI testing without connecting to the live game server:
+Run the TUI application to verify visual changes:
 ```bash
-./bin/zoea -offline
+./bin/symb
 ```
 
 ### 5. Integration Tests Need Quit Pattern

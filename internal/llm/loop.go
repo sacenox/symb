@@ -1,3 +1,4 @@
+// Package llm implements the LLM interaction loop with tool calling support.
 package llm
 
 import (

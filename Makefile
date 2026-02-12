@@ -14,7 +14,7 @@ test:
 
 # Run linter
 lint:
-	$$(go env GOPATH)/bin/golangci-lint run ./...
+	$$(go env GOPATH)/bin/golangci-lint run ./cmd/... ./internal/...
 
 # Clean build artifacts
 clean:

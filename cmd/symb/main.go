@@ -90,15 +90,11 @@ func main() {
 	}
 	defer proxy.Close()
 
-	// Create program pointer that will be set after program creation
-	var p *tea.Program
-
-	// Register local tools that need program reference (before listing tools)
+	// Register local tools
 	openForUserTool := mcp_tools.NewOpenForUserTool()
-	openForUserHandler := mcp_tools.MakeOpenForUserHandler(&p)
-	proxy.RegisterTool(openForUserTool, openForUserHandler)
+	openForUserHandler := mcp_tools.NewOpenForUserHandler()
+	proxy.RegisterTool(openForUserTool, openForUserHandler.Handle)
 
-	// Register grep tool
 	grepTool := mcp_tools.NewGrepTool()
 	grepHandler := mcp_tools.MakeGrepHandler()
 	proxy.RegisterTool(grepTool, grepHandler)
@@ -111,11 +107,14 @@ func main() {
 	}
 
 	// Create the BubbleTea program
-	p = tea.NewProgram(
+	p := tea.NewProgram(
 		tui.New(prov, proxy, tools),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
+
+	// Set program reference for tools that need it
+	openForUserHandler.SetProgram(p)
 
 	// Run the program
 	if _, err := p.Run(); err != nil {

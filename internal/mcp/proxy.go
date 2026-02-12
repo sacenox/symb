@@ -1,3 +1,4 @@
+// Package mcp implements Model Context Protocol client and proxy functionality.
 package mcp
 
 import (
