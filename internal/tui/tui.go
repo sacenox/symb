@@ -59,7 +59,7 @@ type Model struct {
 }
 
 // New creates a new TUI model
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string) Model {
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorMatrix) // Matrix green
 
 	s := spinner.New()
@@ -89,6 +89,18 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
 	updateChan := make(chan tea.Msg, 500)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Build system prompt from model-specific base + AGENTS.md files
+	systemPrompt := llm.BuildSystemPrompt(modelID)
+
+	// Initialize history with system prompt as first message
+	initialHistory := []provider.Message{
+		{
+			Role:      "system",
+			Content:   systemPrompt,
+			CreatedAt: time.Now(),
+		},
+	}
+
 	return Model{
 		spinner:        s,
 		editor:         editor,
@@ -96,7 +108,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool) Model {
 		provider:       prov,
 		mcpProxy:       proxy,
 		mcpTools:       tools,
-		history:        []provider.Message{},
+		history:        initialHistory,
 		conversation:   []string{},
 		updateChan:     updateChan,
 		ctx:            ctx,

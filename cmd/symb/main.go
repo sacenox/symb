@@ -106,9 +106,9 @@ func main() {
 		tools = []mcp.Tool{}
 	}
 
-	// Create the BubbleTea program
+	// Create the BubbleTea program with model-specific prompt
 	p := tea.NewProgram(
-		tui.New(prov, proxy, tools),
+		tui.New(prov, proxy, tools, providerCfg.Model),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

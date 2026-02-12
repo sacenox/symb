@@ -187,6 +187,8 @@ parameters!
 
 - Add Prompt, and AGENTS.md support.
 
+- websearch tool (exa tools?)
+
 - Make file references clickable in coversation (including tool calls output.)
 
 - Copy text selection to clipboard (shift + arrows) then (ctrl + shift + c)
@@ -196,3 +198,35 @@ parameters!
 - streamed assistant response
 
 - Fun: Show icon in unicode and a highlight color clock centered in the right panel when there are no messages.
+
+## Future Enhancements
+
+### Planned Features
+
+1. **Write Tools**: File modification with user approval
+   - `Edit` - Apply diffs to files
+   - `Create` - Create new files
+   - `Delete` - Remove files (with confirmation)
+
+2. **Shell Execution Tool**: Run commands with sandboxing
+   - Container isolation (Docker/Podman)
+   - Command whitelisting
+   - Output streaming
+
+3. **Web Tools**: HTTP requests and web scraping
+   - `Fetch` - HTTP GET/POST
+   - `Scrape` - Extract data from HTML
+
+4. **LSP Integration**: Language server protocol
+   - `GoToDefinition` - Jump to symbol definition
+   - `FindReferences` - Find all references
+   - `Rename` - Refactor symbol names
+
+### Research Areas
+
+- **Parallel tool execution**: LLM calls multiple tools simultaneously
+- **Tool chaining**: Compose tools into workflows
+- **Streaming results**: Show tool output in real-time
+- **Permission system**: User approvals for sensitive operations
+- **Audit logging**: Track all tool executions
+- **Tool marketplace**: Discover and install community tools
