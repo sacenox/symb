@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"strings"
 	"time"
@@ -234,7 +233,9 @@ type Model struct {
 	cancel     context.CancelFunc
 
 	// Conversation
-	conversation []string // Pre-wrapped, pre-styled lines
+	convEntries  []string // Raw styled lines (not wrapped)
+	convLines    []string // Wrapped visual lines (cache, rebuilt on width change)
+	convCachedW  int      // Width used for current convLines cache
 	scrollOffset int      // Lines from bottom (0 = pinned)
 
 	// Mouse state
@@ -242,9 +243,6 @@ type Model struct {
 	selecting    bool
 	selectStart  int
 	selectEnd    int
-
-	// Cache
-	wrapCache map[string][]string
 }
 
 // New creates a new TUI model.
@@ -284,15 +282,14 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		styles:     sty,
 		focus:      focusInput,
 
-		provider:     prov,
-		mcpProxy:     proxy,
-		mcpTools:     tools,
-		history:      []provider.Message{{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}},
-		conversation: []string{},
-		updateChan:   ch,
-		ctx:          ctx,
-		cancel:       cancel,
-		wrapCache:    make(map[string][]string),
+		provider:    prov,
+		mcpProxy:    proxy,
+		mcpTools:    tools,
+		history:     []provider.Message{{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}},
+		convEntries: []string{},
+		updateChan:  ch,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
@@ -308,44 +305,44 @@ func (m Model) Init() tea.Cmd {
 // convWidth returns the usable width of the conversation pane.
 func (m Model) convWidth() int { return m.layout.conv.Dx() }
 
-// wrapText word-wraps text to conversation width and applies style.
-// Wrapping is cached (width+text); styling is applied after lookup.
-func (m Model) wrapText(text string, style lipgloss.Style) ([]string, Model) {
-	w := m.convWidth()
-	if w <= 0 {
-		lines := strings.Split(text, "\n")
-		out := make([]string, len(lines))
-		for i, l := range lines {
-			out[i] = style.Render(l)
-		}
-		return out, m
-	}
-
-	// Cache stores unstyled wrapped lines — safe to reuse across styles.
-	key := fmt.Sprintf("%d:%s", w, text)
-	lines, ok := m.wrapCache[key]
-	if !ok {
-		wrapped := ansi.Wordwrap(text, w, "")
-		lines = strings.Split(wrapped, "\n")
-		if len(m.wrapCache) > 1000 {
-			m.wrapCache = make(map[string][]string)
-		}
-		m.wrapCache[key] = lines
-	}
-
-	// Apply style after cache lookup.
-	out := make([]string, len(lines))
-	for i, l := range lines {
+// styledLines applies a lipgloss style to each line in a multi-line text.
+// No wrapping — lines are stored raw for later wrapping at render time.
+func styledLines(text string, style lipgloss.Style) []string {
+	raw := strings.Split(text, "\n")
+	out := make([]string, len(raw))
+	for i, l := range raw {
 		out[i] = style.Render(l)
 	}
-	return out, m
+	return out
 }
 
-// appendConv appends lines and returns whether we were at bottom (for sticky scroll).
-func (m *Model) appendConv(lines ...string) bool {
+// appendConv appends raw styled entries and returns whether we were at bottom
+// (for sticky scroll). Invalidates the wrapped-lines cache.
+func (m *Model) appendConv(entries ...string) bool {
 	atBottom := m.scrollOffset == 0
-	m.conversation = append(m.conversation, lines...)
+	m.convEntries = append(m.convEntries, entries...)
+	m.convLines = nil // invalidate cache
 	return atBottom
+}
+
+// wrappedConvLines returns the conversation wrapped to the current convWidth.
+// Cached — only recomputed when entries change (nil) or width changes.
+func (m *Model) wrappedConvLines() []string {
+	w := m.convWidth()
+	if m.convLines != nil && m.convCachedW == w {
+		return m.convLines
+	}
+	m.convCachedW = w
+	lines := make([]string, 0, len(m.convEntries))
+	for _, entry := range m.convEntries {
+		if entry == "" {
+			lines = append(lines, "")
+		} else {
+			lines = append(lines, wrapANSI(entry, w)...)
+		}
+	}
+	m.convLines = lines
+	return m.convLines
 }
 
 // makeSeparator builds a timestamp separator line.
@@ -419,9 +416,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, provider.Message{
 			Role: "user", Content: msg.content, CreatedAt: now,
 		})
-		lines, m2 := m.wrapText(msg.content, m.styles.Text)
-		m = m2
-		m.appendConv(lines...)
+		m.appendConv(styledLines(msg.content, m.styles.Text)...)
 		m.appendConv("")
 		sep := m.makeSeparator("0s", now.Format("15:04:05"))
 		wasBottom := m.appendConv(sep)
@@ -437,27 +432,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case llmAssistantMsg:
 		if msg.reasoning != "" {
-			lines, m2 := m.wrapText(msg.reasoning, m.styles.Muted)
-			m = m2
-			wasBottom := m.appendConv(lines...)
+			wasBottom := m.appendConv(styledLines(msg.reasoning, m.styles.Muted)...)
 			m.appendConv("")
 			if wasBottom {
 				m.scrollOffset = 0
 			}
 		}
 		if msg.content != "" {
-			lines, m2 := m.wrapText(msg.content, m.styles.Text)
-			m = m2
-			wasBottom := m.appendConv(lines...)
+			wasBottom := m.appendConv(styledLines(msg.content, m.styles.Text)...)
 			m.appendConv("")
 			if wasBottom {
 				m.scrollOffset = 0
 			}
 		}
 		for _, tc := range msg.toolCalls {
-			lines, m2 := m.wrapText(m.styles.ToolArrow.Render("→")+"  "+m.styles.ToolCall.Render(tc.Name+"(...)"), lipgloss.NewStyle())
-			m = m2
-			wasBottom := m.appendConv(lines...)
+			entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(tc.Name+"(...)")
+			wasBottom := m.appendConv(entry)
 			if wasBottom {
 				m.scrollOffset = 0
 			}
@@ -465,9 +455,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitForLLMUpdate()
 
 	case llmToolResultMsg:
-		lines, m2 := m.wrapText(m.styles.ToolArrow.Render("←")+"  "+m.styles.Dim.Render(msg.content), lipgloss.NewStyle())
-		m = m2
-		wasBottom := m.appendConv(lines...)
+		entry := m.styles.ToolArrow.Render("←") + "  " + m.styles.Dim.Render(msg.content)
+		wasBottom := m.appendConv(entry)
 		if wasBottom {
 			m.scrollOffset = 0
 		}
@@ -583,7 +572,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// --- Conversation: scroll + selection -----------------------------------
 	if inRect(msg.X, msg.Y, m.layout.conv) {
 		convH := m.layout.conv.Dy()
-		totalLines := len(m.conversation)
+		lines := m.wrappedConvLines()
+		totalLines := len(lines)
 
 		switch msg.Button {
 		case tea.MouseButtonLeft:
@@ -612,7 +602,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 					var sb strings.Builder
 					for i := start; i <= end; i++ {
-						sb.WriteString(ansi.Strip(m.conversation[i]))
+						sb.WriteString(ansi.Strip(lines[i]))
 						if i < end {
 							sb.WriteByte('\n')
 						}
@@ -637,9 +627,10 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// visibleStartLine returns the index of the first visible conversation line.
-func (m Model) visibleStartLine() int {
-	total := len(m.conversation)
+// visibleStartLine returns the index of the first visible wrapped conversation line.
+func (m *Model) visibleStartLine() int {
+	lines := m.wrappedConvLines()
+	total := len(lines)
 	visible := m.layout.conv.Dy()
 	if total <= visible {
 		return 0
@@ -668,7 +659,8 @@ func (m Model) View() string {
 	editorLines := strings.Split(m.editor.View(), "\n")
 	inputLines := strings.Split(m.agentInput.View(), "\n")
 
-	// Conversation visible window
+	// Conversation visible window (wrapped to current width)
+	convLines := m.wrappedConvLines()
 	startLine := m.visibleStartLine()
 
 	bgFill := m.styles.BgFill
@@ -701,8 +693,8 @@ func (m Model) View() string {
 		if relY < ly.conv.Dy() {
 			// Conversation area
 			lineIdx := startLine + relY
-			if lineIdx < len(m.conversation) {
-				line := m.conversation[lineIdx]
+			if lineIdx < len(convLines) {
+				line := convLines[lineIdx]
 
 				// Selection highlight
 				isSelected := false
@@ -718,10 +710,6 @@ func (m Model) View() string {
 				}
 
 				lw := lipgloss.Width(line)
-				if lw > rw {
-					line = ansi.Truncate(line, rw, "")
-					lw = lipgloss.Width(line)
-				}
 				b.WriteString(line)
 				if lw < rw {
 					pad := strings.Repeat(" ", rw-lw)

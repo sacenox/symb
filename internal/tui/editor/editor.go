@@ -207,6 +207,24 @@ func (m *Model) clampCursor() {
 	}
 }
 
+// clampScrollBounds enforces scroll min/max without snapping to the cursor.
+// Use for mouse wheel scrolling where the viewport moves independently.
+func (m *Model) clampScrollBounds() {
+	if m.height <= 0 {
+		return
+	}
+	maxScroll := m.visualRowCount() - m.height
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.scroll > maxScroll {
+		m.scroll = maxScroll
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+}
+
 // clampScroll ensures the cursor's visual row is visible and scroll doesn't
 // exceed content bounds. m.scroll is a visual row offset.
 func (m *Model) clampScroll() {
@@ -687,10 +705,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		case tea.MouseButtonWheelUp:
 			m.scroll -= 3
-			m.clampScroll()
+			m.clampScrollBounds()
 		case tea.MouseButtonWheelDown:
 			m.scroll += 3
-			m.clampScroll()
+			m.clampScrollBounds()
 		}
 	}
 
@@ -721,14 +739,17 @@ func (m Model) View() string {
 	lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
 
 	// Build a flat list of visual rows from visible buffer lines.
-	// Each visual row knows its buffer line index and sub-row index.
 	type visualRow struct {
-		bufRow int    // buffer line index
-		subRow int    // 0 = first wrap segment, 1 = second, etc.
-		text   string // plain text (expanded tabs) for this segment
+		bufRow   int    // buffer line index
+		subRow   int    // 0 = first wrap segment, 1 = second, etc.
+		text     string // plain text (expanded tabs) for this segment
+		fullHL   string // full-line highlighted ANSI (shared across sub-rows)
+		segStart int    // rune offset of this segment in the full line
+		segEnd   int    // rune end offset
 	}
 
 	var rows []visualRow
+	hasSyntax := m.Language != "" && m.SyntaxTheme != ""
 
 	// Find which buffer line the scroll offset lands in.
 	startBuf, startRuneOff := m.visualToBuffer(m.scroll)
@@ -743,12 +764,29 @@ func (m Model) View() string {
 	for bufIdx := startBuf; bufIdx < len(m.lines) && len(rows) < m.height; bufIdx++ {
 		lineStr := expandTabs(string(m.lines[bufIdx]))
 		segments := wrapPlain(lineStr, tw)
+
+		// Highlight the full line once for all its segments.
+		var fullHL string
+		if hasSyntax {
+			fullHL = cachedHighlight(lineStr, m.Language, m.SyntaxTheme)
+		}
+
 		firstSub := 0
 		if bufIdx == startBuf {
 			firstSub = startSubRow
 		}
+		runeOff := firstSub * tw
 		for subIdx := firstSub; subIdx < len(segments) && len(rows) < m.height; subIdx++ {
-			rows = append(rows, visualRow{bufRow: bufIdx, subRow: subIdx, text: segments[subIdx]})
+			segLen := len([]rune(segments[subIdx]))
+			rows = append(rows, visualRow{
+				bufRow:   bufIdx,
+				subRow:   subIdx,
+				text:     segments[subIdx],
+				fullHL:   fullHL,
+				segStart: runeOff,
+				segEnd:   runeOff + segLen,
+			})
+			runeOff += segLen
 		}
 	}
 
@@ -808,9 +846,9 @@ func (m Model) View() string {
 		var rendered string
 		if isCursorHere {
 			localCol := cursorExpandedCol - segRuneOff
-			rendered = m.renderCursorSegment(segText, localCol)
-		} else if m.Language != "" && m.SyntaxTheme != "" {
-			rendered = cachedHighlight(segText, m.Language, m.SyntaxTheme)
+			rendered = m.renderCursorSegment(segText, vr.fullHL, vr.segStart, localCol)
+		} else if hasSyntax && vr.fullHL != "" {
+			rendered = ansi.Cut(vr.fullHL, vr.segStart, vr.segEnd)
 		} else {
 			rendered = bg.Render(segText)
 		}
@@ -831,8 +869,11 @@ func (m Model) View() string {
 }
 
 // renderCursorSegment renders a text segment with the cursor at localCol.
-// localCol is a rune index within segText.
-func (m Model) renderCursorSegment(segText string, localCol int) string {
+// localCol is a rune index within the segment's plain text.
+// fullHL is the full-line highlighted ANSI string; segStart is the rune offset
+// of this segment within it. Uses ansi.Cut to extract correctly-highlighted
+// before/after portions so syntax coloring is never broken.
+func (m Model) renderCursorSegment(segText, fullHL string, segStart, localCol int) string {
 	bg := m.bgForRender()
 	runes := []rune(segText)
 
@@ -841,26 +882,24 @@ func (m Model) renderCursorSegment(segText string, localCol int) string {
 		col = len(runes)
 	}
 
-	before := string(runes[:col])
-	after := ""
+	// Extract the cursor character from the plain text.
 	cursorChar := " "
 	if col < len(runes) {
 		cursorChar = string(runes[col])
-		after = string(runes[col+1:])
 	}
 
-	// Highlight segments if syntax is enabled
 	hasSyntax := m.Language != "" && m.SyntaxTheme != ""
-	if hasSyntax {
-		if before != "" {
-			before = cachedHighlight(before, m.Language, m.SyntaxTheme)
-		}
-		if after != "" {
-			after = cachedHighlight(after, m.Language, m.SyntaxTheme)
-		}
+	var before, after string
+
+	if hasSyntax && fullHL != "" {
+		// Cut from the full-line highlight at absolute positions.
+		absCursorCol := segStart + col
+		before = ansi.Cut(fullHL, segStart, absCursorCol)
+		after = ansi.Cut(fullHL, absCursorCol+1, segStart+len(runes))
 	} else {
-		before = bg.Render(before)
-		after = bg.Render(after)
+		highlighted := bg.Render(segText)
+		before = ansi.Truncate(highlighted, col, "")
+		after = ansi.TruncateLeft(highlighted, col+1, "")
 	}
 
 	// Render cursor character
