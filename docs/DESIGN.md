@@ -2,47 +2,62 @@
 
 A code/pair programming tool for developers who use agents in their main workflows. Symbiotic pairing between developer and LLM. The developer has an agentic UI that provides the interface to the LLM, and a set of tools the LLM can use to cooperate in coding/development with the user.
 
+## Vision
+
 Simple UI. Being a TUI, the goal is to be fast, have low memory usage, and avoid being a distraction to the code/content. Simple unicode border around the window. Agentic conversation on one side, code editor on the other. Matrix green for color (used rarely, only when a color is absolutely needed).
 
 A TUI from the future. We want feature parity with a GUI editor: mouse selection, clicking, etc.
 
-## Minimum viable product:
+## Minimum Viable Product
 
-- Agentic UI:
-  - Support for clicking file references/diffs/snippets to open in Editor side.
-  - Optional Human-in-the-middle LLM tool call loop (with configurable permissions in global config)
-  - Auto Context, LLM is aware of file/project in question probably via tree-sitter?
-  - AGENTS.md support
+### Agentic UI
 
-- Code/Diff viewer (currently editor in read-only) UI:
-  - Line numbers, syntax highlighting
-  - LSP support
-  - Git integration (show file git status)
-  - Simple editting support, no advanced usages or keybinds. ** DONE BUT UNUSED FOR NOW, KEEP!! **
-  - Code browsing mouse features: click to go to definition/references. Search for word under cursor.
+- Support for clicking file references/diffs/snippets to open in Editor side.
+- Optional Human-in-the-middle LLM tool call loop (with configurable permissions in global config)
+- Auto Context, LLM is aware of file/project in question probably via tree-sitter?
+- AGENTS.md support
 
-- LLM Tools:
-  - Run in sandboxed version of the working directory to allow multiple agents working on the same file. Use git to merge sandboxed changes to real repo.
-  - Grep, Read, Write: optimized for code changes (LSP and linting checks after each edit). These appear in agentic UI as a diff message (not actual diff). Clicking on it takes us to that edit in the editor tab.
-  - Undo: Either perform an intelligent step back or use git to reset.
-  - Subagent tool: Performs a single task based on prompt.
-  - Mutation tools create a new branch worktress for the sandboxed environment. Perform the mutation. Once the user approves the mutation or tells the agent to merge, a git merge happens.
+### Code/Diff Viewer (currently editor in read-only) UI
 
-- Features:
-  - `<CTRL> + <f>`: Search files by filename or content (fuzzy matches, fast)
-    - Opens a modal/overlay with a search box and a dynamic list of matches.
-    - Searching filters the list.
-    - Up/Down arrows select item in the list.
-    - Enter opens the currently matched/selected file.
-    - Includes the currently "opened" buffers in search at the top of the matches.
-    - We should find a library that does this for us, before trying to code our own fuzzy
+- Line numbers, syntax highlighting
+- LSP support
+- Git integration (show file git status)
+- Simple editting support, no advanced usages or keybinds. ** DONE BUT UNUSED FOR NOW, KEEP!! **
+- Code browsing mouse features: click to go to definition/references. Search for word under cursor.
 
-  - `<CTRL> + <g>`: Open git diff in the editor.
+### LLM Tools
 
-  - Selected text + `<CTRL> + <k>`: Send selected text to the LLM input.
-  - `<CTRL> + <k>`: Prompt at cursor, focus the input with information for the LLM about the user's cursor.
+- Run in sandboxed version of the working directory to allow multiple agents working on the same file. Use git to merge sandboxed changes to real repo.
+- Grep, Read, Write: optimized for code changes (LSP and linting checks after each edit). These appear in agentic UI as a diff message (not actual diff). Clicking on it takes us to that edit in the editor tab.
+- Undo: Either perform an intelligent step back or use git to reset.
+- Subagent tool: Performs a single task based on prompt.
+- Mutation tools create a new branch worktress for the sandboxed environment. Perform the mutation. Once the user approves the mutation or tells the agent to merge, a git merge happens.
 
-- Theme: Clean, straight corners, _suit and tie_-like. Use dark grayscale for almost everything on a clean black background. Matrix green used lightly (animated activity spinner). Single clean unicode lines (like in the drawing bellow)
+### Features
+
+#### File Search: `<CTRL> + <f>`
+
+Search files by filename or content (fuzzy matches, fast)
+
+- Opens a modal/overlay with a search box and a dynamic list of matches.
+- Searching filters the list.
+- Up/Down arrows select item in the list.
+- Enter opens the currently matched/selected file.
+- Includes the currently "opened" buffers in search at the top of the matches.
+- We should find a library that does this for us, before trying to code our own fuzzy
+
+#### Git Diff: `<CTRL> + <g>`
+
+Open git diff in the editor.
+
+#### LLM Interaction
+
+- Selected text + `<CTRL> + <k>`: Send selected text to the LLM input.
+- `<CTRL> + <k>`: Prompt at cursor, focus the input with information for the LLM about the user's cursor.
+
+### Theme
+
+Clean, straight corners, _suit and tie_-like. Use dark grayscale for almost everything on a clean black background. Matrix green used lightly (animated activity spinner). Single clean unicode lines (like in the drawing bellow)
 
 ## Mockup
 
@@ -91,113 +106,132 @@ XXs 00:00 ───────────────────────�
 
 ```
 
-### Post mvp:
+### Post-MVP
 
 - Send input text to editor and send editor text to input/llm via keybinds
 - Send cursor position/filename to llm via keybind
 - Send selected text to llm via keybind
 
-## Tech:
+## Technology Stack
+
+### Architecture
 
 - True ELM architecture (no exceptions ever).
   - Strict project structure with separation of concern by internal modules.
 - Go (see https://github.com/tj/go-tea) For ELM architecture in TUI app (documentation).
-- BubbleTea:
+
+### Core Libraries
+
+- **BubbleTea**:
   - Base library for TUI, use their bubbles, and all of the ecosystem.
   - Golden files based testing for the TUI.
   - https://github.com/charmbracelet/bubbletea Root BubbleTea.
-- LLM Providers: Ollama local + Opencode Zen.
-- Config driven: `./config.toml`.
+- **LLM Providers**: Ollama local + Opencode Zen.
+- **Config driven**: `./config.toml`.
 
-### References:
+### Dependencies
+
+#### LSP Client
+
+- Candidate: `github.com/sourcegraph/go-lsp` (Battle-tested by Sourcegraph).
+- Alternative: `go.lsp.dev/protocol` (Modern, modular).
+
+#### Mouse Support
+
+- Candidate: `github.com/lrstanley/bubblezone` (Wrapper for easier hit-testing/zoning).
+
+#### Editor
+
+- Official: `github.com/charmbracelet/bubbles/textarea` (Basic text input).
+- Vim-like: `github.com/mieubrisse/vim-bubble` (Vim buffer emulation).
+
+#### Syntax Highlighting
+
+- Candidate: `github.com/alecthomas/chroma` (Standard Go syntax highlighter).
+
+### References
 
 - ZOEA NOVA `~/src/zoea-nova`: A past project with a lot of overlap, also focused on LLM agentic loop.
 - Mysis `~/src/mysis`: Also a past project: raw CLI agentic tool for a dedicated agent (lots of overlap).
 - Cursor IDE (Cursor has this UX, but it's slow, leaks memory and it's more distracting than most other editors).
 - Opencode (TUI in `ink` does the same without the text editor, 75% feature overlap).
 
-### Dependencies:
+## Implementation Roadmap
 
-- A LSP client implementation in Go.
-  - Candidate: `github.com/sourcegraph/go-lsp` (Battle-tested by Sourcegraph).
-  - Alternative: `go.lsp.dev/protocol` (Modern, modular).
-- Mouse events/mouse support for BubbleTea.
-  - Candidate: `github.com/lrstanley/bubblezone` (Wrapper for easier hit-testing/zoning).
-- Editor:
-  - Official: `github.com/charmbracelet/bubbles/textarea` (Basic text input).
-  - Vim-like: `github.com/mieubrisse/vim-bubble` (Vim buffer emulation).
-- Syntax Highlighting:
-  - Candidate: `github.com/alecthomas/chroma` (Standard Go syntax highlighter).
+### MVP Phases
 
-# The Main Challenge Remaining:
+#### Phase 1: Basic TUI with editor + agent pane (no LSP, no git sandbox)
 
-State Management. You have three asynchronous "gods" to serve:
+- File viewer with syntax highlighting
+- Agent conversation with tool calls (Read/Write/Grep)
 
-    1.  User Input (Keyboard/Mouse) -> Instant.
-    2.  LSP Server (Diagnostics/Completions) -> Fast (ms).
-    3.  LLM Agent (Thinking/Tools) -> Slow (seconds).
+#### Phase 2: Git integration
+
+- Show git status in editor
+- Ctrl+g for diffs
+- Simple diff preview before applying
+- Agent commits to real repo (no sandbox yet)
+
+#### Phase 3: LSP integration
+
+- Start with diagnostics only
+- Add go-to-definition later
+
+#### Phase 4: Advanced features
+
+- Sandboxed worktrees
+- Sub-agents
+- Context optimization with tree-sitter
+
+### The Main Challenge: State Management
+
+You have three asynchronous "gods" to serve:
+
+1. User Input (Keyboard/Mouse) -> Instant.
+2. LSP Server (Diagnostics/Completions) -> Fast (ms).
+3. LLM Agent (Thinking/Tools) -> Slow (seconds).
 
 BubbleTea's ELM architecture (Update() loop) is perfect for this if you keep the heavy lifting (LLM/LSP) in separate Go routines that send messages back to the main thread. If you block the main thread, the UI will freeze.
+
 Confidence Level: High for a prototype. The ecosystem is ready.
 
-## MVP Phases:
+## TODO
 
-1. Phase 1: Basic TUI with editor + agent pane (no LSP, no git sandbox)
-   - File viewer with syntax highlighting
-   - Agent conversation with tool calls (Read/Write/Grep)
-   - Simple diff preview before applying
-2. Phase 2: Git integration
-   - Show git status in editor
-   - Ctrl+g for diffs
-   - Agent commits to real repo (no sandbox yet)
-3. Phase 3: LSP integration
-   - Start with diagnostics only
-   - Add go-to-definition later
-4. Phase 4: Advanced features
-   - Sandboxed worktrees
-   - Sub-agents
-   - Context optimization with tree-sitter
-
-# TODO:
+### Bug Fixes
 
 - Grep is not matching pathname:
 
-```
-The Grep tool was called with the following arguments:
+  ```
+  The Grep tool was called with the following arguments:
 
-- `pattern`: `"mcp_tools.go"`
-- `content_search`: `false` (filename search, not content grep)
-- `case_sensitive`: `false` (default, case-insensitive)
-- `max_results`: `100` (default)
+  - `pattern`: `"mcp_tools.go"`
+  - `content_search`: `false` (filename search, not content grep)
+  - `case_sensitive`: `false` (default, case-insensitive)
+  - `max_results`: `100` (default)
 
-This means the tool was searching for files named
-`mcp_tools.go` (or similar, due to fuzzy matching) in the
-current directory and tracked paths (while respecting
-`.gitignore`). Let me know if you'd like to tweak these
-parameters!
-```
+  This means the tool was searching for files named
+  `mcp_tools.go` (or similar, due to fuzzy matching) in the
+  current directory and tracked paths (while respecting
+  `.gitignore`). Let me know if you'd like to tweak these
+  parameters!
+  ```
+
+### UI Enhancements
 
 - Show tool call arguments expanded:
-
-```
+  ```
   Grep(pattern="...", ...)
-```
-
+  ```
 - truncate tool reposnses. (time for verbose?)
+- Make file references clickable in coversation (including tool calls output.)
+- Copy text selection to clipboard (shift + arrows) then (ctrl + shift + c)
+- streamed assistant response
+- Fun: Show icon in unicode and a highlight color clock centered in the right panel when there are no messages.
 
-- Add Prompt, and AGENTS.md support.
+### Features
 
 - websearch tool (exa tools?)
-
-- Make file references clickable in coversation (including tool calls output.)
-
-- Copy text selection to clipboard (shift + arrows) then (ctrl + shift + c)
-
 - file searching and opening, buffer switching. do I even want this, just make llm tools and ask it.
-
-- streamed assistant response
-
-- Fun: Show icon in unicode and a highlight color clock centered in the right panel when there are no messages.
 
 ## Future Enhancements
 
