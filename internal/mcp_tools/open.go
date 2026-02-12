@@ -176,8 +176,22 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 		})
 	}
 
+	// Return the content to the LLM as well
+	rangeInfo := ""
+	if args.Start > 0 || args.End > 0 {
+		start := args.Start
+		if start <= 0 {
+			start = 1
+		}
+		end := args.End
+		if end <= 0 || end > len(lines) {
+			end = len(lines)
+		}
+		rangeInfo = fmt.Sprintf(" (lines %d-%d)", start, end)
+	}
+
 	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s in editor", args.File)}},
+		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s%s:\n\n%s", args.File, rangeInfo, selectedContent)}},
 		IsError: false,
 	}, nil
 }

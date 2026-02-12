@@ -183,7 +183,7 @@ parameters!
   Grep(pattern="...", ...)
 ```
 
-- Open() should return the openned content to the LLM, and still open the snippet in the editor.
+- truncate tool reposnses. (time for verbose?)
 
 - Add Prompt, and AGENTS.md support.
 
