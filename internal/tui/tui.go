@@ -3,615 +3,508 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/mcp_tools"
 	"github.com/xonecas/symb/internal/provider"
-	editorarea "github.com/xonecas/symb/internal/tui/textarea"
+	"github.com/xonecas/symb/internal/tui/editor"
 )
 
-// Model is the application model
-type Model struct {
-	width          int
-	height         int
-	rightPaneWidth int // Width of conversation pane for wrapping
-	spinner        spinner.Model
-	editor         editorarea.Model // Left pane: code editor
-	agentInput     textarea.Model   // Right pane: agent input box
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
 
-	// LLM components
-	provider     provider.Provider
-	mcpProxy     *mcp.Proxy
-	mcpTools     []mcp.Tool
-	history      []provider.Message
-	conversation []string     // Formatted conversation log for display
-	updateChan   chan tea.Msg // Channel for streaming LLM updates
-	ctx          context.Context
-	cancel       context.CancelFunc
-
-	// Conversation scroll state
-	conversationScrollOffset int // Lines scrolled from bottom (0 = stick to bottom)
-
-	// Conversation selection state
-	conversationSelecting   bool // True when dragging to select
-	conversationSelectStart int  // Line index where selection started
-	conversationSelectEnd   int  // Line index where selection ends
-
-	// Pane resize state
-	resizingPane    bool // True when dragging divider
-	customHalfWidth int  // Custom half width (0 = use default calculated value)
-
-	// Wrap cache to avoid re-wrapping unchanged text
-	wrapCache map[string][]string
-
-	// Pre-allocated styles to avoid repeated allocations
-	borderStyle    lipgloss.Style
-	selectionStyle lipgloss.Style
+// layout holds computed rectangles for every TUI region.
+// Recomputed from terminal dimensions on every resize.
+type layout struct {
+	editor image.Rectangle // Left pane: code viewer
+	conv   image.Rectangle // Right pane: conversation log
+	sep    image.Rectangle // Right pane: separator between conv and input
+	input  image.Rectangle // Right pane: agent input
+	div    image.Rectangle // Vertical divider column (1-wide)
 }
 
-// New creates a new TUI model
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string) Model {
-	cursorStyle := lipgloss.NewStyle().Foreground(ColorMatrix) // Matrix green
+const (
+	inputRows    = 3 // Agent input height
+	statusRows   = 2 // Status separator + status bar
+	minPaneWidth = 20
+)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = cursorStyle
-
-	// Left pane: code editor with syntax highlighting
-	editor := editorarea.New()
-	editor.ShowLineNumbers = true
-	editor.Prompt = ""
-	editor.ReadOnly = true
-	editor.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(lipgloss.NoColor{})
-	editor.FocusedStyle.LineNumber = lipgloss.NewStyle().Foreground(ColorBorder)
-	editor.Cursor.Style = cursorStyle
-	editor.Language = "markdown"
-
-	// Right pane: agent input (official bubbles textarea)
-	agentInput := textarea.New()
-	agentInput.Placeholder = "Type a message..."
-	agentInput.SetHeight(3)
-	agentInput.Prompt = ""
-	agentInput.FocusedStyle.CursorLine = lipgloss.NewStyle().Background(lipgloss.NoColor{})
-	agentInput.ShowLineNumbers = false
-	agentInput.Cursor.Style = cursorStyle
-	agentInput.Focus()
-
-	updateChan := make(chan tea.Msg, 500)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Build system prompt from model-specific base + AGENTS.md files
-	systemPrompt := llm.BuildSystemPrompt(modelID)
-
-	// Initialize history with system prompt as first message
-	initialHistory := []provider.Message{
-		{
-			Role:      "system",
-			Content:   systemPrompt,
-			CreatedAt: time.Now(),
-		},
+// generateLayout computes all regions from terminal size and divider position.
+func generateLayout(width, height, divX int) layout {
+	contentH := height - statusRows
+	if contentH < 1 {
+		contentH = 1
 	}
 
-	return Model{
-		spinner:        s,
-		editor:         editor,
-		agentInput:     agentInput,
-		provider:       prov,
-		mcpProxy:       proxy,
-		mcpTools:       tools,
-		history:        initialHistory,
-		conversation:   []string{},
-		updateChan:     updateChan,
-		ctx:            ctx,
-		cancel:         cancel,
-		wrapCache:      make(map[string][]string),
-		borderStyle:    lipgloss.NewStyle().Foreground(ColorBorder),
-		selectionStyle: lipgloss.NewStyle().Background(ColorDarkGray),
+	// Vertical divider splits left/right at column divX.
+	rightX := divX + 1
+	rightW := width - rightX
+	if rightW < 1 {
+		rightW = 1
+	}
+
+	// Right pane vertical splits: conv | sep(1) | input(3)
+	sepY := contentH - inputRows - 1
+	if sepY < 0 {
+		sepY = 0
+	}
+	inputY := contentH - inputRows
+	if inputY < 0 {
+		inputY = 0
+	}
+
+	return layout{
+		editor: image.Rect(0, 0, divX, contentH),
+		div:    image.Rect(divX, 0, divX+1, contentH),
+		conv:   image.Rect(rightX, 0, rightX+rightW, sepY),
+		sep:    image.Rect(rightX, sepY, rightX+rightW, sepY+1),
+		input:  image.Rect(rightX, inputY, rightX+rightW, inputY+inputRows),
 	}
 }
 
-// Init initializes the TUI (required by BubbleTea)
-func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, editorarea.Blink)
-}
+// ---------------------------------------------------------------------------
+// Mouse filter — throttle high-frequency events at program level.
+// ---------------------------------------------------------------------------
 
-// wrapText wraps text to the conversation pane width, applying style after wrapping.
-// Returns lines that fit within the pane width and the updated model with cache.
-func (m Model) wrapText(text string, style lipgloss.Style) ([]string, Model) {
-	if m.rightPaneWidth <= 0 {
-		// Fallback if width not set yet
-		lines := strings.Split(text, "\n")
-		result := make([]string, len(lines))
-		for i, line := range lines {
-			result[i] = style.Render(line)
+var lastMouseEvent time.Time
+
+// MouseEventFilter rate-limits wheel and motion events (15 ms).
+// Pass to tea.WithFilter. Never drops clicks.
+func MouseEventFilter(_ tea.Model, msg tea.Msg) tea.Msg {
+	m, ok := msg.(tea.MouseMsg)
+	if !ok {
+		return msg
+	}
+	if m.Button == tea.MouseButtonWheelUp || m.Button == tea.MouseButtonWheelDown ||
+		m.Action == tea.MouseActionMotion {
+		now := time.Now()
+		if now.Sub(lastMouseEvent) < 15*time.Millisecond {
+			return nil
 		}
-		return result, m
+		lastMouseEvent = now
 	}
-
-	// Create cache key from text and width
-	cacheKey := fmt.Sprintf("%d:%s", m.rightPaneWidth, text)
-
-	// Check cache
-	if cached, ok := m.wrapCache[cacheKey]; ok {
-		return cached, m
-	}
-
-	// Word wrap first, then apply style to each line
-	// ansi.Wordwrap preserves ANSI codes and handles wide characters
-	wrapped := ansi.Wordwrap(text, m.rightPaneWidth, "")
-	lines := strings.Split(wrapped, "\n")
-
-	// Apply style to each wrapped line
-	result := make([]string, len(lines))
-	for i, line := range lines {
-		result[i] = style.Render(line)
-	}
-
-	// Cache result (limit cache size to prevent memory issues)
-	if len(m.wrapCache) > 1000 {
-		m.wrapCache = make(map[string][]string)
-	}
-	m.wrapCache[cacheKey] = result
-
-	return result, m
+	return msg
 }
 
-// llmUserMsg adds user message to conversation (ELM Msg)
-type llmUserMsg struct {
-	content string
-}
+// ---------------------------------------------------------------------------
+// Focus
+// ---------------------------------------------------------------------------
 
-// llmAssistantMsg adds complete assistant message block (ELM Msg)
-// Includes reasoning, content, and tool calls as a single cohesive unit
+type focus int
+
+const (
+	focusInput  focus = iota // Default: agent input has focus
+	focusEditor              // Code viewer has focus
+)
+
+// ---------------------------------------------------------------------------
+// ELM messages
+// ---------------------------------------------------------------------------
+
+type llmUserMsg struct{ content string }
+
 type llmAssistantMsg struct {
 	reasoning string
 	content   string
 	toolCalls []provider.ToolCall
 }
 
-// llmToolResultMsg adds tool result (ELM Msg)
 type llmToolResultMsg struct {
 	toolCallID string
 	content    string
 }
 
-// llmDoneMsg adds timestamp separator (ELM Msg)
 type llmDoneMsg struct {
 	duration  time.Duration
 	timestamp string
 }
 
-// llmHistoryMsg updates history with new message (ELM Msg)
-type llmHistoryMsg struct {
-	msg provider.Message
-}
+type llmHistoryMsg struct{ msg provider.Message }
+type llmErrorMsg struct{ err error }
 
-// llmErrorMsg handles LLM errors (ELM Msg)
-type llmErrorMsg struct {
-	err error
-}
+// UpdateToolsMsg is exported so main.go can send it via program.Send.
+type UpdateToolsMsg struct{ Tools []mcp.Tool }
 
-// UpdateToolsMsg updates the tools list (ELM Msg)
-type UpdateToolsMsg struct {
-	Tools []mcp.Tool
-}
+// ---------------------------------------------------------------------------
+// ELM commands
+// ---------------------------------------------------------------------------
 
-// clipboardCopyMsg is sent to copy text to clipboard (ELM Msg)
-type clipboardCopyMsg struct {
-	text string
-}
-
-// copyToClipboardCmd copies text to clipboard asynchronously (ELM Cmd)
 func copyToClipboardCmd(text string) tea.Cmd {
 	return func() tea.Msg {
-		// Fire and forget - clipboard operations are best effort
 		_ = clipboard.WriteAll(text)
 		return nil
 	}
 }
 
-// sendToLLM sends user message to LLM (ELM Cmd)
 func (m Model) sendToLLM(userInput string) tea.Cmd {
-	return func() tea.Msg {
-		// Immediately show user message
-		return llmUserMsg{content: userInput}
-	}
+	return func() tea.Msg { return llmUserMsg{content: userInput} }
 }
 
-// waitForLLMUpdate waits for next message from LLM (ELM Cmd)
 func (m Model) waitForLLMUpdate() tea.Cmd {
-	return func() tea.Msg {
-		return <-m.updateChan
-	}
+	return func() tea.Msg { return <-m.updateChan }
 }
 
-// processLLM runs LLM turn in background (ELM Cmd)
 func (m Model) processLLM() tea.Cmd {
-	// Copy values to avoid capturing model state
 	prov := m.provider
 	proxy := m.mcpProxy
-	// Copy tools slice
 	tools := make([]mcp.Tool, len(m.mcpTools))
 	copy(tools, m.mcpTools)
-	// Copy history slice
 	history := make([]provider.Message, len(m.history))
 	copy(history, m.history)
-	updateChan := m.updateChan
+	ch := m.updateChan
 	ctx := m.ctx
 
 	return func() tea.Msg {
 		go func() {
-			startTime := time.Now()
-
-			opts := llm.ProcessTurnOptions{
+			start := time.Now()
+			err := llm.ProcessTurn(ctx, llm.ProcessTurnOptions{
 				Provider:      prov,
 				Proxy:         proxy,
 				Tools:         tools,
 				History:       history,
 				MaxToolRounds: 20,
 				OnMessage: func(msg provider.Message) {
-					// Send message to update history
-					updateChan <- llmHistoryMsg{msg: msg}
-
-					if msg.Role == "assistant" {
-						// Send complete assistant message as single block
-						updateChan <- llmAssistantMsg{
+					ch <- llmHistoryMsg{msg: msg}
+					switch msg.Role {
+					case "assistant":
+						ch <- llmAssistantMsg{
 							reasoning: msg.Reasoning,
 							content:   msg.Content,
 							toolCalls: msg.ToolCalls,
 						}
-					} else if msg.Role == "tool" {
-						// Send full tool result (wrapping will be handled by wrapText)
-						updateChan <- llmToolResultMsg{
+					case "tool":
+						ch <- llmToolResultMsg{
 							toolCallID: msg.ToolCallID,
 							content:    msg.Content,
 						}
 					}
 				},
-			}
-
-			err := llm.ProcessTurn(ctx, opts)
+			})
 			if err != nil {
-				updateChan <- llmErrorMsg{err: err}
+				ch <- llmErrorMsg{err: err}
 				return
 			}
-
-			// Send done message
-			updateChan <- llmDoneMsg{
-				duration:  time.Since(startTime),
-				timestamp: startTime.Format("15:04"),
+			ch <- llmDoneMsg{
+				duration:  time.Since(start),
+				timestamp: start.Format("15:04"),
 			}
 		}()
-
 		return nil
 	}
 }
 
-// Update handles messages and updates state (required by BubbleTea)
+// ---------------------------------------------------------------------------
+// Model
+// ---------------------------------------------------------------------------
+
+// Model is the top-level TUI model.
+type Model struct {
+	// Terminal dimensions
+	width, height int
+
+	// Sub-models
+	spinner    spinner.Model
+	editor     editor.Model
+	agentInput editor.Model
+
+	// Layout
+	layout layout
+	divX   int // Divider X position (resizable)
+	focus  focus
+	styles Styles
+
+	// LLM
+	provider   provider.Provider
+	mcpProxy   *mcp.Proxy
+	mcpTools   []mcp.Tool
+	history    []provider.Message
+	updateChan chan tea.Msg
+	ctx        context.Context
+	cancel     context.CancelFunc
+
+	// Conversation
+	conversation []string // Pre-wrapped, pre-styled lines
+	scrollOffset int      // Lines from bottom (0 = pinned)
+
+	// Mouse state
+	resizingPane bool
+	selecting    bool
+	selectStart  int
+	selectEnd    int
+
+	// Cache
+	wrapCache map[string][]string
+}
+
+// New creates a new TUI model.
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string) Model {
+	sty := DefaultStyles()
+	cursorStyle := lipgloss.NewStyle().Foreground(ColorMatrix)
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = cursorStyle.Background(ColorBg)
+
+	ed := editor.New()
+	ed.ShowLineNumbers = true
+	ed.ReadOnly = true
+	ed.Language = "markdown"
+	ed.SyntaxTheme = constants.SyntaxTheme
+	ed.CursorStyle = cursorStyle
+	ed.LineNumStyle = lipgloss.NewStyle().Foreground(ColorBorder)
+	ed.BgColor = ColorBg
+
+	ai := editor.New()
+	ai.Placeholder = "Type a message..."
+	ai.CursorStyle = cursorStyle
+	ai.PlaceholderSty = lipgloss.NewStyle().Foreground(ColorDim).Background(ColorBg)
+	ai.BgColor = ColorBg
+	ai.Focus()
+
+	ch := make(chan tea.Msg, 500)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	systemPrompt := llm.BuildSystemPrompt(modelID)
+
+	return Model{
+		spinner:    s,
+		editor:     ed,
+		agentInput: ai,
+		styles:     sty,
+		focus:      focusInput,
+
+		provider:     prov,
+		mcpProxy:     proxy,
+		mcpTools:     tools,
+		history:      []provider.Message{{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}},
+		conversation: []string{},
+		updateChan:   ch,
+		ctx:          ctx,
+		cancel:       cancel,
+		wrapCache:    make(map[string][]string),
+	}
+}
+
+// Init starts spinner and cursor blink.
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(m.spinner.Tick, func() tea.Msg { return editor.Blink() })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// convWidth returns the usable width of the conversation pane.
+func (m Model) convWidth() int { return m.layout.conv.Dx() }
+
+// wrapText word-wraps text to conversation width and applies style.
+// Wrapping is cached (width+text); styling is applied after lookup.
+func (m Model) wrapText(text string, style lipgloss.Style) ([]string, Model) {
+	w := m.convWidth()
+	if w <= 0 {
+		lines := strings.Split(text, "\n")
+		out := make([]string, len(lines))
+		for i, l := range lines {
+			out[i] = style.Render(l)
+		}
+		return out, m
+	}
+
+	// Cache stores unstyled wrapped lines — safe to reuse across styles.
+	key := fmt.Sprintf("%d:%s", w, text)
+	lines, ok := m.wrapCache[key]
+	if !ok {
+		wrapped := ansi.Wordwrap(text, w, "")
+		lines = strings.Split(wrapped, "\n")
+		if len(m.wrapCache) > 1000 {
+			m.wrapCache = make(map[string][]string)
+		}
+		m.wrapCache[key] = lines
+	}
+
+	// Apply style after cache lookup.
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = style.Render(l)
+	}
+	return out, m
+}
+
+// appendConv appends lines and returns whether we were at bottom (for sticky scroll).
+func (m *Model) appendConv(lines ...string) bool {
+	atBottom := m.scrollOffset == 0
+	m.conversation = append(m.conversation, lines...)
+	return atBottom
+}
+
+// makeSeparator builds a timestamp separator line.
+func (m Model) makeSeparator(dur string, ts string) string {
+	label := dur + " " + ts + " "
+	fill := m.convWidth() - lipgloss.Width(label)
+	if fill < 0 {
+		fill = 0
+	}
+	return m.styles.Dim.Render(label + strings.Repeat("─", fill))
+}
+
+// inRect returns true if screen point (x,y) is inside r.
+func inRect(x, y int, r image.Rectangle) bool {
+	return image.Pt(x, y).In(r)
+}
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+
+	// -- Window resize -------------------------------------------------------
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		if m.divX == 0 {
+			m.divX = m.width / 2
+		}
+		// Constrain divider
+		if m.divX < minPaneWidth {
+			m.divX = minPaneWidth
+		}
+		if m.divX > m.width-minPaneWidth {
+			m.divX = m.width - minPaneWidth
+		}
+		m.layout = generateLayout(m.width, m.height, m.divX)
+		m.updateComponentSizes()
+
+	// -- Mouse ---------------------------------------------------------------
 	case tea.MouseMsg:
-		// Handle mouse events
-		halfWidth := m.width / 2
-		if m.customHalfWidth > 0 {
-			halfWidth = m.customHalfWidth
-		}
-		contentHeight := m.height - 2
-		inputStartRow := contentHeight - 3
-		separatorRow := contentHeight - 4
+		return m.handleMouse(msg)
 
-		// Handle pane resizing
-		if msg.X == halfWidth && msg.Button == tea.MouseButtonLeft {
-			if msg.Action == tea.MouseActionPress {
-				m.resizingPane = true
-			} else if msg.Action == tea.MouseActionRelease {
-				m.resizingPane = false
-			}
-		}
-
-		if m.resizingPane && msg.Action == tea.MouseActionMotion {
-			// Update pane width based on mouse position
-			newHalfWidth := msg.X
-			minWidth := 20
-			maxWidth := m.width - 20
-			if newHalfWidth >= minWidth && newHalfWidth <= maxWidth {
-				m.customHalfWidth = newHalfWidth
-				m.rightPaneWidth = m.width - newHalfWidth - 1
-
-				// Update component sizes
-				m.editor.SetWidth(newHalfWidth - 1)
-				m.agentInput.SetWidth(m.width - newHalfWidth - 4)
-			}
-			return m, nil
-		}
-
-		// Determine which pane the mouse is in and translate coordinates
-		if msg.X < halfWidth {
-			// Left pane (editor)
-			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-				m.agentInput.Blur()
-				m.editor.Focus()
-			}
-			// Forward mouse event to editor (coordinates are already correct for left pane)
-			var cmd tea.Cmd
-			m.editor, cmd = m.editor.Update(msg)
-			cmds = append(cmds, cmd)
-
-		} else if msg.X > halfWidth && msg.Y >= inputStartRow && msg.Y < contentHeight {
-			// Right pane input area
-			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-				m.editor.Blur()
-				m.agentInput.Focus()
-			}
-			// Translate coordinates for input area (remove left offset and input start offset)
-			translatedMsg := msg
-			translatedMsg.X = msg.X - halfWidth - 1
-			translatedMsg.Y = msg.Y - inputStartRow
-			var cmd tea.Cmd
-			m.agentInput, cmd = m.agentInput.Update(translatedMsg)
-			cmds = append(cmds, cmd)
-
-		} else if msg.X > halfWidth && msg.Y < separatorRow {
-			// Right pane conversation area
-			switch msg.Button {
-			case tea.MouseButtonLeft:
-				// Calculate which line was clicked
-				totalLines := len(m.conversation)
-				visibleLines := separatorRow
-				startLine := 0
-				if totalLines > visibleLines {
-					startLine = totalLines - visibleLines - m.conversationScrollOffset
-					if startLine < 0 {
-						startLine = 0
-					}
-				}
-				clickedLine := startLine + msg.Y
-
-				if msg.Action == tea.MouseActionPress {
-					// Start selection
-					m.conversationSelecting = true
-					m.conversationSelectStart = clickedLine
-					m.conversationSelectEnd = clickedLine
-				} else if msg.Action == tea.MouseActionMotion && m.conversationSelecting {
-					// Update selection end
-					m.conversationSelectEnd = clickedLine
-				} else if msg.Action == tea.MouseActionRelease {
-					// End selection and copy to clipboard
-					m.conversationSelecting = false
-					if m.conversationSelectStart != m.conversationSelectEnd {
-						// Copy selected lines to clipboard
-						start := m.conversationSelectStart
-						end := m.conversationSelectEnd
-						if start > end {
-							start, end = end, start
-						}
-						if start < 0 {
-							start = 0
-						}
-						if end >= totalLines {
-							end = totalLines - 1
-						}
-
-						var selectedText strings.Builder
-						for i := start; i <= end && i < totalLines; i++ {
-							// Strip ANSI codes for clipboard
-							line := ansi.Strip(m.conversation[i])
-							selectedText.WriteString(line)
-							if i < end {
-								selectedText.WriteString("\n")
-							}
-						}
-
-						// Copy to clipboard via command
-						cmds = append(cmds, copyToClipboardCmd(selectedText.String()))
-					}
-					// Clear selection
-					m.conversationSelectStart = 0
-					m.conversationSelectEnd = 0
-				}
-
-			case tea.MouseButtonWheelUp:
-				totalLines := len(m.conversation)
-				visibleLines := separatorRow
-				maxScroll := totalLines - visibleLines
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
-				m.conversationScrollOffset += 1 // Scroll 1 line at a time
-				if m.conversationScrollOffset > maxScroll {
-					m.conversationScrollOffset = maxScroll
-				}
-
-			case tea.MouseButtonWheelDown:
-				m.conversationScrollOffset -= 1 // Scroll 1 line at a time
-				if m.conversationScrollOffset < 0 {
-					m.conversationScrollOffset = 0
-				}
-			}
-		}
-		// Don't forward mouse events to components below since we handled them above
-		return m, tea.Batch(cmds...)
-
+	// -- Keyboard ------------------------------------------------------------
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			m.cancel() // Cancel any running goroutines
+			m.cancel()
 			return m, tea.Quit
 		case "esc":
-			if m.agentInput.Focused() {
+			if m.focus == focusInput {
 				m.agentInput.Blur()
-			} else if m.editor.Focused() {
+			} else {
 				m.editor.Blur()
 			}
 			return m, nil
 		case "enter":
-			// In agent input: Enter sends message, use the textarea's default behavior otherwise
-			// In editor: Enter inserts newline (textarea handles it)
-			if m.agentInput.Focused() && m.agentInput.Value() != "" {
+			if m.focus == focusInput && m.agentInput.Value() != "" {
 				userMsg := m.agentInput.Value()
 				m.agentInput.Reset()
 				return m, m.sendToLLM(userMsg)
 			}
-			// If editor is focused or agentInput is empty, let the key pass through to components
 		}
 
+	// -- LLM messages --------------------------------------------------------
 	case llmUserMsg:
 		now := time.Now()
-		// Add user message to history
 		m.history = append(m.history, provider.Message{
-			Role:      "user",
-			Content:   msg.content,
-			CreatedAt: now,
+			Role: "user", Content: msg.content, CreatedAt: now,
 		})
-		// Format and display user message first
-		grayStyle := lipgloss.NewStyle().Foreground(lipgloss.NoColor{})
-		wrappedLines, m := m.wrapText(msg.content, grayStyle)
-		m.conversation = append(m.conversation, wrappedLines...)
-		m.conversation = append(m.conversation, "")
-		// Add timestamp separator after message
-		timestamp := now.Format("15:04:05")
-		rightPaneWidth := m.width/2 - 1
-		dashCount := rightPaneWidth - len("0s "+timestamp+" ")
-		if dashCount < 0 {
-			dashCount = 0
+		lines, m2 := m.wrapText(msg.content, m.styles.Text)
+		m = m2
+		m.appendConv(lines...)
+		m.appendConv("")
+		sep := m.makeSeparator("0s", now.Format("15:04:05"))
+		wasBottom := m.appendConv(sep)
+		m.appendConv("")
+		if wasBottom {
+			m.scrollOffset = 0
 		}
-		separator := lipgloss.NewStyle().Foreground(ColorDarkGray).Render(
-			"0s " + timestamp + " " + strings.Repeat("─", dashCount),
-		)
-		m.conversation = append(m.conversation, separator)
-		m.conversation = append(m.conversation, "")
-		// Reset scroll to stick to bottom on new message
-		m.conversationScrollOffset = 0
-		// Start LLM processing and wait for updates
 		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 
 	case llmHistoryMsg:
-		// Update history with message from LLM
 		m.history = append(m.history, msg.msg)
-		return m, m.waitForLLMUpdate() // Continue listening
+		return m, m.waitForLLMUpdate()
 
 	case llmAssistantMsg:
-		// Display complete assistant message block: reasoning, content, then tool calls
-		plainStyle := lipgloss.NewStyle()
-		grayStyle := lipgloss.NewStyle().Foreground(ColorGray)
-
-		// Display reasoning if present
 		if msg.reasoning != "" {
-			var wrappedLines []string
-			wrappedLines, m = m.wrapText(msg.reasoning, grayStyle)
-			m.conversation = append(m.conversation, wrappedLines...)
-			m.conversation = append(m.conversation, "")
+			lines, m2 := m.wrapText(msg.reasoning, m.styles.Muted)
+			m = m2
+			wasBottom := m.appendConv(lines...)
+			m.appendConv("")
+			if wasBottom {
+				m.scrollOffset = 0
+			}
 		}
-
-		// Display content
 		if msg.content != "" {
-			var wrappedLines []string
-			wrappedLines, m = m.wrapText(msg.content, plainStyle)
-			m.conversation = append(m.conversation, wrappedLines...)
-			m.conversation = append(m.conversation, "")
+			lines, m2 := m.wrapText(msg.content, m.styles.Text)
+			m = m2
+			wasBottom := m.appendConv(lines...)
+			m.appendConv("")
+			if wasBottom {
+				m.scrollOffset = 0
+			}
 		}
-
-		// Display tool calls
 		for _, tc := range msg.toolCalls {
-			var wrappedLines []string
-			wrappedLines, m = m.wrapText("→  "+tc.Name+"(...)", plainStyle)
-			m.conversation = append(m.conversation, wrappedLines...)
+			lines, m2 := m.wrapText(m.styles.ToolArrow.Render("→")+"  "+m.styles.ToolCall.Render(tc.Name+"(...)"), lipgloss.NewStyle())
+			m = m2
+			wasBottom := m.appendConv(lines...)
+			if wasBottom {
+				m.scrollOffset = 0
+			}
 		}
-
-		return m, m.waitForLLMUpdate() // Continue listening
+		return m, m.waitForLLMUpdate()
 
 	case llmToolResultMsg:
-		plainStyle := lipgloss.NewStyle()
-		wrappedLines, m := m.wrapText("←  "+msg.content, plainStyle)
-		m.conversation = append(m.conversation, wrappedLines...)
-		return m, m.waitForLLMUpdate() // Continue listening
+		lines, m2 := m.wrapText(m.styles.ToolArrow.Render("←")+"  "+m.styles.Dim.Render(msg.content), lipgloss.NewStyle())
+		m = m2
+		wasBottom := m.appendConv(lines...)
+		if wasBottom {
+			m.scrollOffset = 0
+		}
+		return m, m.waitForLLMUpdate()
 
 	case llmErrorMsg:
-		// Display error message
-		m.conversation = append(m.conversation, "")
-		errLine := lipgloss.NewStyle().Foreground(ColorError).Render("Error: " + msg.err.Error())
-		m.conversation = append(m.conversation, errLine)
-		m.conversation = append(m.conversation, "")
-		return m, nil // Done listening
+		m.appendConv("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
+		return m, nil
 
 	case llmDoneMsg:
-		// Add timestamp separator (blank line first, then separator)
-		m.conversation = append(m.conversation, "")
-		durationStr := msg.duration.Round(time.Second).String()
-		rightPaneWidth := m.width/2 - 1
-		dashCount := rightPaneWidth - len(durationStr+" "+msg.timestamp+" ") // TODO: Using `leg` should be using lipgloss
-		if dashCount < 0 {
-			dashCount = 0
-		}
-		separator := lipgloss.NewStyle().Foreground(ColorDarkGray).Render(
-			durationStr + " " + msg.timestamp + " " + strings.Repeat("─", dashCount),
-		)
-		m.conversation = append(m.conversation, separator)
-		return m, nil // Done listening
+		m.appendConv("")
+		sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
+		m.appendConv(sep)
+		return m, nil
 
 	case mcp_tools.OpenForUserMsg:
-		// Update editor with file content
 		m.editor.SetValue(msg.Content)
 		m.editor.Language = msg.Language
+		m.focus = focusEditor
+		m.agentInput.Blur()
 		m.editor.Focus()
 		return m, nil
 
 	case UpdateToolsMsg:
-		// Update tools list
 		m.mcpTools = msg.Tools
 		return m, nil
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		halfWidth := m.width / 2
-		if m.customHalfWidth > 0 {
-			// Maintain custom width if set, but constrain to new terminal size
-			minWidth := 20
-			maxWidth := m.width - 20
-			if m.customHalfWidth < minWidth {
-				m.customHalfWidth = minWidth
-			}
-			if m.customHalfWidth > maxWidth {
-				m.customHalfWidth = maxWidth
-			}
-			halfWidth = m.customHalfWidth
-		}
-		contentHeight := m.height - 2 // -2 for status separator and status bar
-		m.rightPaneWidth = m.width - halfWidth - 1
-
-		// Left pane: editor
-		m.editor.SetWidth(halfWidth - 1)
-		m.editor.SetHeight(contentHeight)
-
-		// Right pane: agent input (3 rows tall + 2 for border)
-		m.agentInput.SetWidth(m.width - halfWidth - 4) // -3 for borders and padding
-		m.agentInput.SetHeight(3)
 	}
 
-	// Update spinner (always)
+	// Always tick spinner
 	var cmd tea.Cmd
 	m.spinner, cmd = m.spinner.Update(msg)
 	cmds = append(cmds, cmd)
 
-	// Update editor and agent input only for non-mouse messages
-	// (mouse messages are handled specially above with coordinate translation)
-	if _, isMouseMsg := msg.(tea.MouseMsg); !isMouseMsg {
+	// Forward non-mouse messages to focused component
+	if _, isMouse := msg.(tea.MouseMsg); !isMouse {
 		m.editor, cmd = m.editor.Update(msg)
 		cmds = append(cmds, cmd)
-
 		m.agentInput, cmd = m.agentInput.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -619,144 +512,276 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the UI (required by BubbleTea)
+// updateComponentSizes pushes layout dimensions to sub-models.
+func (m *Model) updateComponentSizes() {
+	m.editor.SetWidth(m.layout.editor.Dx())
+	m.editor.SetHeight(m.layout.editor.Dy())
+	m.agentInput.SetWidth(m.layout.input.Dx() - 2) // padding for border
+	m.agentInput.SetHeight(inputRows)
+}
+
+// ---------------------------------------------------------------------------
+// Mouse handling — dialog-first when we add dialogs, then focus-based.
+// Coordinate translation via layout rects.
+// ---------------------------------------------------------------------------
+
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// --- Divider drag -------------------------------------------------------
+	if msg.Button == tea.MouseButtonLeft && inRect(msg.X, msg.Y, m.layout.div) {
+		if msg.Action == tea.MouseActionPress {
+			m.resizingPane = true
+		}
+	}
+	if msg.Action == tea.MouseActionRelease {
+		m.resizingPane = false
+	}
+	if m.resizingPane && msg.Action == tea.MouseActionMotion {
+		newDiv := msg.X
+		if newDiv >= minPaneWidth && newDiv <= m.width-minPaneWidth {
+			m.divX = newDiv
+			m.layout = generateLayout(m.width, m.height, m.divX)
+			m.updateComponentSizes()
+		}
+		return m, nil
+	}
+
+	// --- Focus switching on click -------------------------------------------
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		switch {
+		case inRect(msg.X, msg.Y, m.layout.editor):
+			m.focus = focusEditor
+			m.agentInput.Blur()
+			m.editor.Focus()
+		case inRect(msg.X, msg.Y, m.layout.input):
+			m.focus = focusInput
+			m.editor.Blur()
+			m.agentInput.Focus()
+		}
+	}
+
+	// --- Editor: forward with original coords (left pane starts at 0) -------
+	if inRect(msg.X, msg.Y, m.layout.editor) {
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// --- Input: translate coords to component-local -------------------------
+	if inRect(msg.X, msg.Y, m.layout.input) {
+		translated := msg
+		translated.X = msg.X - m.layout.input.Min.X
+		translated.Y = msg.Y - m.layout.input.Min.Y
+		var cmd tea.Cmd
+		m.agentInput, cmd = m.agentInput.Update(translated)
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
+	// --- Conversation: scroll + selection -----------------------------------
+	if inRect(msg.X, msg.Y, m.layout.conv) {
+		convH := m.layout.conv.Dy()
+		totalLines := len(m.conversation)
+
+		switch msg.Button {
+		case tea.MouseButtonLeft:
+			// Calculate which conversation line was hit
+			startLine := m.visibleStartLine()
+			clickedLine := startLine + (msg.Y - m.layout.conv.Min.Y)
+
+			switch msg.Action {
+			case tea.MouseActionPress:
+				m.selecting = true
+				m.selectStart = clickedLine
+				m.selectEnd = clickedLine
+			case tea.MouseActionMotion:
+				if m.selecting {
+					m.selectEnd = clickedLine
+				}
+			case tea.MouseActionRelease:
+				m.selecting = false
+				if m.selectStart != m.selectEnd {
+					start, end := m.selectStart, m.selectEnd
+					if start > end {
+						start, end = end, start
+					}
+					start = max(start, 0)
+					end = min(end, totalLines-1)
+
+					var sb strings.Builder
+					for i := start; i <= end; i++ {
+						sb.WriteString(ansi.Strip(m.conversation[i]))
+						if i < end {
+							sb.WriteByte('\n')
+						}
+					}
+					cmds = append(cmds, copyToClipboardCmd(sb.String()))
+				}
+				m.selectStart, m.selectEnd = 0, 0
+			}
+
+		case tea.MouseButtonWheelUp:
+			maxScroll := totalLines - convH
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			m.scrollOffset = min(m.scrollOffset+5, maxScroll)
+
+		case tea.MouseButtonWheelDown:
+			m.scrollOffset = max(m.scrollOffset-5, 0)
+		}
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// visibleStartLine returns the index of the first visible conversation line.
+func (m Model) visibleStartLine() int {
+	total := len(m.conversation)
+	visible := m.layout.conv.Dy()
+	if total <= visible {
+		return 0
+	}
+	start := total - visible - m.scrollOffset
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
+// ---------------------------------------------------------------------------
+// View
+// ---------------------------------------------------------------------------
+
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
 
-	// Split width in half for left/right panes (or use custom width)
-	halfWidth := m.width / 2
-	if m.customHalfWidth > 0 {
-		halfWidth = m.customHalfWidth
-	}
-
-	// Content height = total - status separator - status bar
-	contentHeight := m.height - 2
-
+	ly := m.layout
+	contentH := m.height - statusRows
 	var b strings.Builder
 
-	// Render editor in left pane
-	editorView := m.editor.View()
-	editorLines := strings.Split(editorView, "\n")
+	// Pre-split editor and input views
+	editorLines := strings.Split(m.editor.View(), "\n")
+	inputLines := strings.Split(m.agentInput.View(), "\n")
 
-	// Render agent input box (3 rows + 2 for borders = 5 total)
-	agentInputView := m.agentInput.View()
-	agentInputLines := strings.Split(agentInputView, "\n")
+	// Conversation visible window
+	startLine := m.visibleStartLine()
 
-	// Calculate row boundaries
-	inputStartRow := contentHeight - 3 // 3 rows for input
-	separatorRow := contentHeight - 4  // Separator before input
+	bgFill := m.styles.BgFill
 
-	// Content rows - use the stored rightPaneWidth from model
-	for i := 0; i < contentHeight; i++ {
-		// Left pane: editor
-		if i < len(editorLines) {
-			line := editorLines[i]
-			lineWidth := lipgloss.Width(line)
-			padding := halfWidth - lineWidth
-			if padding < 0 {
-				padding = 0
+	for row := 0; row < contentH; row++ {
+		// -- Left pane: editor -----------------------------------------------
+		edW := ly.editor.Dx()
+		if row < len(editorLines) {
+			line := editorLines[row]
+			lw := lipgloss.Width(line)
+			if lw > edW {
+				line = ansi.Truncate(line, edW, "")
+				lw = lipgloss.Width(line)
 			}
 			b.WriteString(line)
-			b.WriteString(strings.Repeat(" ", padding))
-		} else {
-			b.WriteString(strings.Repeat(" ", halfWidth))
-		}
-		// Divider
-		b.WriteString(m.borderStyle.Render("│"))
-
-		// Right pane: conversation area (top), separator, input at bottom
-		if i < separatorRow {
-			// Conversation area - show conversation log
-			// Calculate which line to show (scroll based on offset)
-			totalLines := len(m.conversation)
-			visibleLines := separatorRow
-			startLine := 0
-			if totalLines > visibleLines {
-				// Start from bottom and scroll up by offset
-				startLine = totalLines - visibleLines - m.conversationScrollOffset
-				if startLine < 0 {
-					startLine = 0
-				}
+			if lw < edW {
+				b.WriteString(bgFill.Render(strings.Repeat(" ", edW-lw)))
 			}
-			lineIdx := startLine + i
+		} else {
+			b.WriteString(bgFill.Render(strings.Repeat(" ", edW)))
+		}
 
-			if lineIdx < totalLines {
+		// -- Divider ---------------------------------------------------------
+		b.WriteString(m.styles.Border.Render("│"))
+
+		// -- Right pane ------------------------------------------------------
+		rw := m.convWidth()
+		relY := row // row relative to right pane top
+
+		if relY < ly.conv.Dy() {
+			// Conversation area
+			lineIdx := startLine + relY
+			if lineIdx < len(m.conversation) {
 				line := m.conversation[lineIdx]
 
-				// Check if this line is selected
+				// Selection highlight
 				isSelected := false
-				if m.conversationSelectStart != m.conversationSelectEnd {
-					selStart := m.conversationSelectStart
-					selEnd := m.conversationSelectEnd
-					if selStart > selEnd {
-						selStart, selEnd = selEnd, selStart
+				if m.selectStart != m.selectEnd {
+					s, e := m.selectStart, m.selectEnd
+					if s > e {
+						s, e = e, s
 					}
-					if lineIdx >= selStart && lineIdx <= selEnd {
-						isSelected = true
-					}
+					isSelected = lineIdx >= s && lineIdx <= e
 				}
-
-				// Apply selection highlighting if selected
 				if isSelected {
-					line = m.selectionStyle.Render(line)
+					line = m.styles.Selection.Render(line)
 				}
 
-				lineWidth := lipgloss.Width(line)
+				lw := lipgloss.Width(line)
+				if lw > rw {
+					line = ansi.Truncate(line, rw, "")
+					lw = lipgloss.Width(line)
+				}
 				b.WriteString(line)
-				// Pad to full width
-				if lineWidth < m.rightPaneWidth {
-					padding := strings.Repeat(" ", m.rightPaneWidth-lineWidth)
+				if lw < rw {
+					pad := strings.Repeat(" ", rw-lw)
 					if isSelected {
-						padding = m.selectionStyle.Render(padding)
+						pad = m.styles.Selection.Render(pad)
+					} else {
+						pad = bgFill.Render(pad)
 					}
-					b.WriteString(padding)
+					b.WriteString(pad)
 				}
 			} else {
-				b.WriteString(strings.Repeat(" ", m.rightPaneWidth))
+				b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
 			}
-		} else if i == separatorRow {
-			// Separator line
-			b.WriteString(m.borderStyle.Render(strings.Repeat("─", m.rightPaneWidth)))
+
+		} else if relY == ly.sep.Min.Y {
+			// Separator line between conversation and input
+			b.WriteString(m.styles.Border.Render(strings.Repeat("─", rw)))
+
 		} else {
-			// Input area (last 3 rows)
-			lineIdx := i - inputStartRow
-			if lineIdx < len(agentInputLines) {
-				line := agentInputLines[lineIdx]
-				lineWidth := lipgloss.Width(line)
-				if lineWidth > m.rightPaneWidth {
-					line = line[:m.rightPaneWidth]
-					lineWidth = m.rightPaneWidth
+			// Input area
+			inputRow := relY - ly.input.Min.Y
+			if inputRow >= 0 && inputRow < len(inputLines) {
+				line := inputLines[inputRow]
+				lw := lipgloss.Width(line)
+				if lw > rw {
+					line = ansi.Truncate(line, rw, "")
+					lw = lipgloss.Width(line)
 				}
 				b.WriteString(line)
-				b.WriteString(strings.Repeat(" ", m.rightPaneWidth-lineWidth))
+				if lw < rw {
+					b.WriteString(bgFill.Render(strings.Repeat(" ", rw-lw)))
+				}
 			} else {
-				b.WriteString(strings.Repeat(" ", m.rightPaneWidth))
+				b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
 			}
 		}
 
-		b.WriteString("\n")
+		b.WriteByte('\n')
 	}
 
-	// Status separator: ───...───┴───...───
-	b.WriteString(m.borderStyle.Render(strings.Repeat("─", halfWidth)))
-	b.WriteString(m.borderStyle.Render("┴"))
-	b.WriteString(m.borderStyle.Render(strings.Repeat("─", m.width-halfWidth-1)))
-	b.WriteString("\n")
+	// -- Status separator: ───┴─── ------------------------------------------
+	divX := ly.div.Min.X
+	b.WriteString(m.styles.Border.Render(strings.Repeat("─", divX)))
+	b.WriteString(m.styles.Border.Render("┴"))
+	b.WriteString(m.styles.Border.Render(strings.Repeat("─", m.width-divX-1)))
+	b.WriteByte('\n')
 
-	// Status bar: master* │<spaces>spinner
-	statusTextStyle := lipgloss.NewStyle().Foreground(ColorGray)
-	statusLeft := statusTextStyle.Render(" gitbranch/working dir")
-	spinnerView := strings.TrimSpace(m.spinner.View())
-	// Use lipgloss.Width for accurate display width
-	leftWidth := lipgloss.Width(statusLeft)
-	spinnerWidth := lipgloss.Width(spinnerView)
-	spacesNeeded := m.width - leftWidth - spinnerWidth - 1
-	b.WriteString(statusLeft)
-	b.WriteString(strings.Repeat(" ", spacesNeeded))
-	b.WriteString(spinnerView)
-	b.WriteString(" ")
+	// -- Status bar ----------------------------------------------------------
+	left := m.styles.StatusText.Render(" symb")
+	spin := strings.TrimSpace(m.spinner.View())
+	leftW := lipgloss.Width(left)
+	spinW := lipgloss.Width(spin)
+	gap := m.width - leftW - spinW - 1
+	if gap < 0 {
+		gap = 0
+	}
+	b.WriteString(left)
+	b.WriteString(bgFill.Render(strings.Repeat(" ", gap)))
+	b.WriteString(spin)
+	b.WriteString(bgFill.Render(" "))
 
 	return b.String()
 }

@@ -111,6 +111,7 @@ func main() {
 		tui.New(prov, proxy, tools, providerCfg.Model),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
+		tea.WithFilter(tui.MouseEventFilter),
 	)
 
 	// Set program reference for tools that need it
