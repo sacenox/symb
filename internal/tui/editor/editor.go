@@ -216,6 +216,21 @@ func (m *Model) Reset() {
 	m.scroll = 0
 }
 
+// GotoLine moves the cursor to the given 1-indexed line number and scrolls
+// it into view.
+func (m *Model) GotoLine(line int) {
+	line-- // convert to 0-indexed
+	if line < 0 {
+		line = 0
+	}
+	if line >= len(m.lines) {
+		line = len(m.lines) - 1
+	}
+	m.row = line
+	m.col = 0
+	m.clampScroll()
+}
+
 // Blink returns the initial cursor blink message. Call from Init().
 func Blink() tea.Msg { return cursor.Blink() }
 

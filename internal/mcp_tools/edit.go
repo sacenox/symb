@@ -246,7 +246,7 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 	}
 
 	// Show updated file in TUI editor
-	language := detectLanguage(args.File)
+	language := DetectLanguage(args.File)
 	if h.program != nil {
 		h.program.Send(OpenForUserMsg{
 			Content:  result,
@@ -281,7 +281,7 @@ func (h *EditHandler) handleCreate(absPath, displayPath string, op *CreateOp) (*
 	}
 
 	// Show in TUI
-	language := detectLanguage(displayPath)
+	language := DetectLanguage(displayPath)
 	if h.program != nil {
 		h.program.Send(OpenForUserMsg{
 			Content:  op.Content,

@@ -2,7 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"image"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,10 +39,34 @@ type layout struct {
 }
 
 const (
-	inputRows    = 3 // Agent input height
-	statusRows   = 2 // Status separator + status bar
-	minPaneWidth = 20
+	inputRows       = 3 // Agent input height
+	statusRows      = 2 // Status separator + status bar
+	minPaneWidth    = 20
+	maxPreviewLines = 5 // Max lines shown for tool results before truncation
 )
+
+// entryKind distinguishes conversation entry types for click handling.
+type entryKind int
+
+const (
+	entryText       entryKind = iota // Plain text (user, assistant, separator)
+	entryToolResult                  // Tool result — clickable to view full content in editor
+)
+
+// convEntry is a single logical entry in the conversation pane.
+type convEntry struct {
+	display  string    // Styled text for rendering (may be truncated for tool results)
+	kind     entryKind // Entry type
+	filePath string    // Source file path (for tool results that reference a file)
+	full     string    // Fallback raw content (when no file path, e.g. Grep results)
+}
+
+// toolResultFileRe extracts the file path from "Opened path ..." / "Edited path ..." / "Created path ..." headers.
+var toolResultFileRe = regexp.MustCompile(`^(?:Opened|Edited|Created)\s+(\S+)`)
+
+// filePathRe matches file references like "path/to/file.go:123" or just "path/to/file.go".
+// Requires a '/' to avoid matching version numbers like "v1.0".
+var filePathRe = regexp.MustCompile(`(?:^|[\s(])([a-zA-Z0-9_./-]*[/][a-zA-Z0-9_.-]+\.[a-zA-Z]\w*)(?::(\d+))?`)
 
 // generateLayout computes all regions from terminal size and divider position.
 func generateLayout(width, height, divX int) layout {
@@ -245,10 +274,11 @@ type Model struct {
 	cancel     context.CancelFunc
 
 	// Conversation
-	convEntries  []string // Raw styled lines (not wrapped)
-	convLines    []string // Wrapped visual lines (cache, rebuilt on width change)
-	convCachedW  int      // Width used for current convLines cache
-	scrollOffset int      // Lines from bottom (0 = pinned)
+	convEntries    []convEntry // Conversation entries (not wrapped)
+	convLines      []string    // Wrapped visual lines (cache, rebuilt on width change)
+	convLineSource []int       // Maps each wrapped line -> index in convEntries
+	convCachedW    int         // Width used for current convLines cache
+	scrollOffset   int         // Lines from bottom (0 = pinned)
 
 	// Streaming state: raw text accumulated during streaming, styled at render time
 	streamingReasoning string // In-progress reasoning text
@@ -304,7 +334,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		mcpProxy:    proxy,
 		mcpTools:    tools,
 		history:     []provider.Message{{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}},
-		convEntries: []string{},
+		convEntries: []convEntry{},
 		updateChan:  ch,
 		ctx:         ctx,
 		cancel:      cancel,
@@ -336,13 +366,27 @@ func styledLines(text string, style lipgloss.Style) []string {
 	return out
 }
 
-// appendConv appends raw styled entries and returns whether we were at bottom
+// textEntries converts styled display strings into plain convEntry values.
+func textEntries(lines ...string) []convEntry {
+	out := make([]convEntry, len(lines))
+	for i, l := range lines {
+		out[i] = convEntry{display: l, kind: entryText}
+	}
+	return out
+}
+
+// appendConv appends entries and returns whether we were at bottom
 // (for sticky scroll). Invalidates the wrapped-lines cache.
-func (m *Model) appendConv(entries ...string) bool {
+func (m *Model) appendConv(entries ...convEntry) bool {
 	atBottom := m.scrollOffset == 0
 	m.convEntries = append(m.convEntries, entries...)
 	m.convLines = nil // invalidate cache
 	return atBottom
+}
+
+// appendText is a convenience to append plain text entries.
+func (m *Model) appendText(lines ...string) bool {
+	return m.appendConv(textEntries(lines...)...)
 }
 
 // rebuildStreamEntries replaces any existing streaming entries with fresh
@@ -355,10 +399,10 @@ func (m *Model) rebuildStreamEntries() {
 	}
 
 	if m.streamingReasoning != "" {
-		m.convEntries = append(m.convEntries, styledLines(m.streamingReasoning, m.styles.Muted)...)
+		m.convEntries = append(m.convEntries, textEntries(styledLines(m.streamingReasoning, m.styles.Muted)...)...)
 	}
 	if m.streamingContent != "" {
-		m.convEntries = append(m.convEntries, styledLines(m.streamingContent, m.styles.Text)...)
+		m.convEntries = append(m.convEntries, textEntries(styledLines(m.streamingContent, m.styles.Text)...)...)
 	}
 	m.convLines = nil // invalidate cache
 }
@@ -372,14 +416,21 @@ func (m *Model) wrappedConvLines() []string {
 	}
 	m.convCachedW = w
 	lines := make([]string, 0, len(m.convEntries))
-	for _, entry := range m.convEntries {
-		if entry == "" {
+	source := make([]int, 0, len(m.convEntries))
+	for i, entry := range m.convEntries {
+		if entry.display == "" {
 			lines = append(lines, "")
+			source = append(source, i)
 		} else {
-			lines = append(lines, wrapANSI(entry, w)...)
+			wrapped := wrapANSI(entry.display, w)
+			for range wrapped {
+				source = append(source, i)
+			}
+			lines = append(lines, wrapped...)
 		}
 	}
 	m.convLines = lines
+	m.convLineSource = source
 	return m.convLines
 }
 
@@ -454,11 +505,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, provider.Message{
 			Role: "user", Content: msg.content, CreatedAt: now,
 		})
-		m.appendConv(styledLines(msg.content, m.styles.Text)...)
-		m.appendConv("")
+		m.appendText(styledLines(msg.content, m.styles.Text)...)
+		m.appendText("")
 		sep := m.makeSeparator("0s", now.Format("15:04:05"))
-		wasBottom := m.appendConv(sep)
-		m.appendConv("")
+		wasBottom := m.appendText(sep)
+		m.appendText("")
 		if wasBottom {
 			m.scrollOffset = 0
 		}
@@ -511,22 +562,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.reasoning != "" {
-			wasBottom := m.appendConv(styledLines(msg.reasoning, m.styles.Muted)...)
-			m.appendConv("")
+			wasBottom := m.appendText(styledLines(msg.reasoning, m.styles.Muted)...)
+			m.appendText("")
 			if wasBottom {
 				m.scrollOffset = 0
 			}
 		}
 		if msg.content != "" {
-			wasBottom := m.appendConv(styledLines(msg.content, m.styles.Text)...)
-			m.appendConv("")
+			wasBottom := m.appendText(styledLines(msg.content, m.styles.Text)...)
+			m.appendText("")
 			if wasBottom {
 				m.scrollOffset = 0
 			}
 		}
 		for _, tc := range msg.toolCalls {
 			entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(tc.Name+"(...)")
-			wasBottom := m.appendConv(entry)
+			wasBottom := m.appendText(entry)
 			if wasBottom {
 				m.scrollOffset = 0
 			}
@@ -534,21 +585,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.waitForLLMUpdate()
 
 	case llmToolResultMsg:
-		entry := m.styles.ToolArrow.Render("←") + "  " + m.styles.Dim.Render(msg.content)
-		wasBottom := m.appendConv(entry)
+		// Extract file path from tool result header (Opened/Edited/Created)
+		var filePath string
+		if sm := toolResultFileRe.FindStringSubmatch(msg.content); sm != nil {
+			filePath = sm[1]
+		}
+
+		lines := strings.Split(msg.content, "\n")
+		preview := lines
+		truncated := false
+		if len(lines) > maxPreviewLines {
+			preview = lines[:maxPreviewLines]
+			truncated = true
+		}
+
+		arrow := m.styles.ToolArrow.Render("←") + "  "
+		var wasBottom bool
+		for i, line := range preview {
+			display := m.styles.Dim.Render(line)
+			if i == 0 {
+				display = arrow + display
+				wasBottom = m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
+			} else {
+				m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
+			}
+		}
+		if truncated {
+			hint := fmt.Sprintf("  ... %d more lines (click to view)", len(lines)-maxPreviewLines)
+			m.appendConv(convEntry{display: m.styles.Muted.Render(hint), kind: entryToolResult, filePath: filePath, full: msg.content})
+		}
 		if wasBottom {
 			m.scrollOffset = 0
 		}
 		return m, m.waitForLLMUpdate()
 
 	case llmErrorMsg:
-		m.appendConv("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
+		m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
 		return m, nil
 
 	case llmDoneMsg:
-		m.appendConv("")
+		m.appendText("")
 		sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
-		m.appendConv(sep)
+		m.appendText(sep)
 		return m, nil
 
 	case mcp_tools.OpenForUserMsg:
@@ -671,7 +749,12 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				}
 			case tea.MouseActionRelease:
 				m.selecting = false
-				if m.selectStart != m.selectEnd {
+				if m.selectStart == m.selectEnd {
+					// Single click — try to handle as interactive click
+					if cmd := m.handleConvClick(clickedLine); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				} else {
 					start, end := m.selectStart, m.selectEnd
 					if start > end {
 						start, end = end, start
@@ -719,6 +802,98 @@ func (m *Model) visibleStartLine() int {
 		return 0
 	}
 	return start
+}
+
+// handleConvClick resolves a click on a wrapped conversation line.
+// If the line belongs to a tool result entry, the full content is opened in
+// the editor. Otherwise, if the line contains a file path reference
+// (path/to/file.go:123), that file is opened in the editor.
+func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
+	m.wrappedConvLines() // ensure convLineSource is fresh
+	src := m.convLineSource
+	if wrappedLine < 0 || wrappedLine >= len(src) {
+		return nil
+	}
+	entryIdx := src[wrappedLine]
+	if entryIdx < 0 || entryIdx >= len(m.convEntries) {
+		return nil
+	}
+	entry := m.convEntries[entryIdx]
+
+	// Tool result: open the source file or fall back to raw content
+	if entry.kind == entryToolResult {
+		if entry.filePath != "" {
+			if content, err := os.ReadFile(entry.filePath); err == nil {
+				m.editor.SetValue(string(content))
+				m.editor.Language = mcp_tools.DetectLanguage(entry.filePath)
+				m.focus = focusEditor
+				m.agentInput.Blur()
+				m.editor.Focus()
+				return nil
+			}
+		}
+		// Fallback: show raw tool result text
+		if entry.full != "" {
+			m.editor.SetValue(entry.full)
+			m.editor.Language = "text"
+			m.focus = focusEditor
+			m.agentInput.Blur()
+			m.editor.Focus()
+			return nil
+		}
+	}
+
+	// Try to extract a file path from the clicked line's plain text
+	lines := m.wrappedConvLines()
+	if wrappedLine >= len(lines) {
+		return nil
+	}
+	plain := ansi.Strip(lines[wrappedLine])
+	return m.tryOpenFilePath(plain)
+}
+
+// tryOpenFilePath looks for a file:line reference in text and opens it in the editor.
+func (m *Model) tryOpenFilePath(text string) tea.Cmd {
+	matches := filePathRe.FindStringSubmatch(text)
+	if matches == nil {
+		return nil
+	}
+	path := matches[1]
+	lineNum := 0
+	if matches[2] != "" {
+		lineNum, _ = strconv.Atoi(matches[2])
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil
+	}
+
+	// Restrict to files within the working directory
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(wd, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return nil
+	}
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil
+	}
+
+	language := mcp_tools.DetectLanguage(path)
+	m.editor.SetValue(string(content))
+	m.editor.Language = language
+	if lineNum > 0 {
+		m.editor.GotoLine(lineNum)
+	}
+	m.focus = focusEditor
+	m.agentInput.Blur()
+	m.editor.Focus()
+	return nil
 }
 
 // ---------------------------------------------------------------------------

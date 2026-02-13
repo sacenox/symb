@@ -170,7 +170,7 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 	}
 
 	// Detect language from file extension
-	language := detectLanguage(args.File)
+	language := DetectLanguage(args.File)
 
 	// Send message to TUI to update editor
 	if h.program != nil {
@@ -205,8 +205,8 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 	}, nil
 }
 
-// detectLanguage returns the Chroma language identifier based on file extension.
-func detectLanguage(path string) string {
+// DetectLanguage returns the Chroma language identifier based on file extension.
+func DetectLanguage(path string) string {
 	// Map common extensions to Chroma language identifiers
 	languageMap := map[string]string{
 		".go":         "go",

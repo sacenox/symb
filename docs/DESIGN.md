@@ -32,9 +32,10 @@ viewer. Input pane uses same component with `ReadOnly=false`.
 
 ### LLM Loop (`internal/llm`)
 
-Synchronous multi-turn. Up to 20 tool rounds per turn. Calls
-`Provider.ChatWithTools()` — request/response, not streaming. Emits messages
-via `OnMessage` callback to TUI.
+Streaming multi-turn. Up to 20 tool rounds per turn. Calls
+`Provider.ChatStream()` — returns `<-chan StreamEvent`. Forwards deltas via
+`OnDelta` callback for incremental TUI rendering, emits complete messages via
+`OnMessage` callback.
 
 Prompt system: model-specific base prompts (Claude, Gemini, Qwen, GPT).
 `AGENTS.md` support: walks directory tree upward collecting all AGENTS.md files,
@@ -45,8 +46,8 @@ prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
 - **Ollama** — local, OpenAI-compatible `/v1` endpoint. Extracts reasoning from
   `reasoning`/`reasoning_content` fields.
 - **OpenCode** — remote, API key auth. Model-specific endpoint routing.
-- Both have retry logic (3 retries, 429/5xx handling).
-- `Stream()` method exists on both but is needed for streaming responses feature.
+- Both use SSE streaming with retry on initial connection (3 retries, 429/5xx).
+- Single `ChatStream()` interface method replaces `Chat`/`ChatWithTools`/`Stream`.
 
 ### MCP (`internal/mcp`)
 
@@ -74,17 +75,7 @@ Retry-After parsing.
   matching, binary detection, 10MB size limit.
 - `internal/config` — TOML config, JSON credentials, env overrides.
 
-### Dead Code
-
-- `internal/tui/textarea/` — 1636-line bubbles/textarea fork. Imported by nothing.
-
 ## Considered Features
-
-### Streaming Responses
-
-Stream LLM output token-by-token to the conversation pane. `Stream()` already
-exists on providers. Needs: wire into LLM loop, incremental conversation
-rendering, handle tool calls mid-stream.
 
 ### Basic keybind to toggle cursor from agent input <> editor
 
@@ -101,7 +92,6 @@ opens the file in the editor pane at the referenced line.
 ### Statusbar implementation
 
 - Needs design work
-
 
 ### Web/Search Tools
 
@@ -161,6 +151,7 @@ Separate OpenForUser into Read and Show. Read sends the output to the llm, Show 
 
 - Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor.
 - Show, new tool: Open and send to the editor.
+- All tools: don't auto update the editor (Show excluded).
 
 ### Human-in-the-Middle Tool Approval
 
