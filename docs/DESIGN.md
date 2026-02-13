@@ -83,12 +83,6 @@ Choose a convenient keybind to toggle the active cursor.
 Goes back and forth
 Use vim's `CTRL+w` keybind for easy muscle memory?
 
-### Clickable File References
-
-File paths in conversation (tool calls, content) become clickable. Clicking
-opens the file in the editor pane at the referenced line.
-- Don't show tool response bodies in conversation pane once the user can click to see. Show a max 5 line preview for the user to click to see more. User clicks, the content of the tool response is sent to the editor.
-
 ### Statusbar implementation
 
 - Needs design work
@@ -152,6 +146,7 @@ Separate OpenForUser into Read and Show. Read sends the output to the llm, Show 
 - Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor.
 - Show, new tool: Open and send to the editor.
 - All tools: don't auto update the editor (Show excluded).
+- mousing over a tool reply apllies a background to show it's clickable.
 
 ### Human-in-the-Middle Tool Approval
 
