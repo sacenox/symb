@@ -1,46 +1,234 @@
 package provider
 
 import (
+	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// OpenAI-compliant response types for providers that follow OpenAI Chat Completions API spec.
-// These types should NOT include provider-specific extensions.
+// SSE streaming delta types for the OpenAI Chat Completions streaming format.
 
-type openaiChatResponse struct {
-	Choices []openaiChatChoice `json:"choices"`
+type chatCompletionStreamResponse struct {
+	Choices []chatCompletionStreamChoice `json:"choices"`
 }
 
-type openaiChatChoice struct {
-	Message openaiChatMessage `json:"message"`
+type chatCompletionStreamChoice struct {
+	Delta        chatCompletionStreamDelta `json:"delta"`
+	FinishReason *string                   `json:"finish_reason"`
 }
 
-type openaiChatMessage struct {
-	Role      string               `json:"role"`
-	Content   string               `json:"content"`
-	ToolCalls []openaiChatToolCall `json:"tool_calls,omitempty"`
+type chatCompletionStreamDelta struct {
+	Role             string                   `json:"role,omitempty"`
+	Content          string                   `json:"content,omitempty"`
+	Reasoning        string                   `json:"reasoning,omitempty"`
+	ReasoningContent string                   `json:"reasoning_content,omitempty"`
+	ToolCalls        []chatCompletionToolCall `json:"tool_calls,omitempty"`
 }
 
-type openaiChatToolCall struct {
-	ID       string             `json:"id"`
-	Type     string             `json:"type"`
-	Function openaiChatFunction `json:"function"`
+type chatCompletionToolCall struct {
+	Index    int                    `json:"index"`
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function chatCompletionFunction `json:"function"`
 }
 
-type openaiChatFunction struct {
+type chatCompletionFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
+// httpRequestConfig holds the parameters for an HTTP SSE request.
+type httpRequestConfig struct {
+	client   *http.Client
+	url      string
+	body     []byte
+	headers  map[string]string
+	provider string // for logging
+	model    string // for logging
+}
+
+// sseRetryDelays defines backoff for transient errors on the initial SSE connection.
+var sseRetryDelays = []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second}
+
+// httpDoSSE executes an HTTP POST for SSE streaming with retry on the initial
+// connection. Returns the response body as an io.ReadCloser that the caller
+// must close.
+func httpDoSSE(ctx context.Context, cfg httpRequestConfig) (io.ReadCloser, error) {
+	maxRetries := len(sseRetryDelays)
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := sseRetryDelays[attempt-1]
+			log.Warn().
+				Str("provider", cfg.provider).
+				Int("attempt", attempt).
+				Dur("delay", delay).
+				Msg("Retrying SSE connection after transient error")
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		if attempt == 0 {
+			log.Info().
+				Str("provider", cfg.provider).
+				Str("model", cfg.model).
+				Msg("SSE stream request started")
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.url, bytes.NewReader(cfg.body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		for k, v := range cfg.headers {
+			httpReq.Header.Set(k, v)
+		}
+
+		resp, err := cfg.client.Do(httpReq)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			lastErr = err
+			continue
+		}
+
+		// Retry on transient server errors
+		if resp.StatusCode == 429 || resp.StatusCode == 500 || resp.StatusCode == 502 ||
+			resp.StatusCode == 503 || resp.StatusCode == 504 {
+			payload, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
+			log.Warn().
+				Str("provider", cfg.provider).
+				Int("status", resp.StatusCode).
+				Int("attempt", attempt+1).
+				Msg("SSE retryable error")
+			continue
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			payload, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
+		}
+
+		return resp.Body, nil
+	}
+
+	return nil, fmt.Errorf("SSE request failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// parseSSEStream reads SSE lines from a reader and sends parsed stream events on the channel.
+// Returns when the stream ends, an error occurs, or ctx is cancelled.
+// Caller must close the reader.
+func parseSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent) {
+	scanner := bufio.NewScanner(reader)
+	// 512KB buffer to handle large tool call arguments
+	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+
+		if data == "[DONE]" {
+			trySend(ctx, ch, StreamEvent{Type: EventDone})
+			return
+		}
+
+		var chunk chatCompletionStreamResponse
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			log.Warn().Err(err).Str("data", data).Msg("Failed to parse SSE chunk")
+			continue
+		}
+
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		delta := chunk.Choices[0].Delta
+
+		// Emit reasoning delta
+		reasoning := delta.Reasoning
+		if reasoning == "" {
+			reasoning = delta.ReasoningContent
+		}
+		if reasoning != "" {
+			if !trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: reasoning}) {
+				return
+			}
+		}
+
+		// Emit content delta
+		if delta.Content != "" {
+			if !trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: delta.Content}) {
+				return
+			}
+		}
+
+		// Emit tool call events
+		for _, tc := range delta.ToolCalls {
+			if tc.Function.Name != "" {
+				if !trySend(ctx, ch, StreamEvent{
+					Type:          EventToolCallBegin,
+					ToolCallIndex: tc.Index,
+					ToolCallID:    tc.ID,
+					ToolCallName:  tc.Function.Name,
+				}) {
+					return
+				}
+			}
+			if tc.Function.Arguments != "" {
+				if !trySend(ctx, ch, StreamEvent{
+					Type:          EventToolCallDelta,
+					ToolCallIndex: tc.Index,
+					ToolCallArgs:  tc.Function.Arguments,
+				}) {
+					return
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		trySend(ctx, ch, StreamEvent{Type: EventError, Err: err})
+		return
+	}
+
+	// Stream ended without [DONE] marker
+	trySend(ctx, ch, StreamEvent{Type: EventDone})
+}
+
+// trySend sends an event on ch, aborting if ctx is cancelled. Returns false if cancelled.
+func trySend(ctx context.Context, ch chan<- StreamEvent, evt StreamEvent) bool {
+	select {
+	case ch <- evt:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // toOpenAIMessages converts provider-agnostic messages to OpenAI SDK message format.
-// This function enforces OpenAI Chat Completions API requirements:
-// - System messages must be first
-// - User and assistant messages must alternate (as much as possible)
-// - Tool messages must have tool_call_id and follow assistant messages with tool calls
 func toOpenAIMessages(messages []Message) []openai.ChatCompletionMessage {
 	result := make([]openai.ChatCompletionMessage, len(messages))
 	for i, m := range messages {
@@ -75,22 +263,11 @@ func toOpenAIMessages(messages []Message) []openai.ChatCompletionMessage {
 }
 
 // mergeSystemMessagesOpenAI merges system messages intelligently while preserving conversation flow.
-//
-// Strategy:
-// 1. Separate initial system messages (before any user/assistant messages)
-// 2. Keep user/assistant conversation intact
-// 3. Merge any mid-conversation system messages into the initial system prompt
-//
-// OpenAI requires:
-// - System messages at the start
-// - At least one non-system message
-// - Proper user/assistant alternation
 func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	if len(messages) == 0 {
 		return messages
 	}
 
-	// Separate system messages from conversation messages
 	var systemMessages []string
 	var conversationMessages []openai.ChatCompletionMessage
 
@@ -102,10 +279,8 @@ func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai
 		}
 	}
 
-	// Build result: merged system message + conversation
 	result := make([]openai.ChatCompletionMessage, 0, len(messages))
 
-	// Add merged system message if any system messages exist
 	if len(systemMessages) > 0 {
 		mergedSystem := strings.Join(systemMessages, "\n\n")
 		result = append(result, openai.ChatCompletionMessage{
@@ -114,7 +289,6 @@ func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai
 		})
 	}
 
-	// Add conversation messages
 	result = append(result, conversationMessages...)
 
 	log.Debug().
@@ -128,14 +302,15 @@ func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai
 }
 
 // toOpenAITools converts provider-agnostic tools to OpenAI SDK tool format.
-// Returns error if any tool has invalid JSON schema.
 func toOpenAITools(tools []Tool) ([]openai.Tool, error) {
+	if tools == nil {
+		return nil, nil
+	}
 	result := make([]openai.Tool, len(tools))
 	for i, t := range tools {
 		var params map[string]interface{}
 		if len(t.Parameters) > 0 {
 			if err := json.Unmarshal(t.Parameters, &params); err != nil {
-				// Invalid JSON schema - return error instead of silently failing
 				return nil, err
 			}
 		}

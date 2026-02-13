@@ -42,19 +42,50 @@ type ChatResponse struct {
 	Reasoning string     // Model reasoning content (optional)
 }
 
+// StreamEventType identifies the kind of streaming event.
+type StreamEventType int
+
+const (
+	// EventContentDelta carries a chunk of text content.
+	EventContentDelta StreamEventType = iota
+	// EventReasoningDelta carries a chunk of reasoning/thinking content.
+	EventReasoningDelta
+	// EventToolCallBegin signals the start of a new tool call with ID and name.
+	EventToolCallBegin
+	// EventToolCallDelta carries a chunk of tool call arguments.
+	EventToolCallDelta
+	// EventDone signals the stream is complete.
+	EventDone
+	// EventError signals a stream error.
+	EventError
+)
+
+// StreamEvent represents a single event in a streamed LLM response.
+type StreamEvent struct {
+	Type StreamEventType
+
+	// Content or reasoning text delta (for EventContentDelta, EventReasoningDelta).
+	Content string
+
+	// Tool call fields (for EventToolCallBegin, EventToolCallDelta).
+	ToolCallIndex int    // Index of the tool call in the response (from OpenAI spec)
+	ToolCallID    string // Set on EventToolCallBegin
+	ToolCallName  string // Set on EventToolCallBegin
+	ToolCallArgs  string // Argument fragment on EventToolCallDelta
+
+	// Error (for EventError).
+	Err error
+}
+
 // Provider defines the interface for LLM providers.
 type Provider interface {
 	// Name returns the provider's identifier.
 	Name() string
 
-	// Chat sends messages and returns the complete response.
-	Chat(ctx context.Context, messages []Message) (string, error)
-
-	// ChatWithTools sends messages with available tools and returns response with potential tool calls.
-	ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error)
-
-	// Stream sends messages and returns a channel that streams response chunks.
-	Stream(ctx context.Context, messages []Message) (<-chan StreamChunk, error)
+	// ChatStream sends messages with optional tools and returns a channel of streaming events.
+	// The channel is closed after EventDone or EventError is sent.
+	// Pass nil tools for simple chat without tool calling.
+	ChatStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error)
 
 	// Close closes idle HTTP connections and cleans up resources.
 	Close() error
@@ -63,13 +94,6 @@ type Provider interface {
 type ProviderFactory interface {
 	Name() string
 	Create(model string, temperature float64) Provider
-}
-
-// StreamChunk represents a chunk of streamed response.
-type StreamChunk struct {
-	Content string
-	Done    bool
-	Err     error
 }
 
 // Registry holds available providers.

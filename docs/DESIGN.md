@@ -98,6 +98,11 @@ File paths in conversation (tool calls, content) become clickable. Clicking
 opens the file in the editor pane at the referenced line.
 - Don't show tool response bodies in conversation pane once the user can click to see. Show a max 5 line preview for the user to click to see more. User clicks, the content of the tool response is sent to the editor.
 
+### Statusbar implementation
+
+- Needs design work
+
+
 ### Web/Search Tools
 
 HTTP fetch cleans the html for less wasted tokens, preserving content.

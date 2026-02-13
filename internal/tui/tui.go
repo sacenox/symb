@@ -132,6 +132,10 @@ type llmDoneMsg struct {
 type llmHistoryMsg struct{ msg provider.Message }
 type llmErrorMsg struct{ err error }
 
+// Streaming delta messages
+type llmContentDeltaMsg struct{ content string }
+type llmReasoningDeltaMsg struct{ content string }
+
 // UpdateToolsMsg is exported so main.go can send it via program.Send.
 type UpdateToolsMsg struct{ Tools []mcp.Tool }
 
@@ -173,6 +177,14 @@ func (m Model) processLLM() tea.Cmd {
 				Tools:         tools,
 				History:       history,
 				MaxToolRounds: 20,
+				OnDelta: func(evt provider.StreamEvent) {
+					switch evt.Type {
+					case provider.EventContentDelta:
+						ch <- llmContentDeltaMsg{content: evt.Content}
+					case provider.EventReasoningDelta:
+						ch <- llmReasoningDeltaMsg{content: evt.Content}
+					}
+				},
 				OnMessage: func(msg provider.Message) {
 					ch <- llmHistoryMsg{msg: msg}
 					switch msg.Role {
@@ -238,6 +250,12 @@ type Model struct {
 	convCachedW  int      // Width used for current convLines cache
 	scrollOffset int      // Lines from bottom (0 = pinned)
 
+	// Streaming state: raw text accumulated during streaming, styled at render time
+	streamingReasoning string // In-progress reasoning text
+	streamingContent   string // In-progress content text
+	streaming          bool   // Whether we're currently streaming
+	streamEntryStart   int    // Index in convEntries where streaming entries begin (-1 = none)
+
 	// Mouse state
 	resizingPane bool
 	selecting    bool
@@ -290,6 +308,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		updateChan:  ch,
 		ctx:         ctx,
 		cancel:      cancel,
+
+		streamEntryStart: -1,
 	}
 }
 
@@ -323,6 +343,24 @@ func (m *Model) appendConv(entries ...string) bool {
 	m.convEntries = append(m.convEntries, entries...)
 	m.convLines = nil // invalidate cache
 	return atBottom
+}
+
+// rebuildStreamEntries replaces any existing streaming entries with fresh
+// styled entries from the current streamingReasoning and streamingContent.
+// Called on each delta to reflect incremental updates.
+func (m *Model) rebuildStreamEntries() {
+	// Remove old streaming entries
+	if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
+		m.convEntries = m.convEntries[:m.streamEntryStart]
+	}
+
+	if m.streamingReasoning != "" {
+		m.convEntries = append(m.convEntries, styledLines(m.streamingReasoning, m.styles.Muted)...)
+	}
+	if m.streamingContent != "" {
+		m.convEntries = append(m.convEntries, styledLines(m.streamingContent, m.styles.Text)...)
+	}
+	m.convLines = nil // invalidate cache
 }
 
 // wrappedConvLines returns the conversation wrapped to the current convWidth.
@@ -426,11 +464,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 
+	case llmReasoningDeltaMsg:
+		if !m.streaming {
+			m.streaming = true
+			m.streamEntryStart = len(m.convEntries)
+			m.streamingReasoning = ""
+			m.streamingContent = ""
+		}
+		m.streamingReasoning += msg.content
+		m.rebuildStreamEntries()
+		if m.scrollOffset == 0 {
+			m.scrollOffset = 0 // stay pinned
+		}
+		return m, m.waitForLLMUpdate()
+
+	case llmContentDeltaMsg:
+		if !m.streaming {
+			m.streaming = true
+			m.streamEntryStart = len(m.convEntries)
+			m.streamingReasoning = ""
+			m.streamingContent = ""
+		}
+		m.streamingContent += msg.content
+		m.rebuildStreamEntries()
+		if m.scrollOffset == 0 {
+			m.scrollOffset = 0 // stay pinned
+		}
+		return m, m.waitForLLMUpdate()
+
 	case llmHistoryMsg:
 		m.history = append(m.history, msg.msg)
 		return m, m.waitForLLMUpdate()
 
 	case llmAssistantMsg:
+		// Finalize streaming state: replace streaming entries with final styled content
+		if m.streaming {
+			m.streaming = false
+			// Remove streaming entries
+			if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
+				m.convEntries = m.convEntries[:m.streamEntryStart]
+			}
+			m.streamEntryStart = -1
+			m.streamingReasoning = ""
+			m.streamingContent = ""
+			m.convLines = nil // invalidate cache
+		}
+
 		if msg.reasoning != "" {
 			wasBottom := m.appendConv(styledLines(msg.reasoning, m.styles.Muted)...)
 			m.appendConv("")

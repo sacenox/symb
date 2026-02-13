@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,8 +11,11 @@ import (
 	"github.com/xonecas/symb/internal/provider"
 )
 
-// MessageCallback is called when a message should be added to history and saved.
+// MessageCallback is called when a complete message should be added to history.
 type MessageCallback func(msg provider.Message)
+
+// DeltaCallback is called for each streaming event (content/reasoning deltas).
+type DeltaCallback func(evt provider.StreamEvent)
 
 // ToolCallCallback is called when tool calls are about to be executed.
 type ToolCallCallback func()
@@ -23,52 +27,42 @@ type ProcessTurnOptions struct {
 	Tools         []mcp.Tool
 	History       []provider.Message
 	OnMessage     MessageCallback
+	OnDelta       DeltaCallback    // Optional: called for each stream event
 	OnToolCall    ToolCallCallback // Optional: called before executing tool calls
 	MaxToolRounds int
 }
 
 // ProcessTurn handles one conversation turn, which may involve tool calls.
-// It returns an error if the LLM call fails or max rounds are exceeded.
+// It streams events via OnDelta and emits complete messages via OnMessage.
 func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	if opts.MaxToolRounds == 0 {
 		opts.MaxToolRounds = 20
 	}
 
-	for round := 0; round < opts.MaxToolRounds; round++ {
-		// Convert MCP tools to provider format
-		providerTools := make([]provider.Tool, len(opts.Tools))
-		for i, t := range opts.Tools {
-			providerTools[i] = provider.Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.InputSchema,
-			}
+	// Convert MCP tools to provider format once
+	providerTools := make([]provider.Tool, len(opts.Tools))
+	for i, t := range opts.Tools {
+		providerTools[i] = provider.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.InputSchema,
 		}
+	}
 
-		// Call LLM with history
-		resp, err := opts.Provider.ChatWithTools(ctx, opts.History, providerTools)
+	for round := 0; round < opts.MaxToolRounds; round++ {
+		// Start streaming from LLM
+		stream, err := opts.Provider.ChatStream(ctx, opts.History, providerTools)
 		if err != nil {
 			return fmt.Errorf("LLM call failed: %w", err)
 		}
 
-		// If no tool calls, we're done
-		if len(resp.ToolCalls) == 0 {
-			// Add assistant response to history
-			assistantMsg := provider.Message{
-				Role:      "assistant",
-				Content:   resp.Content,
-				Reasoning: resp.Reasoning,
-				CreatedAt: time.Now(),
-			}
-			if opts.OnMessage != nil {
-				opts.OnMessage(assistantMsg)
-			}
-			opts.History = append(opts.History, assistantMsg)
-
-			return nil
+		// Read stream, forwarding deltas and accumulating the full response
+		resp, err := collectWithDeltas(stream, opts.OnDelta)
+		if err != nil {
+			return fmt.Errorf("LLM stream failed: %w", err)
 		}
 
-		// Tool calls present - add assistant message with tool calls to history
+		// Build assistant message from accumulated response
 		assistantMsg := provider.Message{
 			Role:      "assistant",
 			Content:   resp.Content,
@@ -80,6 +74,11 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 			opts.OnMessage(assistantMsg)
 		}
 		opts.History = append(opts.History, assistantMsg)
+
+		// If no tool calls, we're done
+		if len(resp.ToolCalls) == 0 {
+			return nil
+		}
 
 		// Notify about tool calls if callback provided
 		if opts.OnToolCall != nil {
@@ -94,6 +93,58 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	}
 
 	return fmt.Errorf("too many tool call rounds (limit: %d)", opts.MaxToolRounds)
+}
+
+// collectWithDeltas reads all events from a stream, forwarding each to onDelta,
+// and assembles them into a ChatResponse.
+func collectWithDeltas(ch <-chan provider.StreamEvent, onDelta DeltaCallback) (*provider.ChatResponse, error) {
+	var result provider.ChatResponse
+	// Map from tool call index to position in our slice
+	toolCallsByIndex := make(map[int]int)
+	var toolCalls []provider.ToolCall
+	var toolArgBuilders []string
+
+	for evt := range ch {
+		// Forward delta to callback
+		if onDelta != nil {
+			onDelta(evt)
+		}
+
+		switch evt.Type {
+		case provider.EventContentDelta:
+			result.Content += evt.Content
+		case provider.EventReasoningDelta:
+			result.Reasoning += evt.Content
+		case provider.EventToolCallBegin:
+			pos := len(toolCalls)
+			toolCallsByIndex[evt.ToolCallIndex] = pos
+			toolCalls = append(toolCalls, provider.ToolCall{
+				ID:   evt.ToolCallID,
+				Name: evt.ToolCallName,
+			})
+			toolArgBuilders = append(toolArgBuilders, "")
+		case provider.EventToolCallDelta:
+			if pos, ok := toolCallsByIndex[evt.ToolCallIndex]; ok {
+				toolArgBuilders[pos] += evt.ToolCallArgs
+			}
+		case provider.EventError:
+			return nil, evt.Err
+		case provider.EventDone:
+			// finalize
+		}
+	}
+
+	// Finalize tool call arguments
+	for i := range toolCalls {
+		if i < len(toolArgBuilders) {
+			toolCalls[i].Arguments = json.RawMessage(toolArgBuilders[i])
+		}
+	}
+	if len(toolCalls) > 0 {
+		result.ToolCalls = toolCalls
+	}
+
+	return &result, nil
 }
 
 // executeToolCalls executes a list of tool calls and adds results to history.

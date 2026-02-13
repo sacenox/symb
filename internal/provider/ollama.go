@@ -1,31 +1,22 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog/log"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 // OllamaProvider implements the Provider interface for Ollama.
 type OllamaProvider struct {
 	name        string
-	client      *openai.Client
 	baseURL     string
 	httpClient  *http.Client
 	model       string
 	temperature float64
 }
-
-var ollamaRetryDelays = []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second}
 
 // NewOllama creates a new Ollama provider.
 // Ollama exposes an OpenAI-compatible API at /v1.
@@ -34,13 +25,10 @@ func NewOllama(endpoint, model string) *OllamaProvider {
 }
 
 func NewOllamaWithTemp(name string, endpoint, model string, temperature float64) *OllamaProvider {
-	config := openai.DefaultConfig("")
 	baseURL := strings.TrimRight(endpoint, "/") + "/v1"
-	config.BaseURL = baseURL
 
 	return &OllamaProvider{
 		name:        name,
-		client:      openai.NewClientWithConfig(config),
 		baseURL:     baseURL,
 		httpClient:  &http.Client{},
 		model:       model,
@@ -53,86 +41,39 @@ func (p *OllamaProvider) Name() string {
 	return p.name
 }
 
-// Chat sends messages and returns the complete response.
-func (p *OllamaProvider) Chat(ctx context.Context, messages []Message) (string, error) {
-	resp, err := p.createChatCompletion(ctx, ollamaChatRequest{
-		Model:       p.model,
-		Messages:    mergeConsecutiveSystemMessagesOllama(toOllamaMessages(messages)),
-		Temperature: float32(p.temperature),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	if len(resp.Choices) == 0 {
-		return "", errors.New("no response choices")
-	}
-
-	return resp.Choices[0].Message.Content, nil
-}
-
-// ChatWithTools sends messages with available tools and returns response with potential tool calls.
-func (p *OllamaProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
-	resp, err := p.createChatCompletion(ctx, ollamaChatRequest{
+// ChatStream sends messages with optional tools and returns a channel of streaming events.
+func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
+	req := ollamaChatRequest{
 		Model:       p.model,
 		Messages:    mergeConsecutiveSystemMessagesOllama(toOllamaMessages(messages)),
 		Tools:       toOllamaTools(tools),
 		Temperature: float32(p.temperature),
+		Stream:      true,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	reader, err := httpDoSSE(ctx, httpRequestConfig{
+		client:   p.httpClient,
+		url:      p.baseURL + "/chat/completions",
+		body:     body,
+		provider: "ollama",
+		model:    p.model,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	if len(resp.Choices) == 0 {
-		return nil, errors.New("no response choices")
-	}
+	ch := make(chan StreamEvent)
+	go func() {
+		defer close(ch)
+		defer reader.Close()
+		parseSSEStream(ctx, reader, ch)
+	}()
 
-	choice := resp.Choices[0]
-	result := &ChatResponse{
-		Content:   choice.Message.Content,
-		Reasoning: choice.Message.reasoning(),
-	}
-
-	// Extract tool calls if present
-	if len(choice.Message.ToolCalls) > 0 {
-		result.ToolCalls = make([]ToolCall, len(choice.Message.ToolCalls))
-		for i, tc := range choice.Message.ToolCalls {
-			result.ToolCalls[i] = ToolCall{
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				Arguments: json.RawMessage(tc.Function.Arguments),
-			}
-		}
-	}
-
-	return result, nil
-}
-
-type chatCompletionResponse struct {
-	Choices []chatCompletionChoice `json:"choices"`
-}
-
-type chatCompletionChoice struct {
-	Message chatCompletionMessage `json:"message"`
-}
-
-type chatCompletionMessage struct {
-	Role             string                   `json:"role"`
-	Content          string                   `json:"content"`
-	Reasoning        string                   `json:"reasoning,omitempty"`
-	ReasoningContent string                   `json:"reasoning_content,omitempty"`
-	ToolCalls        []chatCompletionToolCall `json:"tool_calls,omitempty"`
-}
-
-type chatCompletionToolCall struct {
-	ID       string                 `json:"id"`
-	Type     string                 `json:"type"`
-	Function chatCompletionFunction `json:"function"`
-}
-
-type chatCompletionFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	return ch, nil
 }
 
 // OLLAMA-SPECIFIC TYPES
@@ -144,6 +85,7 @@ type ollamaChatRequest struct {
 	Messages    []ollamaReqMessage `json:"messages"`
 	Tools       []ollamaReqTool    `json:"tools,omitempty"`
 	Temperature float32            `json:"temperature,omitempty"`
+	Stream      bool               `json:"stream"`
 }
 
 type ollamaReqMessage struct {
@@ -173,181 +115,6 @@ type ollamaReqToolCall struct {
 type ollamaReqFuncCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
-}
-
-// reasoning extracts reasoning content from Ollama response.
-//
-// OLLAMA-SPECIFIC: Ollama may return reasoning in either "reasoning" or "reasoning_content" fields.
-// This is an Ollama extension not present in standard OpenAI Chat Completions API.
-func (m chatCompletionMessage) reasoning() string {
-	if m.Reasoning != "" {
-		return m.Reasoning
-	}
-	return m.ReasoningContent
-}
-
-func (p *OllamaProvider) createChatCompletion(ctx context.Context, req ollamaChatRequest) (*chatCompletionResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-
-	url := p.baseURL + "/chat/completions"
-
-	log.Debug().
-		Str("provider", "ollama").
-		Str("model", p.model).
-		Int("messages", len(req.Messages)).
-		Int("body_bytes", len(body)).
-		Msg("Sending request to Ollama")
-
-	maxRetries := len(ollamaRetryDelays)
-	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			delay := ollamaRetryDelays[attempt-1]
-			log.Warn().
-				Str("provider", "ollama").
-				Int("attempt", attempt).
-				Dur("delay", delay).
-				Msg("Retrying Ollama request after transient error")
-
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-
-		// Log at Info level for first attempt, Debug for retries
-		if attempt == 0 {
-			log.Info().
-				Str("provider", "ollama").
-				Str("model", p.model).
-				Msg("Ollama request started")
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-
-		resp, err := p.httpClient.Do(httpReq)
-		if err != nil {
-			// Do not retry on context cancellation or timeout
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, err
-			}
-
-			lastErr = err
-			continue
-		}
-
-		if resp.StatusCode == 429 || resp.StatusCode == 500 || resp.StatusCode == 502 ||
-			resp.StatusCode == 503 || resp.StatusCode == 504 {
-			payload, _ := io.ReadAll(resp.Body)
-			if err := resp.Body.Close(); err != nil {
-				log.Warn().Err(err).Msg("Failed to close response body")
-			}
-			lastErr = fmt.Errorf("chat completion status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-
-			log.Warn().
-				Str("provider", "ollama").
-				Int("status", resp.StatusCode).
-				Int("attempt", attempt+1).
-				Str("body", string(payload)).
-				Msg("Ollama retryable error")
-			continue
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			payload, _ := io.ReadAll(resp.Body)
-			if err := resp.Body.Close(); err != nil {
-				log.Warn().Err(err).Msg("Failed to close response body")
-			}
-
-			log.Error().
-				Str("provider", "ollama").
-				Int("status", resp.StatusCode).
-				Str("body", string(payload)).
-				Msg("Ollama non-retryable error")
-
-			return nil, fmt.Errorf("chat completion status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-		}
-
-		bodyBytes, readErr := io.ReadAll(resp.Body)
-		if err := resp.Body.Close(); err != nil {
-			log.Warn().Err(err).Msg("Failed to close response body")
-		}
-		if readErr != nil {
-			return nil, fmt.Errorf("read response body: %w", readErr)
-		}
-
-		var decoded chatCompletionResponse
-		if err := json.Unmarshal(bodyBytes, &decoded); err != nil {
-			return nil, fmt.Errorf("decode response: %w", err)
-		}
-
-		// Log successful request at Info level for visibility
-		log.Info().
-			Str("provider", "ollama").
-			Str("model", p.model).
-			Int("status", resp.StatusCode).
-			Int("attempt", attempt+1).
-			Msg("Ollama request successful")
-
-		return &decoded, nil
-	}
-
-	log.Error().
-		Str("provider", "ollama").
-		Str("model", p.model).
-		Int("max_retries", maxRetries).
-		Int("total_attempts", maxRetries+1).
-		Err(lastErr).
-		Msg("Ollama request failed after all retries")
-	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
-}
-
-// Stream sends messages and returns a channel that streams response chunks.
-func (p *OllamaProvider) Stream(ctx context.Context, messages []Message) (<-chan StreamChunk, error) {
-	stream, err := p.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:       p.model,
-		Messages:    toOpenAIMessages(messages),
-		Temperature: float32(p.temperature),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	ch := make(chan StreamChunk)
-	go func() {
-		defer close(ch)
-		defer func() {
-			if err := stream.Close(); err != nil {
-				log.Warn().Err(err).Msg("Failed to close stream")
-			}
-		}()
-
-		for {
-			resp, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				ch <- StreamChunk{Done: true}
-				return
-			}
-			if err != nil {
-				ch <- StreamChunk{Err: err}
-				return
-			}
-
-			if len(resp.Choices) > 0 {
-				ch <- StreamChunk{Content: resp.Choices[0].Delta.Content}
-			}
-		}
-	}()
-
-	return ch, nil
 }
 
 // toOllamaMessages converts provider messages to Ollama's custom request format.
