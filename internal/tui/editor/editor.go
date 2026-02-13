@@ -12,7 +12,6 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -143,11 +142,6 @@ type Model struct {
 
 	focus  bool
 	cursor cursor.Model
-
-	// Mouse selection
-	selecting   bool
-	selectStart pos
-	selectEnd   pos
 
 	// Cached computed values
 	gutterWidth int // Width of line number gutter (0 if disabled)
@@ -552,55 +546,6 @@ func (m *Model) tabIndent() {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Selection helpers
-// ---------------------------------------------------------------------------
-
-func (m *Model) selectionOrdered() (start, end pos) {
-	s, e := m.selectStart, m.selectEnd
-	if s.row > e.row || (s.row == e.row && s.col > e.col) {
-		s, e = e, s
-	}
-	return s, e
-}
-
-func (m *Model) hasSelection() bool {
-	return m.selectStart != m.selectEnd
-}
-
-func (m *Model) clearSelection() {
-	m.selecting = false
-	m.selectStart = pos{}
-	m.selectEnd = pos{}
-}
-
-func (m *Model) selectedText() string {
-	if !m.hasSelection() {
-		return ""
-	}
-	s, e := m.selectionOrdered()
-	if s.row == e.row {
-		line := m.lines[s.row]
-		sc := clampMax(s.col, len(line))
-		ec := clampMax(e.col, len(line))
-		return string(line[sc:ec])
-	}
-	var sb strings.Builder
-	// First line from s.col to end
-	first := m.lines[s.row]
-	sb.WriteString(string(first[clampMax(s.col, len(first)):]))
-	// Middle lines in full
-	for r := s.row + 1; r < e.row; r++ {
-		sb.WriteByte('\n')
-		sb.WriteString(string(m.lines[r]))
-	}
-	// Last line from start to e.col
-	sb.WriteByte('\n')
-	last := m.lines[e.row]
-	sb.WriteString(string(last[:clampMax(e.col, len(last))]))
-	return sb.String()
-}
-
 // screenToPos converts screen-relative x,y to a buffer row,col.
 // x,y are relative to the editor component origin.
 func (m *Model) screenToPos(x, y int) pos {
@@ -619,16 +564,6 @@ func (m *Model) screenToPos(x, y int) pos {
 	// in the expanded string.
 	bufCol := m.expandedColToBufferCol(bufRow, runeOffset+col)
 	return pos{row: bufRow, col: bufCol}
-}
-
-func clampMax(v, hi int) int {
-	if v < 0 {
-		return 0
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }
 
 // ---------------------------------------------------------------------------
@@ -693,20 +628,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case "tab":
 			m.tabIndent()
 
-		// Clipboard
-		case "ctrl+v":
-			if !m.ReadOnly {
-				if text, err := clipboard.ReadAll(); err == nil {
-					for _, r := range text {
-						if r == '\n' {
-							m.insertNewline()
-						} else {
-							m.insertRune(r)
-						}
-					}
-				}
-			}
-
 		default:
 			moved = false
 			// Insert printable runes
@@ -731,30 +652,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		switch msg.Button {
 		case tea.MouseButtonLeft:
-			p := m.screenToPos(msg.X, msg.Y)
-			switch msg.Action {
-			case tea.MouseActionPress:
-				m.selecting = true
-				m.selectStart = p
-				m.selectEnd = p
+			if msg.Action == tea.MouseActionPress {
+				p := m.screenToPos(msg.X, msg.Y)
 				m.row = p.row
 				m.col = p.col
 				m.clampCursor()
-			case tea.MouseActionMotion:
-				if m.selecting {
-					m.selectEnd = p
-				}
-			case tea.MouseActionRelease:
-				if m.selecting && m.hasSelection() {
-					text := m.selectedText()
-					if text != "" {
-						cmds = append(cmds, func() tea.Msg {
-							_ = clipboard.WriteAll(text)
-							return nil
-						})
-					}
-				}
-				m.clearSelection()
 			}
 		case tea.MouseButtonWheelUp:
 			m.scroll -= 3

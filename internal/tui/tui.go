@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -172,13 +171,6 @@ type UpdateToolsMsg struct{ Tools []mcp.Tool }
 // ELM commands
 // ---------------------------------------------------------------------------
 
-func copyToClipboardCmd(text string) tea.Cmd {
-	return func() tea.Msg {
-		_ = clipboard.WriteAll(text)
-		return nil
-	}
-}
-
 func (m Model) sendToLLM(userInput string) tea.Cmd {
 	return func() tea.Msg { return llmUserMsg{content: userInput} }
 }
@@ -288,9 +280,6 @@ type Model struct {
 
 	// Mouse state
 	resizingPane bool
-	selecting    bool
-	selectStart  int
-	selectEnd    int
 }
 
 // New creates a new TUI model.
@@ -734,44 +723,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 		switch msg.Button {
 		case tea.MouseButtonLeft:
-			// Calculate which conversation line was hit
-			startLine := m.visibleStartLine()
-			clickedLine := startLine + (msg.Y - m.layout.conv.Min.Y)
-
-			switch msg.Action {
-			case tea.MouseActionPress:
-				m.selecting = true
-				m.selectStart = clickedLine
-				m.selectEnd = clickedLine
-			case tea.MouseActionMotion:
-				if m.selecting {
-					m.selectEnd = clickedLine
+			if msg.Action == tea.MouseActionRelease {
+				// Single click — try to handle as interactive click
+				startLine := m.visibleStartLine()
+				clickedLine := startLine + (msg.Y - m.layout.conv.Min.Y)
+				if cmd := m.handleConvClick(clickedLine); cmd != nil {
+					cmds = append(cmds, cmd)
 				}
-			case tea.MouseActionRelease:
-				m.selecting = false
-				if m.selectStart == m.selectEnd {
-					// Single click — try to handle as interactive click
-					if cmd := m.handleConvClick(clickedLine); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-				} else {
-					start, end := m.selectStart, m.selectEnd
-					if start > end {
-						start, end = end, start
-					}
-					start = max(start, 0)
-					end = min(end, totalLines-1)
-
-					var sb strings.Builder
-					for i := start; i <= end; i++ {
-						sb.WriteString(ansi.Strip(lines[i]))
-						if i < end {
-							sb.WriteByte('\n')
-						}
-					}
-					cmds = append(cmds, copyToClipboardCmd(sb.String()))
-				}
-				m.selectStart, m.selectEnd = 0, 0
 			}
 
 		case tea.MouseButtonWheelUp:
@@ -949,30 +907,10 @@ func (m Model) View() string {
 			lineIdx := startLine + relY
 			if lineIdx < len(convLines) {
 				line := convLines[lineIdx]
-
-				// Selection highlight
-				isSelected := false
-				if m.selectStart != m.selectEnd {
-					s, e := m.selectStart, m.selectEnd
-					if s > e {
-						s, e = e, s
-					}
-					isSelected = lineIdx >= s && lineIdx <= e
-				}
-				if isSelected {
-					line = m.styles.Selection.Render(line)
-				}
-
 				lw := lipgloss.Width(line)
 				b.WriteString(line)
 				if lw < rw {
-					pad := strings.Repeat(" ", rw-lw)
-					if isSelected {
-						pad = m.styles.Selection.Render(pad)
-					} else {
-						pad = bgFill.Render(pad)
-					}
-					b.WriteString(pad)
+					b.WriteString(bgFill.Render(strings.Repeat(" ", rw-lw)))
 				}
 			} else {
 				b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
