@@ -66,6 +66,7 @@ Retry-After parsing.
   read-before-edit via `FileReadTracker`.
 - **Grep** — file/content search. Regex, gitignore-aware, case sensitivity,
   max results.
+- **WebSearch and Webfetch** -- read and search the web (search by exa.ai)
 
 ### Supporting Packages
 
@@ -87,13 +88,6 @@ Use vim's `CTRL+w` keybind for easy muscle memory?
 
 - Needs design work
 
-### Web/Search Tools
-
-HTTP fetch cleans the html for less wasted tokens, preserving content.
-Search APIs from Exa.ai. Give the agent access to documentation and external resources.
- - Re-use the existing `credentials.json` file for exa api key
- - Encourage LLMs to search before assuming in prompts
-
 ### File Search in agent input box
 
 Typing `@` shows a file search modal. Substiture `@` in the input with the selected pathname
@@ -105,6 +99,7 @@ File search modal:
  - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
  - `Enter` on input selects the first match
  - `Enter` on result list row selected the selected row.
+ - `ESC` cancels the file search and leaves the literal `@` character
 
 ### Copy/Selection Improvements
 
@@ -120,7 +115,7 @@ LLM input (in the spirit of the app, symbiotic):
 
 ### LSP Integration
 
-- Start with diagnostics (show errors/warnings in editor gutter).
+- Start with diagnostics (show errors/warnings in the number line, a error line has a red color number, warnings yellow).
 - Go-to-definition on click. -- Needs more design before work starts
 - Find references on click. -- Needs more design before work starts
 - Candidates: `go.lsp.dev/protocol` or `github.com/sourcegraph/go-lsp`.
@@ -141,18 +136,23 @@ symbols/scope to LLM as auto-context instead of whole files.
 
 ### Tool improvements:
 
-Separate OpenForUser into Read and Show. Read sends the output to the llm, Show sends it to the editor after read.
+Separate OpenForUser into Read and Show. Read sends the output to the llm, Show sends it to the editor after read.  Update hover iteraction on tool responses for ux. Ui improvements.
 
 - Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor.
 - Show, new tool: Open and send to the editor.
 - All tools: don't auto update the editor (Show excluded).
 - mousing over a tool reply apllies a background to show it's clickable.
+- Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 
 ### Human-in-the-Middle Tool Approval
 
 Pause before executing tool calls. Show tool name + args in a dialog. User
 approves/rejects. Configurable per-tool permissions in `config.toml` (allow,
 ask, deny). Some tools (Read/Grep) default allow, mutations (Edit) default ask.
+
+### Delete tool and undo
+
+A simple file delete tool and a undo tool, undos delete or edit calls.
 
 ### Shell Execution Tool
 
@@ -172,7 +172,6 @@ turn. Needs careful coordination with FileReadTracker and TUI updates.
 
 ### UI Polish
 
-- Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 - Empty-state decoration in conversation pane.
 
 ### Tests
