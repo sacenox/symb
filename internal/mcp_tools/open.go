@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/mcp"
 )
 
@@ -51,7 +52,7 @@ func NewOpenForUserTool() mcp.Tool {
 
 	return mcp.Tool{
 		Name:        "Open",
-		Description: "Opens a file (or file range) in the user's editor with correct syntax highlighting. If start/end are provided, only that line range is shown.",
+		Description: `Opens a file in the editor and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Open a file before editing it with Edit. Use start/end for line ranges.`,
 		InputSchema: schemaJSON,
 	}
 }
@@ -59,11 +60,12 @@ func NewOpenForUserTool() mcp.Tool {
 // OpenForUserHandler handles Open tool calls and sends messages to the TUI program.
 type OpenForUserHandler struct {
 	program *tea.Program
+	tracker *FileReadTracker
 }
 
 // NewOpenForUserHandler creates a handler for Open tool.
-func NewOpenForUserHandler() *OpenForUserHandler {
-	return &OpenForUserHandler{}
+func NewOpenForUserHandler(tracker *FileReadTracker) *OpenForUserHandler {
+	return &OpenForUserHandler{tracker: tracker}
 }
 
 // SetProgram sets the tea.Program instance after it's created.
@@ -124,6 +126,9 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 		}, nil
 	}
 
+	// Record that this file was read (enables editing)
+	h.tracker.MarkRead(absPath)
+
 	lines := strings.Split(string(content), "\n")
 
 	// Extract line range if specified
@@ -176,22 +181,26 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 		})
 	}
 
-	// Return the content to the LLM as well
+	// Return hashline-tagged content to the LLM
+	startLine := 1
+	if args.Start > 0 {
+		startLine = args.Start
+	}
+
+	tagged := hashline.TagLines(selectedContent, startLine)
+	taggedOutput := hashline.FormatTagged(tagged)
+
 	rangeInfo := ""
 	if args.Start > 0 || args.End > 0 {
-		start := args.Start
-		if start <= 0 {
-			start = 1
-		}
 		end := args.End
 		if end <= 0 || end > len(lines) {
 			end = len(lines)
 		}
-		rangeInfo = fmt.Sprintf(" (lines %d-%d)", start, end)
+		rangeInfo = fmt.Sprintf(" (lines %d-%d)", startLine, end)
 	}
 
 	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s%s:\n\n%s", args.File, rangeInfo, selectedContent)}},
+		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s%s (%d lines):\n\n%s", args.File, rangeInfo, len(tagged), taggedOutput)}},
 		IsError: false,
 	}, nil
 }

@@ -91,13 +91,19 @@ func main() {
 	defer proxy.Close()
 
 	// Register local tools
+	fileTracker := mcp_tools.NewFileReadTracker()
+
 	openForUserTool := mcp_tools.NewOpenForUserTool()
-	openForUserHandler := mcp_tools.NewOpenForUserHandler()
+	openForUserHandler := mcp_tools.NewOpenForUserHandler(fileTracker)
 	proxy.RegisterTool(openForUserTool, openForUserHandler.Handle)
 
 	grepTool := mcp_tools.NewGrepTool()
 	grepHandler := mcp_tools.MakeGrepHandler()
 	proxy.RegisterTool(grepTool, grepHandler)
+
+	editTool := mcp_tools.NewEditTool()
+	editHandler := mcp_tools.NewEditHandler(fileTracker)
+	proxy.RegisterTool(editTool, editHandler.Handle)
 
 	// List all tools (local + upstream)
 	tools, err := proxy.ListTools(context.Background())
@@ -116,6 +122,7 @@ func main() {
 
 	// Set program reference for tools that need it
 	openForUserHandler.SetProgram(p)
+	editHandler.SetProgram(p)
 
 	// Run the program
 	if _, err := p.Run(); err != nil {
