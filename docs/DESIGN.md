@@ -1,266 +1,191 @@
 # Symb (pronounced "sim")
 
-A code/pair programming tool for developers who use agents in their main workflows. Symbiotic pairing between developer and LLM. The developer has an agentic UI that provides the interface to the LLM, and a set of tools the LLM can use to cooperate in coding/development with the user.
+Symbiotic pairing between developer and LLM. TUI with an agentic conversation
+on one side, code editor on the other. Fast, low memory, not a distraction.
 
-## Vision
+## What It Is Now
 
-Simple UI. Being a TUI, the goal is to be fast, have low memory usage, and avoid being a distraction to the code/content. Simple unicode border around the window. Agentic conversation on one side, code editor on the other. Matrix green for color (used rarely, only when a color is absolutely needed).
+### TUI (BubbleTea, ELM architecture)
 
-A TUI from the future. We want feature parity with a GUI editor: mouse selection, clicking, etc.
-
-## Minimum Viable Product
-
-### Agentic UI
-
-- Support for clicking file references/diffs/snippets to open in Editor side.
-- Optional Human-in-the-middle LLM tool call loop (with configurable permissions in global config)
-- Auto Context, LLM is aware of file/project in question probably via tree-sitter?
-- AGENTS.md support
-
-### Code/Diff Viewer (currently editor in read-only) UI
-
-- Line numbers, syntax highlighting
-- LSP support
-- Git integration (show file git status)
-- Simple editting support, no advanced usages or keybinds. ** DONE BUT UNUSED FOR NOW, KEEP!! **
-- Code browsing mouse features: click to go to definition/references. Search for word under cursor.
-
-### LLM Tools
-
-- Run in sandboxed version of the working directory to allow multiple agents working on the same file. Use git to merge sandboxed changes to real repo.
-- Grep, Read, Write: optimized for code changes (LSP and linting checks after each edit). These appear in agentic UI as a diff message (not actual diff). Clicking on it takes us to that edit in the editor tab.
-- Undo: Either perform an intelligent step back or use git to reset.
-- Subagent tool: Performs a single task based on prompt.
-- Mutation tools create a new branch worktress for the sandboxed environment. Perform the mutation. Once the user approves the mutation or tells the agent to merge, a git merge happens.
-
-### Features
-
-#### File Search: `<CTRL> + <f>`
-
-Search files by filename or content (fuzzy matches, fast)
-
-- Opens a modal/overlay with a search box and a dynamic list of matches.
-- Searching filters the list.
-- Up/Down arrows select item in the list.
-- Enter opens the currently matched/selected file.
-- Includes the currently "opened" buffers in search at the top of the matches.
-- We should find a library that does this for us, before trying to code our own fuzzy
-
-#### Git Diff: `<CTRL> + <g>`
-
-Open git diff in the editor.
-
-#### LLM Interaction
-
-- Selected text + `<CTRL> + <k>`: Send selected text to the LLM input.
-- `<CTRL> + <k>`: Prompt at cursor, focus the input with information for the LLM about the user's cursor.
-
-### Theme
-
-Clean, straight corners, _suit and tie_-like. Use dark grayscale for almost everything on a clean black background. Matrix green used lightly (animated activity spinner). Single clean unicode lines (like in the drawing bellow)
-
-## Mockup
-
-```text
-╭─────────────────────────────────────┬────────────────────────────────────╮
-│ 102                                 │ ● Symb                            │ // Flexible height.
-│ 103  pub fn wake_up(neo: &User) {   │                                    │ // Panes split 50% each
-│ 104      // TODO: Implement signal  │ ┌─ Assistant ────────────────────┐ │
-│ 105      let signal = Signal::new();│ │ I see you're working on the    │ │ // Assistant message
-│ 106                                 │ │ wake_up function.              │ │ // - Messages have their embedded code highlighter for code blocks, diffs etc.
-│ 107      if neo.is_ready() {        │ │                                │ │ // - Shows short reasoning (toggleable in the options)
-│ 108          neo.disconnect();      │ │ Would you like me to generate  │ │ // - Shows tool calls/tool response is stylized human readable format.
-│ 109      } else {                   │ │ the Signal implementation?     │ │
-│ 110          neo.sleep();           │ │                                │ │ // Conversation log takes a lot of inspiration from Opencode.
-│ 111      }                          │ │ [Generate]  [Diff]  [Ignore]   │ │
-│ 112  }                              │ └────────────────────────────────┘ │
-│ 113                                 │                                    │
-│ 114                                 │ ┌─ Input ────────────────────────┐ │
-│ 115                                 │ │ /bash cargo check              │ │ // Input box, user can cycle history with arrows *up/down*
-│ 116                                 │ └────────────────────────────────┘ │ // - Input supports commands /Read /Grep /Write (call the same tools as the LLM sees)
-├─────────────────────────────────────┴────────────────────────────────────┤
-│ master* │ src/matrix/core.rs[+]                                        ⣽ │ // Git branch, current file if any. ending with an
-╰──────────────────────────────────────────────────────────────────────────╯ // animated icon: fast animation when LLM is thinking, slow when idle.
-```
-
-### Agent message:
-
-```text
-
-[reasoning ...]
-
-→  Read(file, args)
-←  Write(file, args)
-
-[agent reply...]
-
-XXs 00:00 ───────────────────────── // DarkGray color, timestamp and duration of the LLM response: 10s 19:57
-```
-
-### User Message
+Split-pane layout: editor left, conversation + input right. Draggable divider.
+Click-to-focus between panes. Alt-screen, mouse cell-motion mode with 15ms
+throttle on wheel/motion events.
 
 ```
-[User message ...]
-
-XXs 00:00 ───────────────────────── // DarkGray color
-
+╭──────────────────────┬───────────────────────╮
+│ editor (read-only)   │ conversation log      │
+│ - chroma highlighting│ - reasoning (muted)   │
+│ - line numbers       │ - → tool calls        │
+│ - soft line wrap     │ - ← tool results      │
+│ - mouse scroll/select│ - content             │
+│ - click, drag, copy  │ - scroll, select, copy│
+│                      ├───────────────────────┤
+│                      │ input (editable)      │
+├──────────────────────┴───────────────────────┤
+│ status bar with spinner                      │
+╰──────────────────────────────────────────────╯
 ```
 
-### Post-MVP
+Editor component (`internal/tui/editor`): full editing capability (insert,
+delete, paste, tab indent) gated behind `ReadOnly` flag. Left pane is read-only
+viewer. Input pane uses same component with `ReadOnly=false`.
 
-- Send input text to editor and send editor text to input/llm via keybinds
-- Send cursor position/filename to llm via keybind
-- Send selected text to llm via keybind
+### LLM Loop (`internal/llm`)
 
-## Technology Stack
+Synchronous multi-turn. Up to 20 tool rounds per turn. Calls
+`Provider.ChatWithTools()` — request/response, not streaming. Emits messages
+via `OnMessage` callback to TUI.
 
-### Architecture
+Prompt system: model-specific base prompts (Claude, Gemini, Qwen, GPT).
+`AGENTS.md` support: walks directory tree upward collecting all AGENTS.md files,
+prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
 
-- True ELM architecture (no exceptions ever).
-  - Strict project structure with separation of concern by internal modules.
-- Go (see https://github.com/tj/go-tea) For ELM architecture in TUI app (documentation).
+### Providers (`internal/provider`)
 
-### Core Libraries
+- **Ollama** — local, OpenAI-compatible `/v1` endpoint. Extracts reasoning from
+  `reasoning`/`reasoning_content` fields.
+- **OpenCode** — remote, API key auth. Model-specific endpoint routing.
+- Both have retry logic (3 retries, 429/5xx handling).
+- `Stream()` method exists on both but is needed for streaming responses feature.
 
-- **BubbleTea**:
-  - Base library for TUI, use their bubbles, and all of the ecosystem.
-  - Golden files based testing for the TUI.
-  - https://github.com/charmbracelet/bubbletea Root BubbleTea.
-- **LLM Providers**: Ollama local + Opencode Zen.
-- **Config driven**: `./config.toml`.
+### MCP (`internal/mcp`)
 
-### Dependencies
+Proxy merges local tool handlers with optional upstream MCP server (HTTP
+Streamable-HTTP transport, SSE support, session tracking). Retry with
+Retry-After parsing.
 
-#### LSP Client
+### Tools (`internal/mcp_tools`)
 
-- Candidate: `github.com/sourcegraph/go-lsp` (Battle-tested by Sourcegraph).
-- Alternative: `go.lsp.dev/protocol` (Modern, modular).
+3 tools registered:
 
-#### Mouse Support
+- **Open** — reads file, returns hashline-tagged content (`linenum:hash|content`),
+  sends to TUI editor. Path traversal prevention.
+- **Edit** — hash-anchored file editing (replace, insert, delete, create).
+  Validates hashes before modifying. Returns fresh hashes after edit. Enforces
+  read-before-edit via `FileReadTracker`.
+- **Grep** — file/content search. Regex, gitignore-aware, case sensitivity,
+  max results.
 
-- Candidate: `github.com/lrstanley/bubblezone` (Wrapper for easier hit-testing/zoning).
+### Supporting Packages
 
-#### Editor
+- `internal/hashline` — SHA-256 truncated to 2 hex chars per line. Anchor
+  validation, range validation. 7 tests, 96.7% coverage.
+- `internal/filesearch` — directory walker with `.gitignore` support, regex
+  matching, binary detection, 10MB size limit.
+- `internal/config` — TOML config, JSON credentials, env overrides.
 
-- Official: `github.com/charmbracelet/bubbles/textarea` (Basic text input).
-- Vim-like: `github.com/mieubrisse/vim-bubble` (Vim buffer emulation).
+### Dead Code
 
-#### Syntax Highlighting
+- `internal/tui/textarea/` — 1636-line bubbles/textarea fork. Imported by nothing.
 
-- Candidate: `github.com/alecthomas/chroma` (Standard Go syntax highlighter).
+## Considered Features
 
-### References
+### Streaming Responses
 
-- ZOEA NOVA `~/src/zoea-nova`: A past project with a lot of overlap, also focused on LLM agentic loop.
-- Mysis `~/src/mysis`: Also a past project: raw CLI agentic tool for a dedicated agent (lots of overlap).
-- Cursor IDE (Cursor has this UX, but it's slow, leaks memory and it's more distracting than most other editors).
-- Opencode (TUI in `ink` does the same without the text editor, 75% feature overlap).
+Stream LLM output token-by-token to the conversation pane. `Stream()` already
+exists on providers. Needs: wire into LLM loop, incremental conversation
+rendering, handle tool calls mid-stream.
 
-## Implementation Roadmap
+### Basic keybind to toggle cursor from agent input <> editor
 
-### MVP Phases
+Choose a convenient keybind to toggle the active cursor.
+Goes back and forth
+Use vim's `CTRL+w` keybind for easy muscle memory?
 
-#### Phase 1: Basic TUI with editor + agent pane (no LSP, no git sandbox)
+### Clickable File References
 
-- File viewer with syntax highlighting
-- Agent conversation with tool calls (Read/Write/Grep)
+File paths in conversation (tool calls, content) become clickable. Clicking
+opens the file in the editor pane at the referenced line.
+- Don't show tool response bodies in conversation pane once the user can click to see. Show a max 5 line preview for the user to click to see more. User clicks, the content of the tool response is sent to the editor.
 
-#### Phase 2: Git integration
+### Web/Search Tools
 
-- Show git status in editor
-- Ctrl+g for diffs
-- Simple diff preview before applying
-- Agent commits to real repo (no sandbox yet)
+HTTP fetch cleans the html for less wasted tokens, preserving content.
+Search APIs from Exa.ai. Give the agent access to documentation and external resources.
+ - Re-use the existing `credentials.json` file for exa api key
+ - Encourage LLMs to search before assuming in prompts
 
-#### Phase 3: LSP integration
+### File Search in agent input box
 
-- Start with diagnostics only
-- Add go-to-definition later
+Typing `@` shows a file search modal. Substiture `@` in the input with the selected pathname
+File search modal:
+ - Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
+ - Top row is the input for the file search query
+ - Rest of the modal is the list of matches.
+ - Results update after the user stops typing for a few hundred miliseconds.
+ - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
+ - `Enter` on input selects the first match
+ - `Enter` on result list row selected the selected row.
 
-#### Phase 4: Advanced features
+### Copy/Selection Improvements
 
-- Sandboxed worktrees
-- Sub-agents
-- Context optimization with tree-sitter
+Keyboard-driven selection (Shift+arrows). `Ctrl+Shift+C` to copy.
+Currently mouse-only, and has bugs. Complete refactor of selection with the mouse to work in tandem with keyboard selection.
 
-### The Main Challenge: State Management
+### Editor-LLM link:
 
-You have three asynchronous "gods" to serve:
+LLM input (in the spirit of the app, symbiotic):
+ - User types in agent input
+ - with `@cursor` or `@selected` -- Works with `@` filesearh modal.
+ - creates a reference with hashes of where the user's cursor or selection is in the filesystem/file
 
-1. User Input (Keyboard/Mouse) -> Instant.
-2. LSP Server (Diagnostics/Completions) -> Fast (ms).
-3. LLM Agent (Thinking/Tools) -> Slow (seconds).
+### LSP Integration
 
-BubbleTea's ELM architecture (Update() loop) is perfect for this if you keep the heavy lifting (LLM/LSP) in separate Go routines that send messages back to the main thread. If you block the main thread, the UI will freeze.
+- Start with diagnostics (show errors/warnings in editor gutter).
+- Go-to-definition on click. -- Needs more design before work starts
+- Find references on click. -- Needs more design before work starts
+- Candidates: `go.lsp.dev/protocol` or `github.com/sourcegraph/go-lsp`.
 
-Confidence Level: High for a prototype. The ecosystem is ready.
+### Tree-Sitter Context
 
-## TODO
+Parse project with tree-sitter for structural awareness. Feed relevant
+symbols/scope to LLM as auto-context instead of whole files.
 
-### Bug Fixes
+### Git Integration
 
-- Grep is not matching pathname:
+- Show current branch + dirty status in status bar.
+- git **read** tools for the LLM: diff, status
+- Editor displays diffs with syntax hl
+- git markers in the number column for editted files in the editor
+- sandboxed git worktrees for agents edits.
+- git **write** tools. (only after worktrees are functional)
 
-  ```
-  The Grep tool was called with the following arguments:
+### Tool improvements:
 
-  - `pattern`: `"mcp_tools.go"`
-  - `content_search`: `false` (filename search, not content grep)
-  - `case_sensitive`: `false` (default, case-insensitive)
-  - `max_results`: `100` (default)
+Separate OpenForUser into Read and Show. Read sends the output to the llm, Show sends it to the editor after read.
 
-  This means the tool was searching for files named
-  `mcp_tools.go` (or similar, due to fuzzy matching) in the
-  current directory and tracked paths (while respecting
-  `.gitignore`). Let me know if you'd like to tweak these
-  parameters!
-  ```
+- Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor.
+- Show, new tool: Open and send to the editor.
 
-### UI Enhancements
+### Human-in-the-Middle Tool Approval
 
-- Show tool call arguments expanded:
-  ```
-  Grep(pattern="...", ...)
-  ```
-- truncate tool reposnses. (time for verbose?)
-- Make file references clickable in coversation (including tool calls output.)
-- Copy text selection to clipboard (shift + arrows) then (ctrl + shift + c)
-- streamed assistant response
-- Fun: Show icon in unicode and a highlight color clock centered in the right panel when there are no messages.
+Pause before executing tool calls. Show tool name + args in a dialog. User
+approves/rejects. Configurable per-tool permissions in `config.toml` (allow,
+ask, deny). Some tools (Read/Grep) default allow, mutations (Edit) default ask.
 
-### Features
+### Shell Execution Tool
 
-- websearch tool (exa tools?)
-- file searching and opening, buffer switching. do I even want this, just make llm tools and ask it.
+Run commands in sandbox (container isolation or restricted shell). Command
+whitelisting. Output streaming to conversation.
 
-## Future Enhancements
 
-### Planned Features
+### Sub-Agent Tool
 
-1. **Write Tools**: File modification with user approval
-   - `Edit` - Apply diffs to files
-   - `Create` - Create new files
-   - `Delete` - Remove files (with confirmation)
+Spawn a child LLM turn scoped to a single task. Useful for parallel work
+or decomposing complex operations.
 
-2. **Shell Execution Tool**: Run commands with sandboxing
-   - Container isolation (Docker/Podman)
-   - Command whitelisting
-   - Output streaming
+### Parallel Tool Execution
 
-3. **Web Tools**: HTTP requests and web scraping
-   - `Fetch` - HTTP GET/POST
-   - `Scrape` - Extract data from HTML
+Execute multiple independent tool calls concurrently within a single LLM
+turn. Needs careful coordination with FileReadTracker and TUI updates.
 
-4. **LSP Integration**: Language server protocol
-   - `GoToDefinition` - Jump to symbol definition
-   - `FindReferences` - Find all references
-   - `Rename` - Refactor symbol names
+### UI Polish
 
-### Research Areas
+- Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
+- Empty-state decoration in conversation pane.
 
-- **Parallel tool execution**: LLM calls multiple tools simultaneously
-- **Tool chaining**: Compose tools into workflows
-- **Streaming results**: Show tool output in real-time
-- **Permission system**: User approvals for sensitive operations
-- **Audit logging**: Track all tool executions
-- **Tool marketplace**: Discover and install community tools
+### Tests
+
+29 tests, all passing. Coverage: hashline 96.7%, filesearch 76%,
+mcp_tools 43.2%, tui/editor 42.1%, tui 41.9%.
+
