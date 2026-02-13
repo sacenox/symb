@@ -104,6 +104,10 @@ Separate OpenForUser into Read and Show. Read sends the output to the llm, Show 
 - mousing over a tool reply apllies a background to show it's clickable.
 - Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 
+### Context management?
+
+https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
+
 ### Statusbar implementation
 
 (in order: left to right)

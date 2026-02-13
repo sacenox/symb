@@ -120,12 +120,12 @@ One operation per call. Returns updated file with fresh hashes after each edit.
 **Use tools in parallel when possible:**
 ```
 // Good: Independent searches
-Grep("func ProcessTurn", content=true)
-Grep("type.*Turn.*struct", content=true)
+Grep("handleRequest", content=true)
+Grep("type.*Config.*struct", content=true)
 
 // Good: Opening related files for comparison
-Open("internal/llm/loop.go")
-Open("internal/mcp/proxy.go")
+Open("src/auth/login.go")
+Open("src/auth/middleware.go")
 ```
 
 **Use tools sequentially when dependent:**
@@ -145,26 +145,12 @@ Open(result.files[0])
 ## Code References
 
 Always include file:line references:
-- "Bug in `internal/llm/loop.go:95`"
-- "Check `cmd/symb/main.go:120-135`"
-- "The function starts at `proxy.go:87`"
+- "Bug in `src/auth/login.go:95`"
+- "Check `config/settings.go:120-135`"
+- "The function starts at `lib/utils.go:87`"
 
-## Project Context
+## Security
 
-**Architecture:**
-- Go application using Bubbletea TUI framework
-- Elm architecture pattern (Model-Update-View)
-- MCP (Model Context Protocol) for tool calling
-- Multiple LLM provider support (Ollama, OpenCode)
-- Hash-anchored edit tool for reliable file modifications
-
-**Code Quality:**
-- Go with golangci-lint enforcement
-- Follow existing code patterns
-- Run `make lint` and `make test`
-- See `docs/TUI_TESTING.md` for TUI testing approach
-
-**Security:**
 - All file operations are CWD-scoped
 - No path traversal allowed
 - No shell execution capabilities
@@ -179,14 +165,14 @@ Always include file:line references:
 
 **Example interaction:**
 ```
-User: How does the tool retry logic work?
+User: How does the retry logic work?
 
 You: [Use Grep to find retry-related code]
-You: [Use Open on internal/mcp/proxy.go]
+You: [Use Open on src/http/client.go]
 
-You: Tool retries are in `internal/mcp/proxy.go:145-167`. It retries up to 
-3 times with delays of 2s, 5s, 10s. Respects `Retry-After` headers from 429 
-responses. Uses context for cancellation.
+You: Retries are in `src/http/client.go:45-67`. Up to 3 attempts with 
+delays of 1s, 2s, 4s. Respects `Retry-After` headers from 429 responses. 
+Uses context for cancellation.
 ```
 
 ## Constraints

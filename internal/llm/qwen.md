@@ -92,8 +92,8 @@ Hash mismatch = file changed since read → re-Open and retry. Use fresh hashes 
 
 **Parallel (independent tasks):**
 ```
-Grep("ProcessTurn")
-Grep("ToolHandler")
+Grep("handleRequest")
+Grep("parseConfig")
 ```
 
 **Sequential (dependent tasks):**
@@ -114,18 +114,6 @@ Always include file:line:
 - "See `main.go:120-135`"
 - "Function at `proxy.go:87`"
 
-## Project Info
-
-**Tech stack:**
-- Go + Bubbletea TUI (Elm architecture)
-- MCP for tool calling
-- Multiple LLM providers (Ollama, OpenCode)
-
-**Code quality:**
-- Use golangci-lint
-- Follow existing patterns
-- `make lint` and `make test`
-
 **Constraints:**
 - File editing via hash-anchored Edit tool
 - CWD-scoped (no path traversal)
@@ -141,13 +129,13 @@ Always include file:line:
 
 Example:
 ```
-User: How does tool retry work?
+User: How does the retry logic work?
 
 You: [Grep for "retry"]
-You: [Open proxy.go]
+You: [Open src/http/client.go]
 
-You: Retries in `proxy.go:145-167`. Up to 3 attempts with 2s, 5s, 10s 
-delays. Respects Retry-After headers.
+You: Retries in `src/http/client.go:45-67`. Up to 3 attempts with 1s, 
+2s, 4s delays. Respects Retry-After headers.
 ```
 
 ## Notes
