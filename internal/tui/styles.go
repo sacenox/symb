@@ -15,7 +15,7 @@ var (
 	ColorMuted   = lipgloss.Color("#6e6e6e") // Secondary / reasoning
 	ColorDim     = lipgloss.Color("#3f3f3f") // Tertiary / timestamps
 	ColorBorder  = lipgloss.Color("#1c1c1c") // Borders and dividers
-	ColorSurface = lipgloss.Color("#111111") // Subtle surface (selection)
+	ColorSurface = ColorHighlight            // Selection highlight — reuse accent
 
 	// Semantic aliases
 	ColorError = lipgloss.Color("#932e2e")
@@ -53,7 +53,7 @@ func DefaultStyles() Styles {
 		ToolArrow: bg.Foreground(ColorMuted),
 
 		Border:    bg.Foreground(ColorBorder),
-		Selection: lipgloss.NewStyle().Background(ColorSurface),
+		Selection: lipgloss.NewStyle().Background(ColorSurface).Foreground(ColorBg),
 		BgFill:    bg,
 
 		StatusText: bg.Foreground(ColorDim),

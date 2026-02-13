@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -134,6 +135,28 @@ const (
 	focusInput  focus = iota // Default: agent input has focus
 	focusEditor              // Code viewer has focus
 )
+
+// ---------------------------------------------------------------------------
+// Conversation selection (character-level)
+// ---------------------------------------------------------------------------
+
+type convPos struct{ line, col int }
+
+// convSelection tracks a character-level selection in the conversation pane.
+type convSelection struct {
+	anchor convPos // Where the selection started
+	active convPos // Current selection endpoint
+}
+
+func (s convSelection) ordered() (start, end convPos) {
+	if s.anchor.line > s.active.line ||
+		(s.anchor.line == s.active.line && s.anchor.col > s.active.col) {
+		return s.active, s.anchor
+	}
+	return s.anchor, s.active
+}
+
+func (s convSelection) empty() bool { return s.anchor == s.active }
 
 // ---------------------------------------------------------------------------
 // ELM messages
@@ -280,6 +303,10 @@ type Model struct {
 
 	// Mouse state
 	resizingPane bool
+
+	// Conversation selection (line-level, wrapped line indices)
+	convSel      *convSelection
+	convDragging bool
 }
 
 // New creates a new TUI model.
@@ -291,18 +318,22 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	s.Spinner = spinner.Dot
 	s.Style = cursorStyle.Background(ColorBg)
 
+	selStyle := sty.Selection
+
 	ed := editor.New()
 	ed.ShowLineNumbers = true
 	ed.ReadOnly = true
 	ed.Language = "markdown"
 	ed.SyntaxTheme = constants.SyntaxTheme
 	ed.CursorStyle = cursorStyle
+	ed.SelectionStyle = selStyle
 	ed.LineNumStyle = lipgloss.NewStyle().Foreground(ColorBorder)
 	ed.BgColor = ColorBg
 
 	ai := editor.New()
 	ai.Placeholder = "Type a message..."
 	ai.CursorStyle = cursorStyle
+	ai.SelectionStyle = selStyle
 	ai.PlaceholderSty = lipgloss.NewStyle().Foreground(ColorDim).Background(ColorBg)
 	ai.BgColor = ColorBg
 	ai.Focus()
@@ -433,6 +464,109 @@ func (m Model) makeSeparator(dur string, ts string) string {
 	return m.styles.Dim.Render(label + strings.Repeat("─", fill))
 }
 
+// copySelection copies the active selection (from any component) to the
+// clipboard using both OSC 52 and native clipboard for maximum compatibility.
+func (m *Model) copySelection() tea.Cmd {
+	var text string
+	switch {
+	case m.editor.HasSelection():
+		text = m.editor.SelectedText()
+	case m.agentInput.HasSelection():
+		text = m.agentInput.SelectedText()
+	case m.convSel != nil && !m.convSel.empty():
+		text = m.selectedConvText()
+	}
+	if text == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		_ = clipboard.WriteAll(text)
+		return nil
+	}
+}
+
+// selectedConvText returns the plain text of the conversation selection.
+func (m *Model) selectedConvText() string {
+	if m.convSel == nil || m.convSel.empty() {
+		return ""
+	}
+	lines := m.wrappedConvLines()
+	s, e := m.convSel.ordered()
+	s.line = max(s.line, 0)
+	e.line = min(e.line, len(lines)-1)
+
+	var sb strings.Builder
+	for i := s.line; i <= e.line; i++ {
+		plain := ansi.Strip(lines[i])
+		runes := []rune(plain)
+		start := 0
+		end := len(runes)
+		if i == s.line {
+			start = min(s.col, len(runes))
+		}
+		if i == e.line {
+			end = min(e.col, len(runes))
+		}
+		sb.WriteString(string(runes[start:end]))
+		if i < e.line {
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
+}
+
+// renderConvLine renders a single conversation line with optional selection highlight.
+// Returns the styled line. Padding is handled by the caller.
+func (m Model) renderConvLine(line string, lineIdx, width int, bgFill lipgloss.Style) string {
+	if m.convSel == nil || m.convSel.empty() {
+		return line
+	}
+	s, e := m.convSel.ordered()
+	if lineIdx < s.line || lineIdx > e.line {
+		return line
+	}
+
+	plain := ansi.Strip(line)
+	runes := []rune(plain)
+	lineLen := len(runes)
+
+	// Compute selection column range for this line
+	selStart := 0
+	if lineIdx == s.line {
+		selStart = s.col
+	}
+	selEnd := lineLen
+	if lineIdx == e.line {
+		selEnd = e.col
+	}
+
+	// Clamp
+	if selStart < 0 {
+		selStart = 0
+	}
+	if selEnd > lineLen {
+		selEnd = lineLen
+	}
+	if selStart >= selEnd {
+		return line
+	}
+
+	// Build: [before] [selected] [after]
+	before := string(runes[:selStart])
+	selected := string(runes[selStart:selEnd])
+	after := string(runes[selEnd:])
+
+	var sb strings.Builder
+	if before != "" {
+		sb.WriteString(bgFill.Render(before))
+	}
+	sb.WriteString(m.styles.Selection.Render(selected))
+	if after != "" {
+		sb.WriteString(bgFill.Render(after))
+	}
+	return sb.String()
+}
+
 // inRect returns true if screen point (x,y) is inside r.
 func inRect(x, y int, r image.Rectangle) bool {
 	return image.Pt(x, y).In(r)
@@ -473,6 +607,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.cancel()
 			return m, tea.Quit
+
+		case "ctrl+shift+c":
+			if cmd := m.copySelection(); cmd != nil {
+				return m, cmd
+			}
+			return m, nil
+
+		case "ctrl+shift+v":
+			if text, err := clipboard.ReadAll(); err == nil && text != "" {
+				switch m.focus {
+				case focusInput:
+					m.agentInput.DeleteSelection()
+					m.agentInput.InsertText(text)
+				case focusEditor:
+					m.editor.DeleteSelection()
+					m.editor.InsertText(text)
+				}
+			}
+			return m, nil
+
 		case "esc":
 			if m.focus == focusInput {
 				m.agentInput.Blur()
@@ -689,10 +843,16 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.focus = focusEditor
 			m.agentInput.Blur()
 			m.editor.Focus()
+			// Clear other selections
+			m.agentInput.ClearSelection()
+			m.convSel = nil
 		case inRect(msg.X, msg.Y, m.layout.input):
 			m.focus = focusInput
 			m.editor.Blur()
 			m.agentInput.Focus()
+			// Clear other selections
+			m.editor.ClearSelection()
+			m.convSel = nil
 		}
 	}
 
@@ -723,13 +883,44 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 		switch msg.Button {
 		case tea.MouseButtonLeft:
-			if msg.Action == tea.MouseActionRelease {
-				// Single click — try to handle as interactive click
-				startLine := m.visibleStartLine()
-				clickedLine := startLine + (msg.Y - m.layout.conv.Min.Y)
-				if cmd := m.handleConvClick(clickedLine); cmd != nil {
-					cmds = append(cmds, cmd)
+			if totalLines == 0 {
+				break
+			}
+			startLine := m.visibleStartLine()
+			clickedLine := startLine + (msg.Y - m.layout.conv.Min.Y)
+			if clickedLine < 0 {
+				clickedLine = 0
+			}
+			if clickedLine >= totalLines {
+				clickedLine = totalLines - 1
+			}
+			clickedCol := msg.X - m.layout.conv.Min.X
+			if clickedCol < 0 {
+				clickedCol = 0
+			}
+			cp := convPos{line: clickedLine, col: clickedCol}
+
+			switch msg.Action {
+			case tea.MouseActionPress:
+				m.convDragging = true
+				m.convSel = &convSelection{anchor: cp, active: cp}
+				// Clear editor selections when starting conv selection
+				m.editor.ClearSelection()
+				m.agentInput.ClearSelection()
+			case tea.MouseActionMotion:
+				if m.convDragging && m.convSel != nil {
+					m.convSel.active = cp
 				}
+			case tea.MouseActionRelease:
+				m.convDragging = false
+				if m.convSel != nil && m.convSel.empty() {
+					// Single click — handle as interactive click, clear selection
+					m.convSel = nil
+					if cmd := m.handleConvClick(clickedLine); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				}
+				// If drag selection: keep it visible for Ctrl+Shift+C
 			}
 
 		case tea.MouseButtonWheelUp:
@@ -907,6 +1098,10 @@ func (m Model) View() string {
 			lineIdx := startLine + relY
 			if lineIdx < len(convLines) {
 				line := convLines[lineIdx]
+
+				// Selection highlight (character-level)
+				line = m.renderConvLine(line, lineIdx, rw, bgFill)
+
 				lw := lipgloss.Width(line)
 				b.WriteString(line)
 				if lw < rw {

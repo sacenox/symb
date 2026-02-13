@@ -127,6 +127,7 @@ type Model struct {
 
 	// Styles — set by parent.
 	CursorStyle    lipgloss.Style // Foreground for the cursor character
+	SelectionStyle lipgloss.Style // Background for selected text
 	LineNumStyle   lipgloss.Style // Line number gutter
 	PlaceholderSty lipgloss.Style // Placeholder text
 	BgColor        lipgloss.Color // Fallback bg when no syntax theme
@@ -143,11 +144,37 @@ type Model struct {
 	focus  bool
 	cursor cursor.Model
 
+	// Selection state (anchor + active pattern).
+	// Anchor is where selection started; active moves with cursor/drag.
+	sel      *selection
+	dragging bool // Mouse drag in progress
+
 	// Cached computed values
 	gutterWidth int // Width of line number gutter (0 if disabled)
 }
 
 type pos struct{ row, col int }
+
+// selection tracks a text selection via anchor+active points.
+// Anchor is fixed (where selection started); active moves with cursor/drag.
+type selection struct {
+	anchor pos
+	active pos
+}
+
+// ordered returns the selection endpoints in document order.
+func (s selection) ordered() (start, end pos) {
+	if s.anchor.row > s.active.row ||
+		(s.anchor.row == s.active.row && s.anchor.col > s.active.col) {
+		return s.active, s.anchor
+	}
+	return s.anchor, s.active
+}
+
+// empty returns true when anchor == active (no actual selection).
+func (s selection) empty() bool {
+	return s.anchor == s.active
+}
 
 // New creates a new editor with sensible defaults.
 func New() Model {
@@ -227,6 +254,119 @@ func (m *Model) GotoLine(line int) {
 
 // Blink returns the initial cursor blink message. Call from Init().
 func Blink() tea.Msg { return cursor.Blink() }
+
+// ---------------------------------------------------------------------------
+// Selection API (called by parent)
+// ---------------------------------------------------------------------------
+
+// HasSelection returns true if there is a non-empty text selection.
+func (m Model) HasSelection() bool {
+	return m.sel != nil && !m.sel.empty()
+}
+
+// SelectedText returns the currently selected text, or "" if none.
+func (m Model) SelectedText() string {
+	if !m.HasSelection() {
+		return ""
+	}
+	s, e := m.sel.ordered()
+	return m.textInRange(s, e)
+}
+
+// ClearSelection removes any active selection.
+func (m *Model) ClearSelection() {
+	m.sel = nil
+	m.dragging = false
+}
+
+// textInRange extracts text between two buffer positions.
+func (m *Model) textInRange(start, end pos) string {
+	if start.row == end.row {
+		line := m.lines[start.row]
+		sc := clampMax(start.col, len(line))
+		ec := clampMax(end.col, len(line))
+		return string(line[sc:ec])
+	}
+	var sb strings.Builder
+	first := m.lines[start.row]
+	sb.WriteString(string(first[clampMax(start.col, len(first)):]))
+	for r := start.row + 1; r < end.row; r++ {
+		sb.WriteByte('\n')
+		sb.WriteString(string(m.lines[r]))
+	}
+	sb.WriteByte('\n')
+	last := m.lines[end.row]
+	sb.WriteString(string(last[:clampMax(end.col, len(last))]))
+	return sb.String()
+}
+
+// DeleteSelection removes the selected text and positions the cursor at the
+// start of the deleted range. Returns true if a selection was deleted.
+func (m *Model) DeleteSelection() bool {
+	if m.ReadOnly || !m.HasSelection() {
+		return false
+	}
+	s, e := m.sel.ordered()
+	m.ClearSelection()
+
+	// Clamp to valid range
+	s.row = clampMax(s.row, len(m.lines)-1)
+	s.col = clampMax(s.col, len(m.lines[s.row]))
+	e.row = clampMax(e.row, len(m.lines)-1)
+	e.col = clampMax(e.col, len(m.lines[e.row]))
+
+	if s.row == e.row {
+		line := m.lines[s.row]
+		m.lines[s.row] = append(line[:s.col], line[e.col:]...)
+	} else {
+		// Keep text before selection start + text after selection end
+		before := m.lines[s.row][:s.col]
+		after := m.lines[e.row][e.col:]
+		merged := make([]rune, 0, len(before)+len(after))
+		merged = append(merged, before...)
+		merged = append(merged, after...)
+		// Replace the range of lines
+		newLines := make([][]rune, 0, len(m.lines)-(e.row-s.row))
+		newLines = append(newLines, m.lines[:s.row]...)
+		newLines = append(newLines, merged)
+		newLines = append(newLines, m.lines[e.row+1:]...)
+		m.lines = newLines
+	}
+	if len(m.lines) == 0 {
+		m.lines = [][]rune{{}}
+	}
+	m.row = s.row
+	m.col = s.col
+	return true
+}
+
+func clampMax(v, hi int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// startOrExtendSelection sets anchor to current cursor pos if no selection
+// exists, then after the caller moves the cursor, active is updated.
+func (m *Model) startOrExtendSelection() {
+	if m.sel == nil {
+		m.sel = &selection{
+			anchor: pos{row: m.row, col: m.col},
+			active: pos{row: m.row, col: m.col},
+		}
+	}
+}
+
+// updateSelectionActive sets the active end to the current cursor position.
+func (m *Model) updateSelectionActive() {
+	if m.sel != nil {
+		m.sel.active = pos{row: m.row, col: m.col}
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -438,6 +578,18 @@ func (m *Model) expandedColToBufferCol(bufRow, expandedCol int) int {
 	return len(line)
 }
 
+// bufferColToExpandedCol converts a buffer column (rune index) to expanded-tab
+// column (visual column) for a given buffer row.
+func (m *Model) bufferColToExpandedCol(bufRow, bufCol int) int {
+	if bufRow < 0 || bufRow >= len(m.lines) {
+		return 0
+	}
+	line := m.lines[bufRow]
+	c := clampMax(bufCol, len(line))
+	prefix := expandTabs(string(line[:c]))
+	return len([]rune(prefix))
+}
+
 // bgHexForRender returns the background hex color. Prefers the syntax theme
 // background, falls back to BgColor.
 func (m *Model) bgHexForRender() string {
@@ -457,6 +609,24 @@ func (m *Model) bgForRender() lipgloss.Style {
 // ---------------------------------------------------------------------------
 // Editing operations
 // ---------------------------------------------------------------------------
+
+// InsertText inserts a multi-line string at the current cursor position.
+// Newlines are handled via insertNewline. No-op if ReadOnly.
+func (m *Model) InsertText(text string) {
+	if m.ReadOnly {
+		return
+	}
+	for _, r := range text {
+		switch r {
+		case '\n':
+			m.insertNewline()
+		case '\r':
+			// Skip carriage returns (normalize \r\n to \n)
+		default:
+			m.insertRune(r)
+		}
+	}
+}
 
 func (m *Model) insertRune(r rune) {
 	if m.ReadOnly {
@@ -579,15 +749,68 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			break
 		}
 		moved := true
-		switch msg.String() {
-		// Navigation
+		key := msg.String()
+
+		switch key {
+		// --- Shift+navigation: extend selection ---
+		case "shift+up":
+			m.startOrExtendSelection()
+			m.row--
+			m.clampCursor()
+			m.updateSelectionActive()
+		case "shift+down":
+			m.startOrExtendSelection()
+			m.row++
+			m.clampCursor()
+			m.updateSelectionActive()
+		case "shift+left":
+			m.startOrExtendSelection()
+			if m.col > 0 {
+				m.col--
+			} else if m.row > 0 {
+				m.row--
+				m.col = len(m.currentLine())
+			}
+			m.updateSelectionActive()
+		case "shift+right":
+			m.startOrExtendSelection()
+			if m.col < len(m.currentLine()) {
+				m.col++
+			} else if m.row < len(m.lines)-1 {
+				m.row++
+				m.col = 0
+			}
+			m.updateSelectionActive()
+		case "shift+home":
+			m.startOrExtendSelection()
+			m.col = 0
+			m.updateSelectionActive()
+		case "shift+end":
+			m.startOrExtendSelection()
+			m.col = len(m.currentLine())
+			m.updateSelectionActive()
+		case "shift+pgup":
+			m.startOrExtendSelection()
+			m.row -= m.height
+			m.clampCursor()
+			m.updateSelectionActive()
+		case "shift+pgdown":
+			m.startOrExtendSelection()
+			m.row += m.height
+			m.clampCursor()
+			m.updateSelectionActive()
+
+		// --- Plain navigation: clear selection ---
 		case "up":
+			m.ClearSelection()
 			m.row--
 			m.clampCursor()
 		case "down":
+			m.ClearSelection()
 			m.row++
 			m.clampCursor()
 		case "left":
+			m.ClearSelection()
 			if m.col > 0 {
 				m.col--
 			} else if m.row > 0 {
@@ -595,6 +818,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.col = len(m.currentLine())
 			}
 		case "right":
+			m.ClearSelection()
 			if m.col < len(m.currentLine()) {
 				m.col++
 			} else if m.row < len(m.lines)-1 {
@@ -602,36 +826,52 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.col = 0
 			}
 		case "home", "ctrl+a":
+			m.ClearSelection()
 			m.col = 0
 		case "end", "ctrl+e":
+			m.ClearSelection()
 			m.col = len(m.currentLine())
 		case "pgup":
+			m.ClearSelection()
 			m.row -= m.height
 			m.clampCursor()
 		case "pgdown":
+			m.ClearSelection()
 			m.row += m.height
 			m.clampCursor()
 		case "ctrl+home":
+			m.ClearSelection()
 			m.row = 0
 			m.col = 0
 		case "ctrl+end":
+			m.ClearSelection()
 			m.row = len(m.lines) - 1
 			m.col = len(m.currentLine())
 
-		// Editing
+		// --- Editing: delete selection first ---
 		case "backspace", "ctrl+h":
-			m.deleteBack()
+			if m.HasSelection() {
+				m.DeleteSelection()
+			} else {
+				m.deleteBack()
+			}
 		case "delete", "ctrl+d":
-			m.deleteForward()
+			if m.HasSelection() {
+				m.DeleteSelection()
+			} else {
+				m.deleteForward()
+			}
 		case "enter":
+			m.DeleteSelection()
 			m.insertNewline()
 		case "tab":
+			m.DeleteSelection()
 			m.tabIndent()
 
 		default:
 			moved = false
-			// Insert printable runes
 			if !m.ReadOnly && len(msg.Runes) > 0 {
+				m.DeleteSelection()
 				for _, r := range msg.Runes {
 					m.insertRune(r)
 				}
@@ -652,11 +892,28 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		switch msg.Button {
 		case tea.MouseButtonLeft:
-			if msg.Action == tea.MouseActionPress {
+			switch msg.Action {
+			case tea.MouseActionPress:
 				p := m.screenToPos(msg.X, msg.Y)
+				m.dragging = true
+				m.sel = &selection{anchor: p, active: p}
 				m.row = p.row
 				m.col = p.col
 				m.clampCursor()
+			case tea.MouseActionMotion:
+				if m.dragging {
+					p := m.screenToPos(msg.X, msg.Y)
+					m.sel.active = p
+					m.row = p.row
+					m.col = p.col
+					m.clampCursor()
+				}
+			case tea.MouseActionRelease:
+				m.dragging = false
+				// If no actual drag distance, treat as click: clear selection
+				if m.sel != nil && m.sel.empty() {
+					m.ClearSelection()
+				}
 			}
 		case tea.MouseButtonWheelUp:
 			m.scroll -= 3
@@ -753,6 +1010,19 @@ func (m Model) View() string {
 		cursorExpandedCol = len([]rune(prefix))
 	}
 
+	// Pre-compute selection range in expanded-tab space (once, not per row).
+	hasSel := m.HasSelection()
+	var selStartRow, selStartExp, selEndRow, selEndExp int
+	if hasSel {
+		ss, se := m.sel.ordered()
+		selStartRow = ss.row
+		selStartExp = m.bufferColToExpandedCol(ss.row, ss.col)
+		selEndRow = se.row
+		selEndExp = m.bufferColToExpandedCol(se.row, se.col)
+	}
+
+	selSty := m.SelectionStyle
+
 	var b strings.Builder
 
 	for vi := 0; vi < m.height; vi++ {
@@ -785,22 +1055,51 @@ func (m Model) View() string {
 		segRuneOff := vr.subRow * tw // rune offset within the full expanded line
 		segLen := len([]rune(segText))
 
+		// Compute selection intersection for this visual row.
+		// selColStart/selColEnd are in segment-local expanded rune space.
+		rowHasSel := false
+		selColStart, selColEnd := 0, 0
+		if hasSel && vr.bufRow >= selStartRow && vr.bufRow <= selEndRow {
+			// Compute absolute expanded range that is selected on this buffer row.
+			absSelStart := 0
+			if vr.bufRow == selStartRow {
+				absSelStart = selStartExp
+			}
+			absSelEnd := segRuneOff + segLen // default: rest of line
+			if vr.bufRow == selEndRow {
+				absSelEnd = selEndExp
+			}
+			// Intersect with this segment's range [segRuneOff, segRuneOff+segLen)
+			localStart := absSelStart - segRuneOff
+			localEnd := absSelEnd - segRuneOff
+			if localStart < 0 {
+				localStart = 0
+			}
+			if localEnd > segLen {
+				localEnd = segLen
+			}
+			if localStart < localEnd {
+				rowHasSel = true
+				selColStart = localStart
+				selColEnd = localEnd
+			}
+		}
+
 		// Is the cursor on this visual row?
-		// Cursor is here if it falls within this segment's rune range,
-		// OR if it's at end-of-segment and this is the last sub-row
-		// (cursor past last char sits on the last segment).
 		isCursorHere := false
 		if m.focus && vr.bufRow == m.row {
 			if cursorExpandedCol >= segRuneOff && cursorExpandedCol < segRuneOff+tw {
 				isCursorHere = true
 			} else if cursorExpandedCol == segRuneOff+segLen && segLen < tw {
-				// End-of-line cursor on a short (last) segment
 				isCursorHere = true
 			}
 		}
 
 		var rendered string
-		if isCursorHere {
+		if rowHasSel {
+			rendered = m.renderSelectedSegment(segText, vr.fullHL, vr.segStart, segLen,
+				selColStart, selColEnd, selSty, bg, isCursorHere, cursorExpandedCol-segRuneOff)
+		} else if isCursorHere {
 			localCol := cursorExpandedCol - segRuneOff
 			rendered = m.renderCursorSegment(segText, vr.fullHL, vr.segStart, localCol)
 		} else if hasSyntax && vr.fullHL != "" {
@@ -864,6 +1163,97 @@ func (m Model) renderCursorSegment(segText, fullHL string, segStart, localCol in
 	cursorView := m.cursor.View()
 
 	return before + cursorView + after
+}
+
+// renderSelectedSegment renders a text segment with a selection highlight
+// (and optionally a cursor). selStart/selEnd are segment-local rune offsets.
+func (m Model) renderSelectedSegment(
+	segText, fullHL string, segStart, segLen, selStart, selEnd int,
+	selSty, bg lipgloss.Style, hasCursor bool, cursorLocalCol int,
+) string {
+	hasSyntax := m.Language != "" && m.SyntaxTheme != ""
+	runes := []rune(segText)
+
+	// Helper: render a rune range with a given style (selection or bg).
+	renderRange := func(from, to int, sty lipgloss.Style) string {
+		if from >= to {
+			return ""
+		}
+		if hasSyntax && fullHL != "" {
+			cut := ansi.Cut(fullHL, segStart+from, segStart+to)
+			// Wrap in selection bg — this overrides the syntax bg
+			return sty.Render(ansi.Strip(cut))
+		}
+		return sty.Render(string(runes[from:to]))
+	}
+
+	// Helper: render a rune range with the normal style (bg or syntax HL).
+	renderNormal := func(from, to int) string {
+		if from >= to {
+			return ""
+		}
+		if hasSyntax && fullHL != "" {
+			return ansi.Cut(fullHL, segStart+from, segStart+to)
+		}
+		return bg.Render(string(runes[from:to]))
+	}
+
+	// If cursor is in this segment, we need to handle it specially.
+	if hasCursor && cursorLocalCol >= 0 && cursorLocalCol <= len(runes) {
+		cc := cursorLocalCol
+		cursorChar := " "
+		if cc < len(runes) {
+			cursorChar = string(runes[cc])
+		}
+		m.cursor.SetChar(cursorChar)
+		cursorInSel := cc >= selStart && cc < selEnd
+		if cursorInSel {
+			m.cursor.TextStyle = selSty
+		} else {
+			m.cursor.TextStyle = bg
+		}
+		cv := m.cursor.View()
+
+		var sb strings.Builder
+		switch {
+		case cc < selStart:
+			// [normal 0..cc] [cursor] [normal cc+1..selStart] [sel] [normal selEnd..end]
+			sb.WriteString(renderNormal(0, cc))
+			sb.WriteString(cv)
+			sb.WriteString(renderNormal(cc+1, selStart))
+			sb.WriteString(renderRange(selStart, selEnd, selSty))
+			sb.WriteString(renderNormal(selEnd, len(runes)))
+		case cc >= selEnd:
+			// [normal 0..selStart] [sel] [normal selEnd..cc] [cursor] [normal cc+1..end]
+			sb.WriteString(renderNormal(0, selStart))
+			sb.WriteString(renderRange(selStart, selEnd, selSty))
+			sb.WriteString(renderNormal(selEnd, cc))
+			sb.WriteString(cv)
+			if cc+1 <= len(runes) {
+				sb.WriteString(renderNormal(cc+1, len(runes)))
+			}
+		default:
+			// Cursor inside selection
+			// [normal 0..selStart] [sel selStart..cc] [cursor] [sel cc+1..selEnd] [normal selEnd..end]
+			sb.WriteString(renderNormal(0, selStart))
+			if cc > selStart {
+				sb.WriteString(renderRange(selStart, cc, selSty))
+			}
+			sb.WriteString(cv)
+			if cc+1 < selEnd {
+				sb.WriteString(renderRange(cc+1, selEnd, selSty))
+			}
+			sb.WriteString(renderNormal(selEnd, len(runes)))
+		}
+		return sb.String()
+	}
+
+	// No cursor: simple before/selected/after
+	var sb strings.Builder
+	sb.WriteString(renderNormal(0, selStart))
+	sb.WriteString(renderRange(selStart, selEnd, selSty))
+	sb.WriteString(renderNormal(selEnd, segLen))
+	return sb.String()
 }
 
 // ---------------------------------------------------------------------------
