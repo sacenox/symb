@@ -50,6 +50,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	// -- Bracketed paste (terminal paste via ctrl+v / middle-click) ----------
+	case tea.PasteMsg:
+		text := msg.Content
+		if text != "" {
+			switch m.focus {
+			case focusInput:
+				m.agentInput.DeleteSelection()
+				m.agentInput.InsertText(text)
+			case focusEditor:
+				m.editor.DeleteSelection()
+				m.editor.InsertText(text)
+			}
+		}
+		return m, nil
+
 	// -- Mouse ---------------------------------------------------------------
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
