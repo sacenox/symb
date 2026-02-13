@@ -5,7 +5,7 @@ import "github.com/charmbracelet/lipgloss"
 // Semantic color palette — grayscale "suit and tie" with a single accent.
 var (
 	// Accent — used sparingly: cursor, spinner, active indicators.
-	ColorMatrix = lipgloss.Color("#00AA00")
+	ColorHighlight = lipgloss.Color("#00E5CC")
 
 	// Backgrounds
 	ColorBg = lipgloss.Color("#000000") // Pure black — consistent everywhere

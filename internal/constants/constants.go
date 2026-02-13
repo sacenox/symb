@@ -47,8 +47,11 @@ package constants
 //   - vs                - Visual Studio light
 //   - xcode             - Xcode light theme
 //
+// Pure black (#000000) background:
+//   - average, modus-vivendi, rrt, swapoff, vim
+//
 // Other themes:
 //   - fruity, autumn, friendly, colorful, tango, algol, arduino
 //   - base16-snazzy, borland, emacs, pygments, rainbow_dash
 //   - and more...
-const SyntaxTheme = "github-dark"
+const SyntaxTheme = "swapoff"

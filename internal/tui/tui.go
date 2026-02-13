@@ -248,7 +248,7 @@ type Model struct {
 // New creates a new TUI model.
 func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string) Model {
 	sty := DefaultStyles()
-	cursorStyle := lipgloss.NewStyle().Foreground(ColorMatrix)
+	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot

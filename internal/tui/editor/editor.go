@@ -28,8 +28,8 @@ var (
 	hlCacheMu sync.RWMutex
 )
 
-func cachedHighlight(text, language, theme string) string {
-	cacheKey := language + ":" + theme + ":" + text
+func cachedHighlight(text, language, theme, bgHex string) string {
+	cacheKey := language + ":" + theme + ":" + bgHex + ":" + text
 	hlCacheMu.RLock()
 	if v, ok := hlCache[cacheKey]; ok {
 		hlCacheMu.RUnlock()
@@ -55,7 +55,13 @@ func cachedHighlight(text, language, theme string) string {
 	if err := fmtr.Format(&buf, sty, it); err != nil {
 		return text
 	}
-	result := strings.TrimRight(buf.String(), "\n")
+	raw := strings.TrimRight(buf.String(), "\n")
+
+	// Chroma's terminal16m formatter skips bg on tokens that inherit from
+	// the Background entry, and every \x1b[0m reset clears bg. Fix by
+	// replacing resets with reset+bg so the background is always active.
+	bgSeq := hexToBgSeq(bgHex)
+	result := bgSeq + strings.ReplaceAll(raw, "\x1b[0m", "\x1b[0m"+bgSeq)
 
 	hlCacheMu.Lock()
 	if len(hlCache) > 2000 {
@@ -64,6 +70,33 @@ func cachedHighlight(text, language, theme string) string {
 	hlCache[cacheKey] = result
 	hlCacheMu.Unlock()
 	return result
+}
+
+// hexToBgSeq converts "#rrggbb" to an ANSI 24-bit background escape sequence.
+func hexToBgSeq(hex string) string {
+	if len(hex) != 7 || hex[0] != '#' {
+		return ""
+	}
+	r := hexByte(hex[1], hex[2])
+	g := hexByte(hex[3], hex[4])
+	b := hexByte(hex[5], hex[6])
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+}
+
+func hexByte(hi, lo byte) int {
+	return hexNibble(hi)<<4 | hexNibble(lo)
+}
+
+func hexNibble(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return 0
 }
 
 // themeBg extracts the background hex color from a Chroma style.
@@ -396,15 +429,20 @@ func (m *Model) expandedColToBufferCol(bufRow, expandedCol int) int {
 	return len(line)
 }
 
-// bgForRender returns the background style. Extracts from syntax theme if
-// available, falls back to BgColor.
-func (m *Model) bgForRender() lipgloss.Style {
+// bgHexForRender returns the background hex color. Prefers the syntax theme
+// background, falls back to BgColor.
+func (m *Model) bgHexForRender() string {
 	if m.Language != "" && m.SyntaxTheme != "" {
 		if hex := themeBg(m.SyntaxTheme); hex != "" {
-			return lipgloss.NewStyle().Background(lipgloss.Color(hex))
+			return hex
 		}
 	}
-	return lipgloss.NewStyle().Background(m.BgColor)
+	return string(m.BgColor)
+}
+
+// bgForRender returns the background as a lipgloss style.
+func (m *Model) bgForRender() lipgloss.Style {
+	return lipgloss.NewStyle().Background(lipgloss.Color(m.bgHexForRender()))
 }
 
 // ---------------------------------------------------------------------------
@@ -735,7 +773,8 @@ func (m Model) View() string {
 	}
 
 	tw := m.textWidth()
-	bg := m.bgForRender()
+	bgHex := m.bgHexForRender()
+	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgHex))
 	lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
 
 	// Build a flat list of visual rows from visible buffer lines.
@@ -768,7 +807,7 @@ func (m Model) View() string {
 		// Highlight the full line once for all its segments.
 		var fullHL string
 		if hasSyntax {
-			fullHL = cachedHighlight(lineStr, m.Language, m.SyntaxTheme)
+			fullHL = cachedHighlight(lineStr, m.Language, m.SyntaxTheme, bgHex)
 		}
 
 		firstSub := 0
