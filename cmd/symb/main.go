@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rs/zerolog"
@@ -13,6 +14,7 @@ import (
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/mcp_tools"
 	"github.com/xonecas/symb/internal/provider"
+	"github.com/xonecas/symb/internal/store"
 	"github.com/xonecas/symb/internal/tui"
 )
 
@@ -105,9 +107,23 @@ func main() {
 	editHandler := mcp_tools.NewEditHandler(fileTracker)
 	proxy.RegisterTool(editTool, editHandler.Handle)
 
-	// Register web tools (shared cache for fetch + search)
-	webCache := mcp_tools.NewWebCache()
+	// Open web cache (SQLite-backed, persisted across sessions).
+	// If data dir or db open fails, webCache stays nil — handlers degrade gracefully.
+	var webCache *store.Cache
+	if cacheDir, err := config.EnsureDataDir(); err != nil {
+		fmt.Printf("Warning: cache dir failed: %v\n", err)
+	} else {
+		cacheTTL := time.Duration(cfg.Cache.CacheTTLOrDefault()) * time.Hour
+		webCache, err = store.Open(filepath.Join(cacheDir, "cache.db"), cacheTTL)
+		if err != nil {
+			fmt.Printf("Warning: cache open failed: %v\n", err)
+		}
+	}
+	if webCache != nil {
+		defer webCache.Close()
+	}
 
+	// Register web tools
 	webFetchTool := mcp_tools.NewWebFetchTool()
 	webFetchHandler := mcp_tools.MakeWebFetchHandler(webCache)
 	proxy.RegisterTool(webFetchTool, webFetchHandler)

@@ -5,40 +5,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/xonecas/symb/internal/store"
 )
 
-func TestWebCache_GetSet(t *testing.T) {
-	c := NewWebCache()
-
-	// Miss on empty cache.
-	if _, ok := c.get("key"); ok {
-		t.Fatal("expected cache miss")
+func testCache(t *testing.T) *store.Cache {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	c, err := store.Open(dbPath, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to open test cache: %v", err)
 	}
-
-	// Set and hit.
-	c.set("key", "value")
-	v, ok := c.get("key")
-	if !ok || v != "value" {
-		t.Fatalf("expected cache hit with 'value', got %q ok=%v", v, ok)
-	}
-}
-
-func TestWebCache_Expiry(t *testing.T) {
-	c := NewWebCache()
-	c.set("key", "value")
-
-	// Manually backdate the entry.
-	c.mu.Lock()
-	e := c.entries["key"]
-	e.createdAt = time.Now().Add(-25 * time.Hour)
-	c.entries["key"] = e
-	c.mu.Unlock()
-
-	if _, ok := c.get("key"); ok {
-		t.Fatal("expected cache miss for stale entry")
-	}
+	t.Cleanup(func() { c.Close() })
+	return c
 }
 
 func TestExtractText(t *testing.T) {
@@ -62,7 +44,6 @@ func TestExtractText(t *testing.T) {
 }
 
 func TestExtractText_PlainText(t *testing.T) {
-	// No HTML at all — should pass through.
 	text := extractText([]byte("just plain text"))
 	if text != "just plain text" {
 		t.Errorf("expected plain passthrough, got %q", text)
@@ -95,7 +76,7 @@ func TestWebFetchHandler_HTML(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cache := NewWebCache()
+	cache := testCache(t)
 	handler := MakeWebFetchHandler(cache)
 
 	args, _ := json.Marshal(WebFetchArgs{URL: srv.URL})
@@ -124,7 +105,7 @@ func TestWebFetchHandler_PlainText(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cache := NewWebCache()
+	cache := testCache(t)
 	handler := MakeWebFetchHandler(cache)
 
 	args, _ := json.Marshal(WebFetchArgs{URL: srv.URL})
@@ -143,7 +124,7 @@ func TestWebFetchHandler_Error(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cache := NewWebCache()
+	cache := testCache(t)
 	handler := MakeWebFetchHandler(cache)
 
 	args, _ := json.Marshal(WebFetchArgs{URL: srv.URL})
@@ -154,7 +135,7 @@ func TestWebFetchHandler_Error(t *testing.T) {
 }
 
 func TestWebFetchHandler_MissingURL(t *testing.T) {
-	cache := NewWebCache()
+	cache := testCache(t)
 	handler := MakeWebFetchHandler(cache)
 
 	args, _ := json.Marshal(WebFetchArgs{})
@@ -165,7 +146,7 @@ func TestWebFetchHandler_MissingURL(t *testing.T) {
 }
 
 func TestWebSearchHandler_MissingKey(t *testing.T) {
-	cache := NewWebCache()
+	cache := testCache(t)
 	handler := MakeWebSearchHandler(cache, "", "")
 
 	args, _ := json.Marshal(WebSearchArgs{Query: "test"})
@@ -179,7 +160,7 @@ func TestWebSearchHandler_MissingKey(t *testing.T) {
 }
 
 func TestWebSearchHandler_MissingQuery(t *testing.T) {
-	cache := NewWebCache()
+	cache := testCache(t)
 	handler := MakeWebSearchHandler(cache, "fake-key", "")
 
 	args, _ := json.Marshal(WebSearchArgs{})
@@ -191,13 +172,11 @@ func TestWebSearchHandler_MissingQuery(t *testing.T) {
 
 func TestWebSearchHandler_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify auth header.
 		if r.Header.Get("x-api-key") != "test-key" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		// Verify request body.
 		var req exaSearchRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -215,7 +194,7 @@ func TestWebSearchHandler_Success(t *testing.T) {
 	defer srv.Close()
 
 	t.Run("integration", func(t *testing.T) {
-		cache := NewWebCache()
+		cache := testCache(t)
 		handler := MakeWebSearchHandler(cache, "test-key", srv.URL)
 
 		args, _ := json.Marshal(WebSearchArgs{Query: "test query", NumResults: 2})
@@ -241,7 +220,7 @@ func TestWebSearchHandler_Success(t *testing.T) {
 	})
 
 	t.Run("bad_auth", func(t *testing.T) {
-		cache := NewWebCache()
+		cache := testCache(t)
 		handler := MakeWebSearchHandler(cache, "wrong-key", srv.URL)
 
 		args, _ := json.Marshal(WebSearchArgs{Query: "test"})

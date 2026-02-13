@@ -51,5 +51,8 @@ theme = "molokai"
 split_ratio = 0.5
 syntax_theme = "monokai"
 
+[cache]
+ttl_hours = 24
+
 [git]
 enable_sandbox = false

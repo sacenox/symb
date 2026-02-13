@@ -23,6 +23,8 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 - **Clean aesthetic**: Dark grayscale with minimal distractions
 - **ELM architecture**: Built with BubbleTea for solid state management
 - **LLM integration**: Ollama local + Opencode Zen support
+- **Hashline-assisted edits**: LLM edit operations use line hashes for precise, conflict-free file modifications
+- **Web search**: Exa AI integration with configurable SQLite cache and content-aware redundant search prevention
 
 ## Quick Start
 
@@ -39,7 +41,28 @@ make dev
 
 ## Configuration
 
-Edit `config.toml` to configure LLM provider, editor settings, and UI preferences.
+Edit `config.toml` to configure LLM providers, UI preferences, and cache settings:
+
+```toml
+[providers.ollama-qwen]
+endpoint = "http://localhost:11434"
+model = "qwen3:8b"
+temperature = 0.3
+
+[cache]
+ttl_hours = 24  # how long web search/fetch results are cached
+```
+
+API keys are stored separately in `~/.config/symb/credentials.json`:
+
+```json
+{
+  "providers": {
+    "opencode_zen": { "api_key": "your-key" },
+    "exa_ai": { "api_key": "your-exa-key" }
+  }
+}
+```
 
 ## Development
 

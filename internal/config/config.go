@@ -16,6 +16,20 @@ type Config struct {
 	DefaultProvider string                    `toml:"default_provider"`
 	Providers       map[string]ProviderConfig `toml:"providers"`
 	MCP             MCPConfig                 `toml:"mcp"`
+	Cache           CacheConfig               `toml:"cache"`
+}
+
+// CacheConfig holds web cache settings.
+type CacheConfig struct {
+	TTLHours int `toml:"ttl_hours"`
+}
+
+// CacheTTLOrDefault returns the configured TTL or 24 hours if unset.
+func (c CacheConfig) CacheTTLOrDefault() int {
+	if c.TTLHours <= 0 {
+		return 24
+	}
+	return c.TTLHours
 }
 
 // ProviderConfig holds LLM provider settings.

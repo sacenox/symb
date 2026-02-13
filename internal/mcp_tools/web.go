@@ -8,58 +8,16 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/mcp"
+	"github.com/xonecas/symb/internal/store"
 	"golang.org/x/net/html"
 )
 
-// cacheTTL is how long cached entries remain fresh.
-const cacheTTL = 24 * time.Hour
-
-// cacheEntry stores a cached result with its timestamp.
-type cacheEntry struct {
-	result    string
-	createdAt time.Time
-}
-
 // noSearchResults is the message returned when no search results are found.
 const noSearchResults = "No results found."
-
-// WebCache is a shared in-memory cache for WebFetch and WebSearch results.
-type WebCache struct {
-	mu      sync.RWMutex
-	entries map[string]cacheEntry
-}
-
-func newWebCache() *WebCache {
-	return &WebCache{entries: make(map[string]cacheEntry)}
-}
-
-// get returns the cached value and true if it exists and is fresh.
-func (c *WebCache) get(key string) (string, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	entry, ok := c.entries[key]
-	if !ok {
-		return "", false
-	}
-	if time.Since(entry.createdAt) > cacheTTL {
-		return "", false
-	}
-	return entry.result, true
-}
-
-// set stores a value in the cache.
-func (c *WebCache) set(key, result string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.entries[key] = cacheEntry{result: result, createdAt: time.Now()}
-}
 
 // --- WebFetch ---
 
@@ -90,13 +48,13 @@ func NewWebFetchTool() mcp.Tool {
 
 	return mcp.Tool{
 		Name:        "WebFetch",
-		Description: "Fetch a URL and return its content as cleaned text (HTML tags, scripts, and styles stripped). Cached for 24 hours.",
+		Description: "Fetch a URL and return its content as cleaned text (HTML tags, scripts, and styles stripped). Results are cached.",
 		InputSchema: schemaJSON,
 	}
 }
 
 // MakeWebFetchHandler creates a handler for the WebFetch tool.
-func MakeWebFetchHandler(cache *WebCache) mcp.ToolHandler {
+func MakeWebFetchHandler(cache *store.Cache) mcp.ToolHandler {
 	client := &http.Client{Timeout: 15 * time.Second}
 
 	return func(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
@@ -112,8 +70,8 @@ func MakeWebFetchHandler(cache *WebCache) mcp.ToolHandler {
 			args.MaxChars = 10000
 		}
 
-		// Check cache (keyed by raw URL).
-		if cached, ok := cache.get(args.URL); ok {
+		// Check cache (keyed by URL).
+		if cached, ok := cache.GetFetch(args.URL); ok {
 			log.Debug().Str("url", args.URL).Msg("WebFetch cache hit")
 			return toolText(truncate(cached, args.MaxChars)), nil
 		}
@@ -149,7 +107,7 @@ func MakeWebFetchHandler(cache *WebCache) mcp.ToolHandler {
 			text = string(body)
 		}
 
-		cache.set(args.URL, text)
+		cache.SetFetch(args.URL, text)
 		return toolText(truncate(text, args.MaxChars)), nil
 	}
 }
@@ -224,7 +182,7 @@ func NewWebSearchTool() mcp.Tool {
 
 	return mcp.Tool{
 		Name:        "WebSearch",
-		Description: "Search the web using Exa AI. Use this to look up documentation, APIs, libraries, or current information. Cached for 24 hours.",
+		Description: "Search the web using Exa AI. Use this to look up documentation, APIs, libraries, or current information. Results are cached.",
 		InputSchema: schemaJSON,
 	}
 }
@@ -233,7 +191,7 @@ const exaDefaultEndpoint = "https://api.exa.ai/search"
 
 // MakeWebSearchHandler creates a handler for the WebSearch tool.
 // endpoint is the Exa API URL; pass "" to use the default (https://api.exa.ai/search).
-func MakeWebSearchHandler(cache *WebCache, apiKey, endpoint string) mcp.ToolHandler {
+func MakeWebSearchHandler(cache *store.Cache, apiKey, endpoint string) mcp.ToolHandler {
 	if endpoint == "" {
 		endpoint = exaDefaultEndpoint
 	}
@@ -258,12 +216,22 @@ func MakeWebSearchHandler(cache *WebCache, apiKey, endpoint string) mcp.ToolHand
 			args.Type = "auto"
 		}
 
-		// Check cache (keyed by normalized query + params).
-		cacheKey := fmt.Sprintf("search:%s:n=%d:t=%s:d=%s",
-			strings.ToLower(strings.TrimSpace(args.Query)),
-			args.NumResults, args.Type, strings.Join(args.IncludeDomains, ","))
-		if cached, ok := cache.get(cacheKey); ok {
-			log.Debug().Str("query", args.Query).Msg("WebSearch cache hit")
+		// Build exact cache key including params so different num_results/type
+		// don't return wrong cached results.
+		exactKey := fmt.Sprintf("%s|n=%d|t=%s|d=%s",
+			args.Query, args.NumResults, args.Type,
+			strings.Join(args.IncludeDomains, ","))
+
+		// Check exact cache hit first (query + params).
+		if cached, ok := cache.GetSearch(exactKey); ok {
+			log.Debug().Str("query", args.Query).Msg("WebSearch exact cache hit")
+			return toolText(cached), nil
+		}
+
+		// Search cached result content for query keywords — avoids API call
+		// if the answer already exists in a previously cached result.
+		if cached, ok := cache.SearchCachedContent(args.Query); ok {
+			log.Debug().Str("query", args.Query).Msg("WebSearch content cache hit")
 			return toolText(cached), nil
 		}
 
@@ -310,14 +278,9 @@ func MakeWebSearchHandler(cache *WebCache, apiKey, endpoint string) mcp.ToolHand
 		}
 
 		result := formatSearchResults(exaResp.Results)
-		cache.set(cacheKey, result)
+		cache.SetSearch(exactKey, result)
 		return toolText(result), nil
 	}
-}
-
-// NewWebCache creates a shared cache for web tools.
-func NewWebCache() *WebCache {
-	return newWebCache()
 }
 
 // --- Helpers ---
