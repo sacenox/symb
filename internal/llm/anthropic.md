@@ -56,6 +56,21 @@ The 2-char hex hash is a content fingerprint for that line. You need both the li
 - Case sensitivity: `{"pattern": "Error", "case_sensitive": true}`
 - Limit results: `{"max_results": 50}` (default: 100)
 
+### `WebFetch` — Fetch a URL as clean text
+Fetches a web page and returns its content with HTML stripped (scripts, styles removed). Results are cached for 24 hours.
+
+- `{"url": "https://example.com/docs"}` — fetch with default 10k char limit
+- `{"url": "https://example.com/docs", "max_chars": 5000}` — custom limit
+
+### `WebSearch` — Search the web (Exa AI)
+Search the web for documentation, APIs, libraries, or current information. Results are cached for 24 hours.
+
+- `{"query": "Go context package best practices"}`
+- `{"query": "React hooks", "num_results": 3, "type": "fast"}`
+- `{"query": "kubernetes API", "include_domains": ["kubernetes.io"]}`
+
+**Search before assuming** — when asked about external libraries, APIs, or current information, use WebSearch to verify rather than relying on potentially outdated knowledge.
+
 ### `Edit` — Modify files using hash anchors
 **Prerequisite: Open the file first.** The hashes from Open output are your edit anchors.
 

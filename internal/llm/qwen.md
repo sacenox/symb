@@ -52,6 +52,20 @@ The 2-char hex hash is a content fingerprint. You need both line number and hash
 ```
 Finds files or content. Respects `.gitignore`.
 
+### `WebFetch` — Fetch a URL as clean text
+Fetches a URL, strips HTML. Cached 24h.
+```json
+{"url": "https://example.com/docs", "max_chars": 10000}
+```
+
+### `WebSearch` — Search the web (Exa AI)
+Search for docs, APIs, libraries, current info. Cached 24h.
+```json
+{"query": "search terms", "num_results": 5, "type": "auto", "include_domains": ["docs.example.com"]}
+```
+
+**Search before assuming** — use WebSearch to verify external APIs/libraries rather than guessing.
+
 ### `Edit` — Modify files using hash anchors
 **Open the file first.** One operation per call. Returns fresh hashes after each edit.
 

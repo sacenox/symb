@@ -105,6 +105,18 @@ func main() {
 	editHandler := mcp_tools.NewEditHandler(fileTracker)
 	proxy.RegisterTool(editTool, editHandler.Handle)
 
+	// Register web tools (shared cache for fetch + search)
+	webCache := mcp_tools.NewWebCache()
+
+	webFetchTool := mcp_tools.NewWebFetchTool()
+	webFetchHandler := mcp_tools.MakeWebFetchHandler(webCache)
+	proxy.RegisterTool(webFetchTool, webFetchHandler)
+
+	exaKey := creds.GetAPIKey("exa_ai")
+	webSearchTool := mcp_tools.NewWebSearchTool()
+	webSearchHandler := mcp_tools.MakeWebSearchHandler(webCache, exaKey, "")
+	proxy.RegisterTool(webSearchTool, webSearchHandler)
+
 	// List all tools (local + upstream)
 	tools, err := proxy.ListTools(context.Background())
 	if err != nil {

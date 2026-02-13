@@ -169,11 +169,11 @@ func (h *EditHandler) SetProgram(program *tea.Program) {
 func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
 	var args EditArgs
 	if err := json.Unmarshal(arguments, &args); err != nil {
-		return errResult("Invalid arguments: %v", err), nil
+		return toolError("Invalid arguments: %v", err), nil
 	}
 
 	if args.File == "" {
-		return errResult("File path cannot be empty"), nil
+		return toolError("File path cannot be empty"), nil
 	}
 
 	// Count operations — exactly one must be set
@@ -191,23 +191,23 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 		ops++
 	}
 	if ops != 1 {
-		return errResult("Exactly one operation (replace, insert, delete, or create) must be specified"), nil
+		return toolError("Exactly one operation (replace, insert, delete, or create) must be specified"), nil
 	}
 
 	// Security: validate path
 	absPath, err := filepath.Abs(args.File)
 	if err != nil {
-		return errResult("Invalid file path: %v", err), nil
+		return toolError("Invalid file path: %v", err), nil
 	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		return errResult("Failed to get working directory: %v", err), nil
+		return toolError("Failed to get working directory: %v", err), nil
 	}
 
 	relPath, err := filepath.Rel(workingDir, absPath)
 	if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
-		return errResult("Access denied: path outside working directory"), nil
+		return toolError("Access denied: path outside working directory"), nil
 	}
 
 	// Dispatch to operation handler
@@ -217,13 +217,13 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 
 	// Enforce read-before-edit: file must have been opened first
 	if !h.tracker.WasRead(absPath) {
-		return errResult("You must Open the file before editing it. Use Open to read %s first — you need the line hashes.", args.File), nil
+		return toolError("You must Open the file before editing it. Use Open to read %s first — you need the line hashes.", args.File), nil
 	}
 
 	// All other ops require reading the existing file
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return errResult("Failed to read file: %v", err), nil
+		return toolError("Failed to read file: %v", err), nil
 	}
 	lines := strings.Split(string(content), "\n")
 
@@ -238,11 +238,11 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 	}
 
 	if err != nil {
-		return errResult("%v", err), nil
+		return toolError("%v", err), nil
 	}
 
 	if err := os.WriteFile(absPath, []byte(result), 0600); err != nil {
-		return errResult("Failed to write file: %v", err), nil
+		return toolError("Failed to write file: %v", err), nil
 	}
 
 	// Show updated file in TUI editor
@@ -267,17 +267,17 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 func (h *EditHandler) handleCreate(absPath, displayPath string, op *CreateOp) (*mcp.ToolResult, error) {
 	// Fail if file already exists
 	if _, err := os.Stat(absPath); err == nil {
-		return errResult("File already exists: %s (use replace/insert/delete to modify)", displayPath), nil
+		return toolError("File already exists: %s (use replace/insert/delete to modify)", displayPath), nil
 	}
 
 	// Create parent directories
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return errResult("Failed to create directories: %v", err), nil
+		return toolError("Failed to create directories: %v", err), nil
 	}
 
 	if err := os.WriteFile(absPath, []byte(op.Content), 0600); err != nil {
-		return errResult("Failed to create file: %v", err), nil
+		return toolError("Failed to create file: %v", err), nil
 	}
 
 	// Show in TUI
@@ -334,11 +334,4 @@ func applyDelete(lines []string, op *DeleteOp) (string, error) {
 	newLines = append(newLines, lines[op.End.Num:]...)
 
 	return strings.Join(newLines, "\n"), nil
-}
-
-func errResult(format string, args ...interface{}) *mcp.ToolResult {
-	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf(format, args...)}},
-		IsError: true,
-	}
 }
