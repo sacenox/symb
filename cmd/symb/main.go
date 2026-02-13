@@ -123,6 +123,13 @@ func main() {
 		defer webCache.Close()
 	}
 
+	// Register git tools
+	gitStatusTool := mcp_tools.NewGitStatusTool()
+	proxy.RegisterTool(gitStatusTool, mcp_tools.MakeGitStatusHandler())
+
+	gitDiffTool := mcp_tools.NewGitDiffTool()
+	proxy.RegisterTool(gitDiffTool, mcp_tools.MakeGitDiffHandler())
+
 	// Register web tools
 	webFetchTool := mcp_tools.NewWebFetchTool()
 	webFetchHandler := mcp_tools.MakeWebFetchHandler(webCache)

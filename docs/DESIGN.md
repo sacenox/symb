@@ -76,13 +76,13 @@ Retry-After parsing.
   matching, binary detection, 10MB size limit.
 - `internal/config` — TOML config, JSON credentials, env overrides.
 
-## Features waiting implementation for current version:
-
 ### Git Integration
 
 - git **read** tools for the LLM: diff, status
 - Editor displays diffs with syntax hl
 - git markers in the number column for editted files in the editor
+
+## Features waiting implementation for current version:
 
 ### LSP Integration
 
@@ -98,7 +98,7 @@ symbols/scope to LLM as auto-context instead of whole files.
 
 Separate OpenForUser into Read and Show. Read sends the output to the llm, Show sends it to the editor after read.  Update hover iteraction on tool responses for ux. Ui improvements.
 
-- Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor.
+- Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor. Includes the current diff and lsp information for the file on read.
 - Show, new tool: Open and send to the editor.
 - All tools: don't auto update the editor (Show excluded).
 - mousing over a tool reply apllies a background to show it's clickable.

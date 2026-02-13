@@ -216,6 +216,9 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ed.SelectionStyle = selStyle
 	ed.LineNumStyle = lipgloss.NewStyle().Foreground(ColorBorder)
 	ed.BgColor = ColorBg
+	ed.MarkAddStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec964")).Background(ColorBg)
+	ed.MarkChgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Background(ColorBg)
+	ed.MarkDelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")).Background(ColorBg)
 
 	ai := editor.New()
 	ai.Placeholder = "Type a message..."

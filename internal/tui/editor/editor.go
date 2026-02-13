@@ -99,6 +99,15 @@ func hexNibble(c byte) int {
 	return 0
 }
 
+// colorToBgSeq converts a color.Color to an ANSI 24-bit background escape.
+func colorToBgSeq(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
+}
+
 // themeBg extracts the background hex color from a Chroma style.
 // Returns "" if no background is set.
 func themeBg(theme string) string {
@@ -117,6 +126,15 @@ func themeBg(theme string) string {
 // Model
 // ---------------------------------------------------------------------------
 
+// GutterMark identifies the type of change marker shown in the gutter.
+type GutterMark int
+
+const (
+	GutterAdd    GutterMark = iota // Line was added
+	GutterChange                   // Line was modified
+	GutterDelete                   // Line(s) deleted after this line
+)
+
 // Model is a minimal text editor / viewer component.
 type Model struct {
 	// Public configuration — set before first Update/View.
@@ -132,6 +150,15 @@ type Model struct {
 	LineNumStyle   lipgloss.Style // Line number gutter
 	PlaceholderSty lipgloss.Style // Placeholder text
 	BgColor        color.Color    // Fallback bg when no syntax theme
+
+	// Gutter markers (git diff indicators in line number column).
+	GutterMarkers map[int]GutterMark // bufRow (0-indexed) -> mark type
+	MarkAddStyle  lipgloss.Style     // Style for added-line marker
+	MarkChgStyle  lipgloss.Style     // Style for changed-line marker
+	MarkDelStyle  lipgloss.Style     // Style for deleted-line marker
+
+	// Per-line background overrides (e.g. diff line tinting).
+	LineBg map[int]lipgloss.Style // bufRow (0-indexed) -> background style
 
 	// Internal state
 	lines  [][]rune // Backing store, one entry per line
@@ -462,13 +489,44 @@ func (m *Model) textWidth() int {
 		if digits < 2 {
 			digits = 2
 		}
-		m.gutterWidth = digits + 1 // digits + 1 space
+		m.gutterWidth = digits + 2 // digits + marker column + 1 space
 	}
 	w := m.width - m.gutterWidth
 	if w < 1 {
 		w = 1
 	}
 	return w
+}
+
+// SetGutterMarkers replaces the current gutter markers.
+// Keys are 0-indexed buffer row numbers.
+func (m *Model) SetGutterMarkers(markers map[int]GutterMark) {
+	m.GutterMarkers = markers
+}
+
+// renderGutterMark returns the styled single-character marker for a buffer row.
+// Falls back to a space (in lineNumSty) if no marker exists.
+func (m Model) renderGutterMark(bufRow int, lineNumSty lipgloss.Style) string {
+	mark, ok := m.GutterMarkers[bufRow]
+	if !ok {
+		return lineNumSty.Render(" ")
+	}
+	switch mark {
+	case GutterAdd:
+		return m.MarkAddStyle.Render("+")
+	case GutterChange:
+		return m.MarkChgStyle.Render("~")
+	case GutterDelete:
+		return m.MarkDelStyle.Render("-")
+	default:
+		return lineNumSty.Render(" ")
+	}
+}
+
+// SetLineBg replaces the per-line background overrides.
+// Keys are 0-indexed buffer row numbers.
+func (m *Model) SetLineBg(bg map[int]lipgloss.Style) {
+	m.LineBg = bg
 }
 
 // ---------------------------------------------------------------------------
@@ -967,6 +1025,7 @@ func (m Model) View() string {
 	tw := m.textWidth()
 	bg := m.bgForRender()
 	lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
+	themeBgSeq := hexToBgSeq(m.bgHexForHighlight()) // for LineBg replacement
 
 	// Build a flat list of visual rows from visible buffer lines.
 	type visualRow struct {
@@ -1055,15 +1114,28 @@ func (m Model) View() string {
 
 		vr := rows[vi]
 
-		// -- Gutter (line numbers) -------------------------------------------
+		// Resolve per-line background override.
+		rowBg := bg
+		hasLineBg := false
+		if lbg, ok := m.LineBg[vr.bufRow]; ok {
+			rowBg = lbg
+			hasLineBg = true
+		}
+
+		// -- Gutter (line numbers + marker column) ---------------------------
 		if m.ShowLineNumbers {
-			digits := m.gutterWidth - 1
+			gutSty := lineNumSty
+			if hasLineBg {
+				gutSty = gutSty.Background(rowBg.GetBackground())
+			}
+			digits := m.gutterWidth - 2 // gutter = digits + space + marker
 			if vr.subRow == 0 {
 				num := fmt.Sprintf("%*d ", digits, vr.bufRow+1)
-				b.WriteString(lineNumSty.Render(num))
+				b.WriteString(gutSty.Render(num))
+				b.WriteString(m.renderGutterMark(vr.bufRow, gutSty))
 			} else {
 				// Continuation row — blank gutter
-				b.WriteString(lineNumSty.Render(strings.Repeat(" ", m.gutterWidth)))
+				b.WriteString(gutSty.Render(strings.Repeat(" ", m.gutterWidth)))
 			}
 		}
 
@@ -1115,14 +1187,18 @@ func (m Model) View() string {
 		var rendered string
 		if rowHasSel {
 			rendered = m.renderSelectedSegment(segText, vr.fullHL, vr.segStart, segLen,
-				selColStart, selColEnd, selSty, bg, isCursorHere, cursorExpandedCol-segRuneOff)
+				selColStart, selColEnd, selSty, rowBg, isCursorHere, cursorExpandedCol-segRuneOff)
 		} else if isCursorHere {
 			localCol := cursorExpandedCol - segRuneOff
 			rendered = m.renderCursorSegment(segText, vr.fullHL, vr.segStart, localCol)
 		} else if hasSyntax && vr.fullHL != "" {
 			rendered = ansi.Cut(vr.fullHL, vr.segStart, vr.segEnd)
+			if hasLineBg && themeBgSeq != "" {
+				overrideBgSeq := colorToBgSeq(rowBg.GetBackground())
+				rendered = strings.ReplaceAll(rendered, themeBgSeq, overrideBgSeq)
+			}
 		} else {
-			rendered = bg.Render(segText)
+			rendered = rowBg.Render(segText)
 		}
 
 		// Pad to text width
@@ -1133,7 +1209,7 @@ func (m Model) View() string {
 		}
 		b.WriteString(rendered)
 		if rw < tw {
-			b.WriteString(bg.Render(strings.Repeat(" ", tw-rw)))
+			b.WriteString(rowBg.Render(strings.Repeat(" ", tw-rw)))
 		}
 	}
 
@@ -1287,9 +1363,11 @@ func (m Model) placeholderView() string {
 	var b strings.Builder
 	// Gutter
 	if m.ShowLineNumbers {
-		digits := m.gutterWidth - 1
+		lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
+		digits := m.gutterWidth - 2 // gutter = digits + space + marker
 		num := fmt.Sprintf("%*d ", digits, 1)
-		b.WriteString(m.LineNumStyle.Background(bg.GetBackground()).Render(num))
+		b.WriteString(lineNumSty.Render(num))
+		b.WriteString(m.renderGutterMark(0, lineNumSty))
 	}
 
 	// First line: cursor (if focused) then placeholder text

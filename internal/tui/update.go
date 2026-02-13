@@ -233,6 +233,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mcp_tools.OpenForUserMsg:
 		m.editor.SetValue(msg.Content)
 		m.editor.Language = msg.Language
+		m.editor.SetLineBg(nil)
+		markers := mcp_tools.GitFileMarkers(m.ctx, msg.FilePath)
+		m.editor.SetGutterMarkers(markers)
 		m.setFocus(focusEditor)
 		return m, nil
 
