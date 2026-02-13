@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/exp/golden"
 )
 
@@ -30,7 +30,7 @@ func TestLayout(t *testing.T) {
 			updated, _ := m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
 			m = updated.(Model)
 
-			output := m.View()
+			output := m.renderContent()
 
 			t.Run("ANSI", func(t *testing.T) {
 				golden.RequireEqual(t, []byte(output))

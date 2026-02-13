@@ -5,16 +5,17 @@ package editor
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"sync"
 
+	"charm.land/bubbles/v2/cursor"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/bubbles/cursor"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -130,7 +131,7 @@ type Model struct {
 	SelectionStyle lipgloss.Style // Background for selected text
 	LineNumStyle   lipgloss.Style // Line number gutter
 	PlaceholderSty lipgloss.Style // Placeholder text
-	BgColor        lipgloss.Color // Fallback bg when no syntax theme
+	BgColor        color.Color    // Fallback bg when no syntax theme
 
 	// Internal state
 	lines  [][]rune // Backing store, one entry per line
@@ -590,20 +591,29 @@ func (m *Model) bufferColToExpandedCol(bufRow, bufCol int) int {
 	return len([]rune(prefix))
 }
 
-// bgHexForRender returns the background hex color. Prefers the syntax theme
-// background, falls back to BgColor.
-func (m *Model) bgHexForRender() string {
+// bgForRender returns the background as a lipgloss style. Prefers the syntax
+// theme background, falls back to BgColor.
+func (m *Model) bgForRender() lipgloss.Style {
+	if m.Language != "" && m.SyntaxTheme != "" {
+		if hex := themeBg(m.SyntaxTheme); hex != "" {
+			return lipgloss.NewStyle().Background(lipgloss.Color(hex))
+		}
+	}
+	return lipgloss.NewStyle().Background(m.BgColor)
+}
+
+// bgHexForHighlight returns the bg hex string for syntax highlighting.
+func (m *Model) bgHexForHighlight() string {
 	if m.Language != "" && m.SyntaxTheme != "" {
 		if hex := themeBg(m.SyntaxTheme); hex != "" {
 			return hex
 		}
 	}
-	return string(m.BgColor)
-}
-
-// bgForRender returns the background as a lipgloss style.
-func (m *Model) bgForRender() lipgloss.Style {
-	return lipgloss.NewStyle().Background(lipgloss.Color(m.bgHexForRender()))
+	if m.BgColor != nil {
+		r, g, b, _ := m.BgColor.RGBA()
+		return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+	}
+	return "#000000"
 }
 
 // ---------------------------------------------------------------------------
@@ -744,12 +754,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if !m.focus {
 			break
 		}
 		moved := true
-		key := msg.String()
+		key := msg.Keystroke()
 
 		switch key {
 		// --- Shift+navigation: extend selection ---
@@ -870,9 +880,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		default:
 			moved = false
-			if !m.ReadOnly && len(msg.Runes) > 0 {
+			if !m.ReadOnly && msg.Text != "" {
 				m.DeleteSelection()
-				for _, r := range msg.Runes {
+				for _, r := range msg.Text {
 					m.insertRune(r)
 				}
 				moved = true
@@ -882,43 +892,51 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if moved {
 			m.clampCursor()
 			m.clampScroll()
-			m.cursor.Blink = false
-			cmds = append(cmds, m.cursor.BlinkCmd())
+			cmds = append(cmds, m.cursor.Blink())
 		}
 
-	case tea.MouseMsg:
+	case tea.MouseClickMsg:
 		if !m.focus {
 			break
 		}
-		switch msg.Button {
-		case tea.MouseButtonLeft:
-			switch msg.Action {
-			case tea.MouseActionPress:
-				p := m.screenToPos(msg.X, msg.Y)
-				m.dragging = true
-				m.sel = &selection{anchor: p, active: p}
-				m.row = p.row
-				m.col = p.col
-				m.clampCursor()
-			case tea.MouseActionMotion:
-				if m.dragging {
-					p := m.screenToPos(msg.X, msg.Y)
-					m.sel.active = p
-					m.row = p.row
-					m.col = p.col
-					m.clampCursor()
-				}
-			case tea.MouseActionRelease:
-				m.dragging = false
-				// If no actual drag distance, treat as click: clear selection
-				if m.sel != nil && m.sel.empty() {
-					m.ClearSelection()
-				}
-			}
-		case tea.MouseButtonWheelUp:
+		if msg.Button == tea.MouseLeft {
+			p := m.screenToPos(msg.X, msg.Y)
+			m.dragging = true
+			m.sel = &selection{anchor: p, active: p}
+			m.row = p.row
+			m.col = p.col
+			m.clampCursor()
+		}
+
+	case tea.MouseMotionMsg:
+		if !m.focus {
+			break
+		}
+		if m.dragging {
+			p := m.screenToPos(msg.X, msg.Y)
+			m.sel.active = p
+			m.row = p.row
+			m.col = p.col
+			m.clampCursor()
+		}
+
+	case tea.MouseReleaseMsg:
+		if !m.focus {
+			break
+		}
+		m.dragging = false
+		if m.sel != nil && m.sel.empty() {
+			m.ClearSelection()
+		}
+
+	case tea.MouseWheelMsg:
+		if !m.focus {
+			break
+		}
+		if msg.Button == tea.MouseWheelUp {
 			m.scroll -= 3
 			m.clampScrollBounds()
-		case tea.MouseButtonWheelDown:
+		} else if msg.Button == tea.MouseWheelDown {
 			m.scroll += 3
 			m.clampScrollBounds()
 		}
@@ -947,8 +965,7 @@ func (m Model) View() string {
 	}
 
 	tw := m.textWidth()
-	bgHex := m.bgHexForRender()
-	bg := lipgloss.NewStyle().Background(lipgloss.Color(bgHex))
+	bg := m.bgForRender()
 	lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
 
 	// Build a flat list of visual rows from visible buffer lines.
@@ -981,7 +998,7 @@ func (m Model) View() string {
 		// Highlight the full line once for all its segments.
 		var fullHL string
 		if hasSyntax {
-			fullHL = cachedHighlight(lineStr, m.Language, m.SyntaxTheme, bgHex)
+			fullHL = cachedHighlight(lineStr, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
 		}
 
 		firstSub := 0

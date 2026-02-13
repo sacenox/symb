@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/config"
@@ -143,8 +143,6 @@ func main() {
 	// Create the BubbleTea program with model-specific prompt
 	p := tea.NewProgram(
 		tui.New(prov, proxy, tools, providerCfg.Model),
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 
