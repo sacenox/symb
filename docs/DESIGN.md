@@ -76,63 +76,23 @@ Retry-After parsing.
   matching, binary detection, 10MB size limit.
 - `internal/config` — TOML config, JSON credentials, env overrides.
 
-## Considered Features
+## Features waiting implementation for current version:
 
-### Basic keybind to toggle cursor from agent input <> editor
+### Git Integration
 
-Choose a convenient keybind to toggle the active cursor.
-Goes back and forth
-Use vim's `CTRL+w` keybind for easy muscle memory?
-
-### Statusbar implementation
-
-- Needs design work
-
-### File Search in agent input box
-
-Typing `@` shows a file search modal. Substiture `@` in the input with the selected pathname
-File search modal:
- - Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
- - Top row is the input for the file search query
- - Rest of the modal is the list of matches.
- - Results update after the user stops typing for a few hundred miliseconds.
- - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
- - `Enter` on input selects the first match
- - `Enter` on result list row selected the selected row.
- - `ESC` cancels the file search and leaves the literal `@` character
-
-### Copy/Selection Improvements
-
-Keyboard-driven selection (Shift+arrows). `Ctrl+Shift+C` to copy.
-Currently mouse-only, and has bugs. Complete refactor of selection with the mouse to work in tandem with keyboard selection.
-
-### Editor-LLM link:
-
-LLM input (in the spirit of the app, symbiotic):
- - User types in agent input
- - with `@cursor` or `@selected` -- Works with `@` filesearh modal.
- - creates a reference with hashes of where the user's cursor or selection is in the filesystem/file
+- git **read** tools for the LLM: diff, status
+- Editor displays diffs with syntax hl
+- git markers in the number column for editted files in the editor
 
 ### LSP Integration
 
 - Start with diagnostics (show errors/warnings in the number line, a error line has a red color number, warnings yellow).
-- Go-to-definition on click. -- Needs more design before work starts
-- Find references on click. -- Needs more design before work starts
 - Candidates: `go.lsp.dev/protocol` or `github.com/sourcegraph/go-lsp`.
 
 ### Tree-Sitter Context
 
 Parse project with tree-sitter for structural awareness. Feed relevant
 symbols/scope to LLM as auto-context instead of whole files.
-
-### Git Integration
-
-- Show current branch + dirty status in status bar.
-- git **read** tools for the LLM: diff, status
-- Editor displays diffs with syntax hl
-- git markers in the number column for editted files in the editor
-- sandboxed git worktrees for agents edits.
-- git **write** tools. (only after worktrees are functional)
 
 ### Tool improvements:
 
@@ -143,6 +103,31 @@ Separate OpenForUser into Read and Show. Read sends the output to the llm, Show 
 - All tools: don't auto update the editor (Show excluded).
 - mousing over a tool reply apllies a background to show it's clickable.
 - Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
+
+### Statusbar implementation
+
+(in order: left to right)
+
+Left:
+
+- Show current branch + dirty status in status bar.
+- Show lsp warnings and errors count for opened editor.
+
+Right (right aligned text)
+
+- Network errors to providers (llm, and exa_search), truncated.
+ - Animated icon becomes red until next successful request.
+- Show name and version
+- Animated icon.
+
+---
+
+## Next version plans:
+
+### Git write commands and worktrees
+
+- sandboxed git worktrees for agents edits.
+- git **write** tools. (only after worktrees are functional)
 
 ### Human-in-the-Middle Tool Approval
 
@@ -169,6 +154,26 @@ or decomposing complex operations.
 
 Execute multiple independent tool calls concurrently within a single LLM
 turn. Needs careful coordination with FileReadTracker and TUI updates.
+
+### File Search in agent input box
+
+Typing `@` shows a file search modal. Substiture `@` in the input with the selected pathname
+File search modal:
+ - Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
+ - Top row is the input for the file search query
+ - Rest of the modal is the list of matches.
+ - Results update after the user stops typing for a few hundred miliseconds.
+ - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
+ - `Enter` on input selects the first match
+ - `Enter` on result list row selected the selected row.
+ - `ESC` cancels the file search and leaves the literal `@` character
+
+### Editor-LLM link:
+
+LLM input (in the spirit of the app, symbiotic):
+ - User types in agent input
+ - with `@cursor` or `@selected` -- Works with `@` filesearh modal.
+ - creates a reference with hashes of where the user's cursor or selection is in the filesystem/file
 
 ### UI Polish
 
