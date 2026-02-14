@@ -27,13 +27,41 @@ CREATE TABLE IF NOT EXISTS search_cache (
 
 CREATE INDEX IF NOT EXISTS idx_fetch_created ON fetch_cache(created);
 CREATE INDEX IF NOT EXISTS idx_search_created ON search_cache(created);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	id      TEXT PRIMARY KEY,
+	title   TEXT NOT NULL DEFAULT '',
+	created INTEGER NOT NULL,
+	updated INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	session_id  TEXT NOT NULL REFERENCES sessions(id),
+	role        TEXT NOT NULL,
+	content     TEXT NOT NULL DEFAULT '',
+	reasoning   TEXT NOT NULL DEFAULT '',
+	tool_calls  TEXT NOT NULL DEFAULT '[]',
+	tool_call_id TEXT NOT NULL DEFAULT '',
+	created     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
 `
 
-// Cache is a SQLite-backed cache for web results.
+// saveReq is an internal message sent to the background save goroutine.
+type saveReq struct {
+	sessionID string
+	msg       SessionMessage
+}
+
+// Cache is a SQLite-backed cache for web results and session storage.
 type Cache struct {
-	mu  sync.Mutex
-	db  *sql.DB
-	ttl time.Duration
+	mu     sync.Mutex
+	db     *sql.DB
+	ttl    time.Duration
+	saveCh chan saveReq  // buffered channel for async message saves
+	done   chan struct{} // closed when background goroutine exits
 }
 
 // Open creates or opens a cache database at the given path.
@@ -49,6 +77,7 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
 		"PRAGMA busy_timeout = 5000",
+		"PRAGMA foreign_keys = ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()
@@ -67,16 +96,24 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
-	c := &Cache{db: db, ttl: ttl}
+	c := &Cache{
+		db:     db,
+		ttl:    ttl,
+		saveCh: make(chan saveReq, 256),
+		done:   make(chan struct{}),
+	}
+	go c.saveLoop()
 	c.purgeStale()
 	return c, nil
 }
 
-// Close closes the database.
+// Close drains pending saves and closes the database.
 func (c *Cache) Close() error {
 	if c == nil {
 		return nil
 	}
+	close(c.saveCh)
+	<-c.done
 	return c.db.Close()
 }
 

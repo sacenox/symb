@@ -19,6 +19,7 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 ## Features
 
 - **Dual-pane TUI**: Code viewer on one side, agent conversation on the other
+- **Mouse support**: Click on conversation log to view files, changes, and tool call outputs in the code pane in full.
 - **Syntax highlighting**: Via Chroma for Go and other languages
 - **Clean aesthetic**: Dark grayscale with minimal distractions
 - **ELM architecture**: Built with BubbleTea for solid state management
@@ -28,6 +29,7 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 - **Git integration**: Diff viewing and change tracking for version control awareness
 - **LSP diagnostics**: Closed-loop edit validation with language server feedback
 - **Deterministic schemas**: KV-cache optimized tool definitions for reproducible LLM behavior
+- **Session storage**: Sessions saved to app data in sqlite file. Session management comming soon (--resume, --list, --session <ID>)
 
 ## Quick Start
 
@@ -37,9 +39,6 @@ make build
 
 # Run
 make run
-
-# Development mode
-make dev
 ```
 
 ## Configuration
@@ -70,7 +69,6 @@ API keys are stored separately in `~/.config/symb/credentials.json`:
 ## Development
 
 See `docs/DESIGN.md` for architecture and design philosophy.
-
 
 ---
 

@@ -83,14 +83,18 @@ Retry-After parsing.
 - Show closed loop feedback on mutations done by the llm.
 - Start with diagnostics (show errors/warnings in the number line, a error line has a red color number, warnings yellow).
 
-## Features waiting implementation for current version:
-
 ### Basic Session storage
 
 - table for conversation messages
 - each message includes all tool calls
 - opening the app opens a new session (more controls later). Same behaviour
-- this table will be used for undo history. We need to think how to reverse tool calls. Consider best way to track undo's **NEEDS DESIGN WORK**
+
+## Features waiting implementation for current version:
+
+### Tree-Sitter Context
+
+Parse project with tree-sitter for structural awareness. Feed relevant
+symbols/scope to LLM as auto-context instead of whole files.
 
 ### Undo!
 
@@ -106,11 +110,6 @@ Needs an undo.
 ### Context management?
 
 https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
-
-### Tree-Sitter Context
-
-Parse project with tree-sitter for structural awareness. Feed relevant
-symbols/scope to LLM as auto-context instead of whole files.
 
 ### Conversation log improvements:
 

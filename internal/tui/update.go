@@ -138,9 +138,9 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 // handleUserMsg records a user message in history and conversation display.
 func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 	now := time.Now()
-	m.history = append(m.history, provider.Message{
-		Role: "user", Content: msg.content, CreatedAt: now,
-	})
+	userMsg := provider.Message{Role: "user", Content: msg.content, CreatedAt: now}
+	m.history = append(m.history, userMsg)
+	m.saveMessage(userMsg)
 	m.appendText(styledLines(msg.content, m.styles.Text)...)
 	m.appendText("")
 	sep := m.makeSeparator("0s", now.Format("15:04:05"))
@@ -172,6 +172,7 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 
 		case llmHistoryMsg:
 			m.history = append(m.history, msg.msg)
+			m.saveMessage(msg.msg)
 
 		case llmAssistantMsg:
 			needRebuild = m.flushRebuild(needRebuild)

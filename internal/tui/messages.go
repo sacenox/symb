@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"encoding/json"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
+	"github.com/xonecas/symb/internal/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -131,4 +133,28 @@ func (m Model) processLLM() tea.Cmd {
 		}()
 		return nil
 	}
+}
+
+// messageToStore converts a provider.Message to a store.SessionMessage.
+func messageToStore(msg provider.Message) store.SessionMessage {
+	var tc json.RawMessage
+	if len(msg.ToolCalls) > 0 {
+		tc, _ = json.Marshal(msg.ToolCalls) //nolint:errcheck
+	}
+	return store.SessionMessage{
+		Role:       msg.Role,
+		Content:    msg.Content,
+		Reasoning:  msg.Reasoning,
+		ToolCalls:  tc,
+		ToolCallID: msg.ToolCallID,
+		CreatedAt:  msg.CreatedAt,
+	}
+}
+
+// saveMessage persists a message to the session store (no-op if store is nil).
+func (m *Model) saveMessage(msg provider.Message) {
+	if m.store == nil {
+		return
+	}
+	m.store.SaveMessage(m.sessionID, messageToStore(msg))
 }

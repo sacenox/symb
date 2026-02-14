@@ -13,6 +13,7 @@ import (
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
+	"github.com/xonecas/symb/internal/store"
 	"github.com/xonecas/symb/internal/tui/editor"
 )
 
@@ -175,6 +176,10 @@ type Model struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 
+	// Session persistence
+	store     *store.Cache
+	sessionID string
+
 	// Conversation
 	convEntries    []convEntry // Conversation entries (not wrapped)
 	convLines      []string    // Wrapped visual lines (cache, rebuilt on width change)
@@ -204,7 +209,7 @@ type Model struct {
 }
 
 // New creates a new TUI model.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -244,6 +249,11 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ctx, cancel := context.WithCancel(context.Background())
 
 	systemPrompt := llm.BuildSystemPrompt(modelID)
+	systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}
+
+	if db != nil {
+		db.SaveMessage(sessionID, messageToStore(systemMsg))
+	}
 
 	return Model{
 		spinner:    s,
@@ -255,11 +265,14 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		provider:    prov,
 		mcpProxy:    proxy,
 		mcpTools:    tools,
-		history:     []provider.Message{{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}},
+		history:     []provider.Message{systemMsg},
 		convEntries: []convEntry{},
 		updateChan:  ch,
 		ctx:         ctx,
 		cancel:      cancel,
+
+		store:     db,
+		sessionID: sessionID,
 
 		streamEntryStart: -1,
 		hoverConvLine:    -1,

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,8 +62,15 @@ func main() {
 		tools = []mcp.Tool{}
 	}
 
+	sessionID := newSessionID()
+	if webCache != nil {
+		if err := webCache.CreateSession(sessionID); err != nil {
+			fmt.Printf("Warning: failed to create session: %v\n", err)
+		}
+	}
+
 	p := tea.NewProgram(
-		tui.New(prov, proxy, tools, providerCfg.Model),
+		tui.New(prov, proxy, tools, providerCfg.Model, webCache, sessionID),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	lspManager.SetCallback(func(absPath string, lines map[int]int) {
@@ -150,6 +159,12 @@ func openWebCache(cfg *config.Config) *store.Cache {
 		return nil
 	}
 	return cache
+}
+
+func newSessionID() string {
+	b := make([]byte, 16)
+	rand.Read(b) //nolint:errcheck
+	return hex.EncodeToString(b)
 }
 
 func setupFileLogging() error {
