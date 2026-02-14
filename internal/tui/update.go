@@ -104,7 +104,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmBatchMsg:
 		return m.handleLLMBatch(msg)
 
-	// -- LLM messages --------------------------------------------------------
+	// -- LLM user message (sent before streaming begins) ---------------------
 	case llmUserMsg:
 		now := time.Now()
 		m.history = append(m.history, provider.Message{
@@ -119,122 +119,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollOffset = 0
 		}
 		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
-
-	case llmReasoningDeltaMsg:
-		if !m.streaming {
-			m.streaming = true
-			m.streamEntryStart = len(m.convEntries)
-			m.streamWrapStart = len(m.wrappedConvLines())
-			m.streamingReasoning = ""
-			m.streamingContent = ""
-		}
-		m.streamingReasoning += msg.content
-		m.rebuildStreamEntries()
-		if m.scrollOffset == 0 {
-			m.scrollOffset = 0 // stay pinned
-		}
-		return m, m.waitForLLMUpdate()
-
-	case llmContentDeltaMsg:
-		if !m.streaming {
-			m.streaming = true
-			m.streamEntryStart = len(m.convEntries)
-			m.streamWrapStart = len(m.wrappedConvLines())
-			m.streamingReasoning = ""
-			m.streamingContent = ""
-		}
-		m.streamingContent += msg.content
-		m.rebuildStreamEntries()
-		if m.scrollOffset == 0 {
-			m.scrollOffset = 0 // stay pinned
-		}
-		return m, m.waitForLLMUpdate()
-
-	case llmHistoryMsg:
-		m.history = append(m.history, msg.msg)
-		return m, m.waitForLLMUpdate()
-
-	case llmAssistantMsg:
-		// Finalize streaming state: replace streaming entries with final styled content
-		if m.streaming {
-			m.streaming = false
-			// Remove streaming entries
-			if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
-				m.convEntries = m.convEntries[:m.streamEntryStart]
-			}
-			m.streamEntryStart = -1
-			m.streamingReasoning = ""
-			m.streamingContent = ""
-			m.convLines = nil // invalidate cache
-		}
-
-		if msg.reasoning != "" {
-			wasBottom := m.appendText(styledLines(msg.reasoning, m.styles.Muted)...)
-			m.appendText("")
-			if wasBottom {
-				m.scrollOffset = 0
-			}
-		}
-		if msg.content != "" {
-			wasBottom := m.appendText(styledLines(msg.content, m.styles.Text)...)
-			m.appendText("")
-			if wasBottom {
-				m.scrollOffset = 0
-			}
-		}
-		for _, tc := range msg.toolCalls {
-			entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(tc.Name+"(...)")
-			wasBottom := m.appendText(entry)
-			if wasBottom {
-				m.scrollOffset = 0
-			}
-		}
-		return m, m.waitForLLMUpdate()
-
-	case llmToolResultMsg:
-		// Extract file path from tool result header (Opened/Edited/Created)
-		var filePath string
-		if sm := toolResultFileRe.FindStringSubmatch(msg.content); sm != nil {
-			filePath = sm[1]
-		}
-
-		lines := strings.Split(msg.content, "\n")
-		preview := lines
-		truncated := false
-		if len(lines) > maxPreviewLines {
-			preview = lines[:maxPreviewLines]
-			truncated = true
-		}
-
-		arrow := m.styles.ToolArrow.Render("←") + "  "
-		var wasBottom bool
-		for i, line := range preview {
-			display := m.styles.Dim.Render(line)
-			if i == 0 {
-				display = arrow + display
-				wasBottom = m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
-			} else {
-				m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
-			}
-		}
-		if truncated {
-			hint := fmt.Sprintf("  ... %d more lines (click to view)", len(lines)-maxPreviewLines)
-			m.appendConv(convEntry{display: m.styles.Muted.Render(hint), kind: entryToolResult, filePath: filePath, full: msg.content})
-		}
-		if wasBottom {
-			m.scrollOffset = 0
-		}
-		return m, m.waitForLLMUpdate()
-
-	case llmErrorMsg:
-		m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
-		return m, nil
-
-	case llmDoneMsg:
-		m.appendText("")
-		sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
-		m.appendText(sep)
-		return m, nil
 
 	case mcp_tools.ShowMsg:
 		m.editor.SetValue(msg.Content)
@@ -288,7 +172,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // at the end, avoiding per-token re-wraps.
 func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	needRebuild := false
-	var finalCmd tea.Cmd
 
 	for _, raw := range batch {
 		switch msg := raw.(type) {
@@ -355,14 +238,8 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 		m.rebuildStreamEntries()
 	}
 
-	// Keep scroll pinned to bottom during streaming.
-	if m.scrollOffset == 0 {
-		m.scrollOffset = 0
-	}
-
 	// More messages may follow — keep listening.
-	finalCmd = m.waitForLLMUpdate()
-	return m, finalCmd
+	return m, m.waitForLLMUpdate()
 }
 
 // applyAssistantMsg finalizes streaming state and appends the assistant's
