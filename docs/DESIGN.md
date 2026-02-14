@@ -120,7 +120,8 @@ Left:
 Right (right aligned text)
 
 - Network errors to providers (llm, and exa_search), truncated.
- - Animated icon becomes red until next successful request.
+  - NOTE: Animated icon becomes red until next successful request.
+- Current llm provider config name
 - Show name and version
 - Animated icon.
 
@@ -184,6 +185,8 @@ LLM input (in the spirit of the app, symbiotic):
 - Empty-state decoration in conversation pane.
 
 ### Tests
+
+Logs should be in app data home dir, not in .local
 
 29 tests, all passing. Coverage: hashline 96.7%, filesearch 76%,
 mcp_tools 43.2%, tui/editor 42.1%, tui 41.9%.

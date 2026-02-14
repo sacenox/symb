@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/xonecas/symb/internal/hashline"
+	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
 )
 
@@ -151,13 +153,14 @@ After each edit you receive fresh hashes — use those for subsequent edits, not
 
 // EditHandler handles Edit tool calls.
 type EditHandler struct {
-	program *tea.Program
-	tracker *FileReadTracker
+	program    *tea.Program
+	tracker    *FileReadTracker
+	lspManager *lsp.Manager
 }
 
 // NewEditHandler creates a handler for the Edit tool.
-func NewEditHandler(tracker *FileReadTracker) *EditHandler {
-	return &EditHandler{tracker: tracker}
+func NewEditHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *EditHandler {
+	return &EditHandler{tracker: tracker, lspManager: lspManager}
 }
 
 // SetProgram sets the tea.Program instance after it's created.
@@ -212,7 +215,7 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 
 	// Dispatch to operation handler
 	if args.Create != nil {
-		return h.handleCreate(absPath, args.File, args.Create)
+		return h.handleCreate(ctx, absPath, args.File, args.Create)
 	}
 
 	// Enforce read-before-edit: file must have been opened first
@@ -252,6 +255,7 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 			Content:  result,
 			Language: language,
 			FilePath: args.File,
+			AbsPath:  absPath,
 		})
 	}
 
@@ -259,12 +263,20 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 	tagged := hashline.TagLines(result, 1)
 	taggedOutput := hashline.FormatTagged(tagged)
 
+	text := fmt.Sprintf("Edited %s (%d lines):\n\n%s", args.File, len(tagged), taggedOutput)
+
+	// Closed-loop LSP diagnostics: notify and wait for errors/warnings.
+	if h.lspManager != nil {
+		diags := h.lspManager.NotifyAndWait(ctx, absPath, 5*time.Second)
+		text += lsp.FormatDiagnostics(args.File, diags)
+	}
+
 	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Edited %s (%d lines):\n\n%s", args.File, len(tagged), taggedOutput)}},
+		Content: []mcp.ContentBlock{{Type: "text", Text: text}},
 	}, nil
 }
 
-func (h *EditHandler) handleCreate(absPath, displayPath string, op *CreateOp) (*mcp.ToolResult, error) {
+func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath string, op *CreateOp) (*mcp.ToolResult, error) {
 	// Fail if file already exists
 	if _, err := os.Stat(absPath); err == nil {
 		return toolError("File already exists: %s (use replace/insert/delete to modify)", displayPath), nil
@@ -287,14 +299,23 @@ func (h *EditHandler) handleCreate(absPath, displayPath string, op *CreateOp) (*
 			Content:  op.Content,
 			Language: language,
 			FilePath: displayPath,
+			AbsPath:  absPath,
 		})
 	}
 
 	tagged := hashline.TagLines(op.Content, 1)
 	taggedOutput := hashline.FormatTagged(tagged)
 
+	text := fmt.Sprintf("Created %s (%d lines):\n\n%s", displayPath, len(tagged), taggedOutput)
+
+	// Closed-loop LSP diagnostics for newly created file.
+	if h.lspManager != nil {
+		diags := h.lspManager.NotifyAndWait(ctx, absPath, 5*time.Second)
+		text += lsp.FormatDiagnostics(displayPath, diags)
+	}
+
 	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Created %s (%d lines):\n\n%s", displayPath, len(tagged), taggedOutput)}},
+		Content: []mcp.ContentBlock{{Type: "text", Text: text}},
 	}, nil
 }
 

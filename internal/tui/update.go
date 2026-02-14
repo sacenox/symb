@@ -234,9 +234,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.editor.SetValue(msg.Content)
 		m.editor.Language = msg.Language
 		m.editor.SetLineBg(nil)
+		m.editor.DiagnosticLines = nil // Clear stale diagnostics on file switch.
 		markers := mcp_tools.GitFileMarkers(m.ctx, msg.FilePath)
 		m.editor.SetGutterMarkers(markers)
+		m.editorFilePath = msg.AbsPath
 		m.setFocus(focusEditor)
+		return m, nil
+
+	case LSPDiagnosticsMsg:
+		// Only apply diagnostics if they match the file currently in the editor.
+		if msg.FilePath == m.editorFilePath {
+			m.editor.DiagnosticLines = msg.Lines
+		}
 		return m, nil
 
 	case UpdateToolsMsg:

@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/config"
+	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/mcp_tools"
 	"github.com/xonecas/symb/internal/provider"
@@ -92,11 +93,15 @@ func main() {
 	}
 	defer proxy.Close()
 
+	// Create LSP manager
+	lspManager := lsp.NewManager()
+	defer lspManager.StopAll(context.Background())
+
 	// Register local tools
 	fileTracker := mcp_tools.NewFileReadTracker()
 
 	openForUserTool := mcp_tools.NewOpenForUserTool()
-	openForUserHandler := mcp_tools.NewOpenForUserHandler(fileTracker)
+	openForUserHandler := mcp_tools.NewOpenForUserHandler(fileTracker, lspManager)
 	proxy.RegisterTool(openForUserTool, openForUserHandler.Handle)
 
 	grepTool := mcp_tools.NewGrepTool()
@@ -104,7 +109,7 @@ func main() {
 	proxy.RegisterTool(grepTool, grepHandler)
 
 	editTool := mcp_tools.NewEditTool()
-	editHandler := mcp_tools.NewEditHandler(fileTracker)
+	editHandler := mcp_tools.NewEditHandler(fileTracker, lspManager)
 	proxy.RegisterTool(editTool, editHandler.Handle)
 
 	// Open web cache (SQLite-backed, persisted across sessions).
@@ -156,6 +161,11 @@ func main() {
 	// Set program reference for tools that need it
 	openForUserHandler.SetProgram(p)
 	editHandler.SetProgram(p)
+
+	// Wire LSP diagnostics callback to TUI
+	lspManager.SetCallback(func(absPath string, lines map[int]int) {
+		p.Send(tui.LSPDiagnosticsMsg{FilePath: absPath, Lines: lines})
+	})
 
 	// Run the program
 	if _, err := p.Run(); err != nil {

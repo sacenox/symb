@@ -51,6 +51,11 @@ type Model struct {
 	// Per-line background overrides (e.g. diff line tinting).
 	LineBg map[int]lipgloss.Style // bufRow (0-indexed) -> background style
 
+	// Per-line diagnostic severity (LSP). bufRow (0-indexed) -> severity (1=error, 2=warning).
+	DiagnosticLines map[int]int
+	DiagErrStyle    lipgloss.Style // Line number fg when line has error
+	DiagWarnStyle   lipgloss.Style // Line number fg when line has warning
+
 	// Internal state
 	lines  [][]rune // Backing store, one entry per line
 	row    int      // Cursor row (0-indexed into lines)

@@ -11,7 +11,6 @@
 
 ## Project info
 
-- Always use `docs/TUI_TESTING.md` when working on the TUI. Use golden tests.
 - Always use [ELM](https://guide.elm-lang.org/architecture/) architecture.
 - Go & Golintci
 - [Bubbletea, Bubbles](https://github.com/charmbracelet/bubbletea)

@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/xonecas/symb/internal/hashline"
+	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
 )
 
@@ -24,7 +25,8 @@ type OpenForUserArgs struct {
 type OpenForUserMsg struct {
 	Content  string
 	Language string
-	FilePath string
+	FilePath string // display path (may be relative)
+	AbsPath  string // absolute path for matching LSP diagnostics
 }
 
 // NewOpenForUserTool creates the Open tool definition.
@@ -59,13 +61,14 @@ func NewOpenForUserTool() mcp.Tool {
 
 // OpenForUserHandler handles Open tool calls and sends messages to the TUI program.
 type OpenForUserHandler struct {
-	program *tea.Program
-	tracker *FileReadTracker
+	program    *tea.Program
+	tracker    *FileReadTracker
+	lspManager *lsp.Manager
 }
 
 // NewOpenForUserHandler creates a handler for Open tool.
-func NewOpenForUserHandler(tracker *FileReadTracker) *OpenForUserHandler {
-	return &OpenForUserHandler{tracker: tracker}
+func NewOpenForUserHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *OpenForUserHandler {
+	return &OpenForUserHandler{tracker: tracker, lspManager: lspManager}
 }
 
 // SetProgram sets the tea.Program instance after it's created.
@@ -129,6 +132,12 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 	// Record that this file was read (enables editing)
 	h.tracker.MarkRead(absPath)
 
+	// Warm up LSP for this file (fire-and-forget).
+	// Use Background context since this outlives the tool-call context.
+	if h.lspManager != nil {
+		go h.lspManager.TouchFile(context.Background(), absPath)
+	}
+
 	lines := strings.Split(string(content), "\n")
 
 	// Extract line range if specified
@@ -178,6 +187,7 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 			Content:  selectedContent,
 			Language: language,
 			FilePath: args.File,
+			AbsPath:  absPath,
 		})
 	}
 

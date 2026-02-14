@@ -130,8 +130,17 @@ func (m Model) View() string {
 			}
 			digits := m.gutterWidth - 2 // gutter = digits + space + marker
 			if vr.subRow == 0 {
+				numSty := gutSty
+				if sev, ok := m.DiagnosticLines[vr.bufRow]; ok {
+					switch sev {
+					case 1: // error
+						numSty = m.DiagErrStyle.Background(gutSty.GetBackground())
+					case 2: // warning
+						numSty = m.DiagWarnStyle.Background(gutSty.GetBackground())
+					}
+				}
 				num := fmt.Sprintf("%*d ", digits, vr.bufRow+1)
-				b.WriteString(gutSty.Render(num))
+				b.WriteString(numSty.Render(num))
 				b.WriteString(m.renderGutterMark(vr.bufRow, gutSty))
 			} else {
 				// Continuation row — blank gutter

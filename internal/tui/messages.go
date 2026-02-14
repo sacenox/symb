@@ -41,6 +41,12 @@ type llmReasoningDeltaMsg struct{ content string }
 // UpdateToolsMsg is exported so main.go can send it via program.Send.
 type UpdateToolsMsg struct{ Tools []mcp.Tool }
 
+// LSPDiagnosticsMsg carries diagnostic line severities from the LSP manager to the TUI.
+type LSPDiagnosticsMsg struct {
+	FilePath string      // absolute path of the file
+	Lines    map[int]int // bufRow (0-indexed) -> max severity (1=error, 2=warning)
+}
+
 // ---------------------------------------------------------------------------
 // ELM commands
 // ---------------------------------------------------------------------------

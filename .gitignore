@@ -39,3 +39,6 @@ config.local.toml
 # Debug files
 debug
 __debug_bin
+
+# LSP test files
+bad.go

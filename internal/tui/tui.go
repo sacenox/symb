@@ -188,6 +188,9 @@ type Model struct {
 	streaming          bool   // Whether we're currently streaming
 	streamEntryStart   int    // Index in convEntries where streaming entries begin (-1 = none)
 
+	// Editor state
+	editorFilePath string // absolute path of the file currently shown in the editor
+
 	// Mouse state
 	resizingPane bool
 
@@ -219,6 +222,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ed.MarkAddStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec964")).Background(ColorBg)
 	ed.MarkChgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Background(ColorBg)
 	ed.MarkDelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")).Background(ColorBg)
+	ed.DiagErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
+	ed.DiagWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b"))
 
 	ai := editor.New()
 	ai.Placeholder = "Type a message..."
