@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/cursor"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/xonecas/symb/internal/highlight"
 )
 
 // ---------------------------------------------------------------------------
@@ -541,7 +542,7 @@ func (m *Model) bufferColToExpandedCol(bufRow, bufCol int) int {
 // theme background, falls back to BgColor.
 func (m *Model) bgForRender() lipgloss.Style {
 	if m.Language != "" && m.SyntaxTheme != "" {
-		if hex := themeBg(m.SyntaxTheme); hex != "" {
+		if hex := highlight.ThemeBg(m.SyntaxTheme); hex != "" {
 			return lipgloss.NewStyle().Background(lipgloss.Color(hex))
 		}
 	}
@@ -551,7 +552,7 @@ func (m *Model) bgForRender() lipgloss.Style {
 // bgHexForHighlight returns the bg hex string for syntax highlighting.
 func (m *Model) bgHexForHighlight() string {
 	if m.Language != "" && m.SyntaxTheme != "" {
-		if hex := themeBg(m.SyntaxTheme); hex != "" {
+		if hex := highlight.ThemeBg(m.SyntaxTheme); hex != "" {
 			return hex
 		}
 	}

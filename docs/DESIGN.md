@@ -41,6 +41,11 @@ Prompt system: model-specific base prompts (Claude, Gemini, Qwen, GPT).
 `AGENTS.md` support: walks directory tree upward collecting all AGENTS.md files,
 prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
 
+**TODO**: Extract common parts into one file, use templates to compose final prompt.
+    - symb.md: symb specific prompt text
+    - <model name>-<segment name>.md: model specific instructions
+    - base: common model instructions. and template tags to insert symb and model specific segments.
+
 ### Providers (`internal/provider`)
 
 - **Ollama** — local, OpenAI-compatible `/v1` endpoint. Extracts reasoning from
@@ -56,7 +61,7 @@ Proxy merges local tool handlers with optional upstream MCP server (HTTP
 Streamable-HTTP transport, SSE support, session tracking). Retry with
 Retry-After parsing.
 
-### Tools (`internal/mcp_tools`)
+### Tools (`internal/mcptools`)
 
 3 tools registered:
 
@@ -70,7 +75,6 @@ Retry-After parsing.
 
 ### Git Integration
 
-- **DEPRECATED** too complex and messes with syntax hl adding complexity with little value. Editor displays diffs with syntax hl
 - git markers in the number column for editted files in the editor (needs work but does what it's meant to do)
 - TODO: Read includes diff for the file (or diff status, we need to consider token usage) edit tool includes updated file diff after change
 
@@ -80,6 +84,18 @@ Retry-After parsing.
 - Start with diagnostics (show errors/warnings in the number line, a error line has a red color number, warnings yellow).
 
 ## Features waiting implementation for current version:
+
+### Basic Session storage
+
+- table for conversation messages
+- each message includes all tool calls
+- opening the app opens a new session (more controls later). Same behaviour
+- this table will be used for undo history. We need to think how to reverse tool calls. Consider best way to track undo's **NEEDS DESIGN WORK**
+
+### Undo!
+
+- User should be able to undo conversation turns. The most recent entry should show a clear clickable area labelled undo.
+- Clicking undo reverses context history, tool calls, filesystem changes, file changes. Resets the conversation to that exact point
 
 ### Shell Execution Tool
 
@@ -96,12 +112,18 @@ https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Ma
 Parse project with tree-sitter for structural awareness. Feed relevant
 symbols/scope to LLM as auto-context instead of whole files.
 
-### Tool improvements:
+### Conversation log improvements:
 
 Update hover iteraction on tool responses for ux and tool call tui output.
 
 - Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 - Show LSP diagnostics after each mutation call in conversation log, as part of the tool response.
+- Render responses with markdown syntax. Improve markdown syntax hl overall
+- Smarter click on tool response:
+ - Click on Read response: Opens the file, with cursor at read start.
+ - Click on Edit response: Opens the editted file, with cursor at the change
+ - Click on Grep: Show output in full, each match is clickable to open the file with cursor at the match.
+ - Click on Shell tool, show output in full, try to parse filenames into clickable aread that opens
 
 ### Statusbar implementation
 

@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/xonecas/symb/internal/highlight"
 )
 
 // ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ func (m Model) buildVisualRows(tw int) []visualRow {
 
 		var fullHL string
 		if hasSyntax {
-			fullHL = cachedHighlight(lineStr, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
+			fullHL = highlight.CachedHighlight(lineStr, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
 		}
 
 		firstSub := 0

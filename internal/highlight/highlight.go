@@ -1,4 +1,6 @@
-package editor
+// Package highlight provides syntax highlighting via Chroma, decoupled from any
+// specific TUI component.
+package highlight
 
 import (
 	"fmt"
@@ -12,7 +14,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Highlight cache (global, shared across instances)
+// Highlight cache (global, shared across callers)
 // ---------------------------------------------------------------------------
 
 var (
@@ -20,7 +22,10 @@ var (
 	hlCacheMu sync.RWMutex
 )
 
-func cachedHighlight(text, language, theme, bgHex string) string {
+// CachedHighlight returns an ANSI-highlighted version of text using the given
+// Chroma language and theme. bgHex ("#rrggbb") is injected after every ANSI
+// reset so the background color is never lost.
+func CachedHighlight(text, language, theme, bgHex string) string {
 	cacheKey := language + ":" + theme + ":" + bgHex + ":" + text
 	hlCacheMu.RLock()
 	if v, ok := hlCache[cacheKey]; ok {
@@ -91,9 +96,9 @@ func hexNibble(c byte) int {
 	return 0
 }
 
-// themeBg extracts the background hex color from a Chroma style.
+// ThemeBg extracts the background hex color from a Chroma style.
 // Returns "" if no background is set.
-func themeBg(theme string) string {
+func ThemeBg(theme string) string {
 	sty := styles.Get(theme)
 	if sty == nil {
 		return ""

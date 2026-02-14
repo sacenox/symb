@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/xonecas/symb/internal/mcptools"
+	"github.com/xonecas/symb/internal/highlight"
 )
 
 // ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 			absPath, _ := filepath.Abs(entry.filePath)
 			if content, err := os.ReadFile(entry.filePath); err == nil {
 				m.editor.SetValue(string(content))
-				m.editor.Language = mcptools.DetectLanguage(entry.filePath)
+				m.editor.Language = highlight.DetectLanguage(entry.filePath)
 				m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, entry.filePath))
 				m.editor.DiagnosticLines = nil
 				m.editorFilePath = absPath
@@ -331,7 +331,7 @@ func (m *Model) tryOpenFilePath(text string) tea.Cmd {
 		return nil
 	}
 
-	language := mcptools.DetectLanguage(path)
+	language := highlight.DetectLanguage(path)
 	m.editor.SetValue(string(content))
 	m.editor.Language = language
 	m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, path))
