@@ -204,27 +204,35 @@ func toAnthropicTools(tools []Tool) []anthropicTool {
 //	event: message_start / content_block_start / content_block_delta /
 //	       content_block_stop / message_delta / message_stop / ping
 //	data: { JSON payload }
+//
+// anthropicBlockTracker maps Anthropic block indices to tool call indices.
+type anthropicBlockTracker struct {
+	toolCallCount  int
+	blockIsToolUse map[int]bool
+	blockToolIndex map[int]int
+}
+
+func newAnthropicBlockTracker() *anthropicBlockTracker {
+	return &anthropicBlockTracker{
+		blockIsToolUse: make(map[int]bool),
+		blockToolIndex: make(map[int]int),
+	}
+}
+
 func parseAnthropicSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
 
-	// Track tool call index mapping: anthropic block index -> our tool call counter
-	toolCallCount := 0
-	blockIsToolUse := make(map[int]bool)
-	blockToolIndex := make(map[int]int)
-
+	bt := newAnthropicBlockTracker()
 	var currentEventType string
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Parse event type line
 		if strings.HasPrefix(line, "event: ") {
 			currentEventType = strings.TrimPrefix(line, "event: ")
 			continue
 		}
-
-		// Parse data line
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -234,60 +242,14 @@ func parseAnthropicSSEStream(ctx context.Context, reader io.Reader, ch chan<- St
 		case "message_stop":
 			trySend(ctx, ch, StreamEvent{Type: EventDone})
 			return
-
 		case "content_block_start":
-			var evt anthropicContentBlockStart
-			if err := json.Unmarshal([]byte(data), &evt); err != nil {
-				log.Warn().Err(err).Msg("Failed to parse anthropic content_block_start")
-				continue
+			if !bt.handleBlockStart(ctx, ch, data) {
+				return
 			}
-			if evt.ContentBlock.Type == "tool_use" {
-				idx := toolCallCount
-				toolCallCount++
-				blockIsToolUse[evt.Index] = true
-				blockToolIndex[evt.Index] = idx
-				if !trySend(ctx, ch, StreamEvent{
-					Type:          EventToolCallBegin,
-					ToolCallIndex: idx,
-					ToolCallID:    evt.ContentBlock.ID,
-					ToolCallName:  evt.ContentBlock.Name,
-				}) {
-					return
-				}
-			}
-
 		case "content_block_delta":
-			var evt anthropicContentBlockDelta
-			if err := json.Unmarshal([]byte(data), &evt); err != nil {
-				log.Warn().Err(err).Msg("Failed to parse anthropic content_block_delta")
-				continue
+			if !bt.handleBlockDelta(ctx, ch, data) {
+				return
 			}
-
-			switch evt.Delta.Type {
-			case "text_delta":
-				if evt.Delta.Text != "" {
-					if !trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: evt.Delta.Text}) {
-						return
-					}
-				}
-			case "thinking_delta":
-				if evt.Delta.Thinking != "" {
-					if !trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: evt.Delta.Thinking}) {
-						return
-					}
-				}
-			case "input_json_delta":
-				if evt.Delta.PartialJSON != "" && blockIsToolUse[evt.Index] {
-					if !trySend(ctx, ch, StreamEvent{
-						Type:          EventToolCallDelta,
-						ToolCallIndex: blockToolIndex[evt.Index],
-						ToolCallArgs:  evt.Delta.PartialJSON,
-					}) {
-						return
-					}
-				}
-			}
-
 		case "ping", "message_start", "message_delta", "content_block_stop":
 			// Ignored
 		}
@@ -299,7 +261,55 @@ func parseAnthropicSSEStream(ctx context.Context, reader io.Reader, ch chan<- St
 		trySend(ctx, ch, StreamEvent{Type: EventError, Err: err})
 		return
 	}
-
-	// Stream ended without message_stop
 	trySend(ctx, ch, StreamEvent{Type: EventDone})
+}
+
+// handleBlockStart processes a content_block_start event. Returns false if ctx cancelled.
+func (bt *anthropicBlockTracker) handleBlockStart(ctx context.Context, ch chan<- StreamEvent, data string) bool {
+	var evt anthropicContentBlockStart
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse anthropic content_block_start")
+		return true // continue scanning
+	}
+	if evt.ContentBlock.Type != "tool_use" {
+		return true
+	}
+	idx := bt.toolCallCount
+	bt.toolCallCount++
+	bt.blockIsToolUse[evt.Index] = true
+	bt.blockToolIndex[evt.Index] = idx
+	return trySend(ctx, ch, StreamEvent{
+		Type:          EventToolCallBegin,
+		ToolCallIndex: idx,
+		ToolCallID:    evt.ContentBlock.ID,
+		ToolCallName:  evt.ContentBlock.Name,
+	})
+}
+
+// handleBlockDelta processes a content_block_delta event. Returns false if ctx cancelled.
+func (bt *anthropicBlockTracker) handleBlockDelta(ctx context.Context, ch chan<- StreamEvent, data string) bool {
+	var evt anthropicContentBlockDelta
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse anthropic content_block_delta")
+		return true
+	}
+	switch evt.Delta.Type {
+	case "text_delta":
+		if evt.Delta.Text != "" {
+			return trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: evt.Delta.Text})
+		}
+	case "thinking_delta":
+		if evt.Delta.Thinking != "" {
+			return trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: evt.Delta.Thinking})
+		}
+	case "input_json_delta":
+		if evt.Delta.PartialJSON != "" && bt.blockIsToolUse[evt.Index] {
+			return trySend(ctx, ch, StreamEvent{
+				Type:          EventToolCallDelta,
+				ToolCallIndex: bt.blockToolIndex[evt.Index],
+				ToolCallArgs:  evt.Delta.PartialJSON,
+			})
+		}
+	}
+	return true
 }

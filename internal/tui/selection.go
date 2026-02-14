@@ -62,7 +62,7 @@ func (m *Model) selectedConvText() string {
 
 // renderConvLine renders a single conversation line with optional hover or selection highlight.
 // Returns the styled line. Padding is handled by the caller.
-func (m Model) renderConvLine(line string, lineIdx, width int, bgFill lipgloss.Style) string {
+func (m Model) renderConvLine(line string, lineIdx, _ int, bgFill lipgloss.Style) string {
 	// Hover highlight (selection takes priority below)
 	if m.hoverConvLine == lineIdx && (m.convSel == nil || m.convSel.empty()) {
 		plain := ansi.Strip(line)

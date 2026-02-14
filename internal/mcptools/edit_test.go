@@ -1,4 +1,4 @@
-package mcp_tools
+package mcptools
 
 import (
 	"context"
@@ -353,8 +353,8 @@ func TestEditRequiresReadFirst(t *testing.T) {
 	if !isErr {
 		t.Fatal("should fail when file was not read first")
 	}
-	if !strings.Contains(text, "Open") {
-		t.Errorf("error should mention Open tool: %s", text)
+	if !strings.Contains(text, "Read") {
+		t.Errorf("error should mention Read tool: %s", text)
 	}
 
 	// Now mark as read and retry — should succeed

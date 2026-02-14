@@ -1,5 +1,5 @@
-// Package mcp_tools provides local MCP tool implementations.
-package mcp_tools
+// Package mcptools provides local MCP tool implementations.
+package mcptools
 
 import (
 	"context"

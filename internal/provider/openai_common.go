@@ -68,70 +68,81 @@ func httpDoSSE(ctx context.Context, cfg httpRequestConfig) (io.ReadCloser, error
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			delay := sseRetryDelays[attempt-1]
-			log.Warn().
-				Str("provider", cfg.provider).
-				Int("attempt", attempt).
-				Dur("delay", delay).
-				Msg("Retrying SSE connection after transient error")
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+		if err := sseRetryWait(ctx, cfg, attempt); err != nil {
+			return nil, err
 		}
 
-		if attempt == 0 {
-			log.Info().
-				Str("provider", cfg.provider).
-				Str("model", cfg.model).
-				Msg("SSE stream request started")
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.url, bytes.NewReader(cfg.body))
+		body, err, retry := sseAttempt(ctx, cfg, attempt)
 		if err != nil {
 			return nil, err
 		}
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Accept", "text/event-stream")
-		for k, v := range cfg.headers {
-			httpReq.Header.Set(k, v)
-		}
-
-		resp, err := cfg.client.Do(httpReq)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, err
-			}
-			lastErr = err
+		if retry != nil {
+			lastErr = retry
 			continue
 		}
-
-		// Retry on transient server errors
-		if resp.StatusCode == 429 || resp.StatusCode == 500 || resp.StatusCode == 502 ||
-			resp.StatusCode == 503 || resp.StatusCode == 504 {
-			payload, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			lastErr = fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-			log.Warn().
-				Str("provider", cfg.provider).
-				Int("status", resp.StatusCode).
-				Int("attempt", attempt+1).
-				Msg("SSE retryable error")
-			continue
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			payload, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return nil, fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-		}
-
-		return resp.Body, nil
+		return body, nil
 	}
 
 	return nil, fmt.Errorf("SSE request failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// sseRetryWait sleeps with backoff between retry attempts. Returns ctx.Err() if cancelled.
+func sseRetryWait(ctx context.Context, cfg httpRequestConfig, attempt int) error {
+	if attempt == 0 {
+		log.Info().Str("provider", cfg.provider).Str("model", cfg.model).Msg("SSE stream request started")
+		return nil
+	}
+	delay := sseRetryDelays[attempt-1]
+	log.Warn().Str("provider", cfg.provider).Int("attempt", attempt).Dur("delay", delay).Msg("Retrying SSE connection after transient error")
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// isTransientStatus returns true for HTTP status codes that should trigger a retry.
+func isTransientStatus(code int) bool {
+	return code == 429 || code == 500 || code == 502 || code == 503 || code == 504
+}
+
+// sseAttempt makes one HTTP request. Returns (body, nil, nil) on success,
+// (nil, err, nil) on fatal error, or (nil, nil, retryErr) on transient error.
+func sseAttempt(ctx context.Context, cfg httpRequestConfig, attempt int) (io.ReadCloser, error, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.url, bytes.NewReader(cfg.body))
+	if err != nil {
+		return nil, err, nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	for k, v := range cfg.headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	resp, err := cfg.client.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err, nil
+		}
+		return nil, nil, err // retryable
+	}
+
+	if isTransientStatus(resp.StatusCode) {
+		payload, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		retryErr := fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
+		log.Warn().Str("provider", cfg.provider).Int("status", resp.StatusCode).Int("attempt", attempt+1).Msg("SSE retryable error")
+		return nil, nil, retryErr
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload))), nil
+	}
+
+	return resp.Body, nil, nil
 }
 
 // parseSSEStream reads SSE lines from a reader and sends parsed stream events on the channel.
@@ -139,17 +150,14 @@ func httpDoSSE(ctx context.Context, cfg httpRequestConfig) (io.ReadCloser, error
 // Caller must close the reader.
 func parseSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent) {
 	scanner := bufio.NewScanner(reader)
-	// 512KB buffer to handle large tool call arguments
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
-
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
-
 		if data == "[DONE]" {
 			trySend(ctx, ch, StreamEvent{Type: EventDone})
 			return
@@ -160,52 +168,12 @@ func parseSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent
 			log.Warn().Err(err).Str("data", data).Msg("Failed to parse SSE chunk")
 			continue
 		}
-
 		if len(chunk.Choices) == 0 {
 			continue
 		}
 
-		delta := chunk.Choices[0].Delta
-
-		// Emit reasoning delta
-		reasoning := delta.Reasoning
-		if reasoning == "" {
-			reasoning = delta.ReasoningContent
-		}
-		if reasoning != "" {
-			if !trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: reasoning}) {
-				return
-			}
-		}
-
-		// Emit content delta
-		if delta.Content != "" {
-			if !trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: delta.Content}) {
-				return
-			}
-		}
-
-		// Emit tool call events
-		for _, tc := range delta.ToolCalls {
-			if tc.Function.Name != "" {
-				if !trySend(ctx, ch, StreamEvent{
-					Type:          EventToolCallBegin,
-					ToolCallIndex: tc.Index,
-					ToolCallID:    tc.ID,
-					ToolCallName:  tc.Function.Name,
-				}) {
-					return
-				}
-			}
-			if tc.Function.Arguments != "" {
-				if !trySend(ctx, ch, StreamEvent{
-					Type:          EventToolCallDelta,
-					ToolCallIndex: tc.Index,
-					ToolCallArgs:  tc.Function.Arguments,
-				}) {
-					return
-				}
-			}
+		if !emitOpenAIDelta(ctx, ch, chunk.Choices[0].Delta) {
+			return
 		}
 	}
 
@@ -213,9 +181,44 @@ func parseSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent
 		trySend(ctx, ch, StreamEvent{Type: EventError, Err: err})
 		return
 	}
-
-	// Stream ended without [DONE] marker
 	trySend(ctx, ch, StreamEvent{Type: EventDone})
+}
+
+// emitOpenAIDelta sends stream events for one OpenAI delta. Returns false if ctx cancelled.
+func emitOpenAIDelta(ctx context.Context, ch chan<- StreamEvent, delta chatCompletionStreamDelta) bool {
+	reasoning := delta.Reasoning
+	if reasoning == "" {
+		reasoning = delta.ReasoningContent
+	}
+	if reasoning != "" {
+		if !trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: reasoning}) {
+			return false
+		}
+	}
+	if delta.Content != "" {
+		if !trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: delta.Content}) {
+			return false
+		}
+	}
+	for _, tc := range delta.ToolCalls {
+		if tc.Function.Name != "" {
+			if !trySend(ctx, ch, StreamEvent{
+				Type: EventToolCallBegin, ToolCallIndex: tc.Index,
+				ToolCallID: tc.ID, ToolCallName: tc.Function.Name,
+			}) {
+				return false
+			}
+		}
+		if tc.Function.Arguments != "" {
+			if !trySend(ctx, ch, StreamEvent{
+				Type: EventToolCallDelta, ToolCallIndex: tc.Index,
+				ToolCallArgs: tc.Function.Arguments,
+			}) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // trySend sends an event on ch, aborting if ctx is cancelled. Returns false if cancelled.

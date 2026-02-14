@@ -57,4 +57,4 @@ package constants
 //   - fruity, autumn, friendly, colorful, tango, algol, arduino
 //   - base16-snazzy, borland, emacs, pygments, rainbow_dash
 //   - and more...
-const SyntaxTheme = "swapoff"
+const SyntaxTheme = "modus-vivendi"

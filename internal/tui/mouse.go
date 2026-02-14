@@ -10,8 +10,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/xonecas/symb/internal/mcp_tools"
+	"github.com/xonecas/symb/internal/mcptools"
 )
+
+const langDiff = "diff"
 
 // ---------------------------------------------------------------------------
 // Mouse filter — throttle high-frequency events at program level.
@@ -45,10 +47,47 @@ func mouseXY(msg tea.MouseMsg) (int, int) {
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
 	x, y := mouseXY(msg)
 
 	// --- Divider drag -------------------------------------------------------
+	if done, handled := m.handleDividerDrag(msg, x, y); handled {
+		return done, nil
+	}
+
+	// --- Focus switching on click -------------------------------------------
+	m.handleFocusClick(msg, x, y)
+
+	// --- Hover: clear when outside conv area --------------------------------
+	if _, isMotion := msg.(tea.MouseMotionMsg); isMotion && !inRect(x, y, m.layout.conv) {
+		m.hoverConvLine = -1
+	}
+
+	// --- Editor: forward with original coords (left pane starts at 0) -------
+	if inRect(x, y, m.layout.editor) {
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
+		return m, cmd
+	}
+
+	// --- Input: translate coords to component-local -------------------------
+	if inRect(x, y, m.layout.input) {
+		translated := m.translateMouse(msg, m.layout.input.Min.X, m.layout.input.Min.Y)
+		var cmd tea.Cmd
+		m.agentInput, cmd = m.agentInput.Update(translated)
+		return m, cmd
+	}
+
+	// --- Conversation: scroll + selection -----------------------------------
+	if inRect(x, y, m.layout.conv) {
+		return m, m.handleConvMouse(msg, x, y)
+	}
+
+	return m, nil
+}
+
+// handleDividerDrag tracks divider click/release and processes drag motion.
+// Returns (model, true) if the event was consumed by the divider.
+func (m *Model) handleDividerDrag(msg tea.MouseMsg, x, y int) (Model, bool) {
 	switch ev := msg.(type) {
 	case tea.MouseClickMsg:
 		if ev.Button == tea.MouseLeft && inRect(x, y, m.layout.div) {
@@ -65,101 +104,89 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				m.layout = generateLayout(m.width, m.height, m.divX)
 				m.updateComponentSizes()
 			}
-			return m, nil
+			return *m, true
 		}
 	}
+	return Model{}, false
+}
 
-	// --- Focus switching on click -------------------------------------------
-	if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
-		switch {
-		case inRect(x, y, m.layout.editor):
-			m.setFocus(focusEditor)
-			m.agentInput.ClearSelection()
-			m.convSel = nil
-		case inRect(x, y, m.layout.input):
-			m.setFocus(focusInput)
-			m.editor.ClearSelection()
-			m.convSel = nil
-		}
+// handleFocusClick switches focus when clicking in the editor or input panes.
+func (m *Model) handleFocusClick(msg tea.MouseMsg, x, y int) {
+	click, ok := msg.(tea.MouseClickMsg)
+	if !ok || click.Button != tea.MouseLeft {
+		return
 	}
-
-	// --- Hover: clear when outside conv area --------------------------------
-	if _, isMotion := msg.(tea.MouseMotionMsg); isMotion && !inRect(x, y, m.layout.conv) {
-		m.hoverConvLine = -1
+	switch {
+	case inRect(x, y, m.layout.editor):
+		m.setFocus(focusEditor)
+		m.agentInput.ClearSelection()
+		m.convSel = nil
+	case inRect(x, y, m.layout.input):
+		m.setFocus(focusInput)
+		m.editor.ClearSelection()
+		m.convSel = nil
 	}
+}
 
-	// --- Editor: forward with original coords (left pane starts at 0) -------
-	if inRect(x, y, m.layout.editor) {
-		var cmd tea.Cmd
-		m.editor, cmd = m.editor.Update(msg)
-		cmds = append(cmds, cmd)
-		return m, tea.Batch(cmds...)
-	}
+// handleConvMouse handles mouse events within the conversation pane.
+func (m *Model) handleConvMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
+	lines := m.wrappedConvLines()
+	totalLines := len(lines)
 
-	// --- Input: translate coords to component-local -------------------------
-	if inRect(x, y, m.layout.input) {
-		translated := m.translateMouse(msg, m.layout.input.Min.X, m.layout.input.Min.Y)
-		var cmd tea.Cmd
-		m.agentInput, cmd = m.agentInput.Update(translated)
-		cmds = append(cmds, cmd)
-		return m, tea.Batch(cmds...)
-	}
-
-	// --- Conversation: scroll + selection -----------------------------------
-	if inRect(x, y, m.layout.conv) {
-		convH := m.layout.conv.Dy()
-		lines := m.wrappedConvLines()
-		totalLines := len(lines)
-
-		switch ev := msg.(type) {
-		case tea.MouseClickMsg:
-			if ev.Button != tea.MouseLeft || totalLines == 0 {
-				break
-			}
+	switch ev := msg.(type) {
+	case tea.MouseClickMsg:
+		if ev.Button == tea.MouseLeft && totalLines > 0 {
 			cp := m.convPosFromScreen(x, y, totalLines)
 			m.convDragging = true
 			m.convSel = &convSelection{anchor: cp, active: cp}
 			m.editor.ClearSelection()
 			m.agentInput.ClearSelection()
+		}
+	case tea.MouseMotionMsg:
+		m.handleConvMotion(x, y, totalLines)
+	case tea.MouseReleaseMsg:
+		return m.handleConvRelease(x, y, totalLines)
+	case tea.MouseWheelMsg:
+		m.handleConvWheel(ev, totalLines)
+	}
+	return nil
+}
 
-		case tea.MouseMotionMsg:
-			if m.convDragging && m.convSel != nil && totalLines > 0 {
-				m.convSel.active = m.convPosFromScreen(x, y, totalLines)
-			}
-			// Update hover state
-			if totalLines > 0 {
-				lineIdx := m.visibleStartLine() + (y - m.layout.conv.Min.Y)
-				if lineIdx >= 0 && lineIdx < totalLines && m.isClickableLine(lineIdx) {
-					m.hoverConvLine = lineIdx
-				} else {
-					m.hoverConvLine = -1
-				}
-			}
-
-		case tea.MouseReleaseMsg:
-			m.convDragging = false
-			if m.convSel != nil && m.convSel.empty() {
-				clickedLine := m.convPosFromScreen(x, y, totalLines).line
-				m.convSel = nil
-				if cmd := m.handleConvClick(clickedLine); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
-
-		case tea.MouseWheelMsg:
-			if ev.Button == tea.MouseWheelUp {
-				maxScroll := totalLines - convH
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
-				m.scrollOffset = min(m.scrollOffset+5, maxScroll)
-			} else if ev.Button == tea.MouseWheelDown {
-				m.scrollOffset = max(m.scrollOffset-5, 0)
-			}
+func (m *Model) handleConvMotion(x, y, totalLines int) {
+	if m.convDragging && m.convSel != nil && totalLines > 0 {
+		m.convSel.active = m.convPosFromScreen(x, y, totalLines)
+	}
+	if totalLines > 0 {
+		lineIdx := m.visibleStartLine() + (y - m.layout.conv.Min.Y)
+		if lineIdx >= 0 && lineIdx < totalLines && m.isClickableLine(lineIdx) {
+			m.hoverConvLine = lineIdx
+		} else {
+			m.hoverConvLine = -1
 		}
 	}
+}
 
-	return m, tea.Batch(cmds...)
+func (m *Model) handleConvRelease(x, y, totalLines int) tea.Cmd {
+	m.convDragging = false
+	if m.convSel != nil && m.convSel.empty() {
+		clickedLine := m.convPosFromScreen(x, y, totalLines).line
+		m.convSel = nil
+		return m.handleConvClick(clickedLine)
+	}
+	return nil
+}
+
+func (m *Model) handleConvWheel(ev tea.MouseWheelMsg, totalLines int) {
+	convH := m.layout.conv.Dy()
+	if ev.Button == tea.MouseWheelUp {
+		maxScroll := totalLines - convH
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		m.scrollOffset = min(m.scrollOffset+5, maxScroll)
+	} else if ev.Button == tea.MouseWheelDown {
+		m.scrollOffset = max(m.scrollOffset-5, 0)
+	}
 }
 
 // convPosFromScreen converts screen x,y to a convPos.
@@ -245,7 +272,7 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 		if entry.filePath != "" {
 			if content, err := os.ReadFile(entry.filePath); err == nil {
 				m.editor.SetValue(string(content))
-				m.editor.Language = mcp_tools.DetectLanguage(entry.filePath)
+				m.editor.Language = mcptools.DetectLanguage(entry.filePath)
 				m.editor.SetLineBg(nil)
 				m.setFocus(focusEditor)
 				return nil
@@ -256,7 +283,7 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 			m.editor.SetValue(entry.full)
 			lang := detectToolResultLanguage(entry.full)
 			m.editor.Language = lang
-			if lang == "diff" {
+			if lang == langDiff {
 				m.editor.SetLineBg(diffLineBg(entry.full))
 			} else {
 				m.editor.SetLineBg(nil)
@@ -308,7 +335,7 @@ func (m *Model) tryOpenFilePath(text string) tea.Cmd {
 		return nil
 	}
 
-	language := mcp_tools.DetectLanguage(path)
+	language := mcptools.DetectLanguage(path)
 	m.editor.SetValue(string(content))
 	m.editor.Language = language
 	m.editor.SetLineBg(nil)
@@ -325,7 +352,7 @@ func detectToolResultLanguage(content string) string {
 		strings.HasPrefix(content, "@@ ") ||
 		strings.HasPrefix(content, "diff ") ||
 		strings.HasPrefix(content, "--- ") {
-		return "diff"
+		return langDiff
 	}
 	return "text"
 }

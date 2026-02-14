@@ -1,4 +1,4 @@
-package mcp_tools
+package mcptools
 
 import (
 	"bytes"
@@ -279,39 +279,38 @@ func formatSearchResults(results []exaResult) string {
 	return b.String()
 }
 
+// isSkipTag returns true for tags whose content should be suppressed.
+func isSkipTag(tag string) bool {
+	return tag == "script" || tag == "style" || tag == "noscript"
+}
+
 // extractText parses HTML and returns visible text content.
 // Strips script, style, and noscript elements.
 func extractText(data []byte) string {
 	tokenizer := html.NewTokenizer(bytes.NewReader(data))
 	var b strings.Builder
-	skip := 0 // nesting depth inside skip elements
+	skip := 0
 
 	for {
 		tt := tokenizer.Next()
-		switch tt {
-		case html.ErrorToken:
+		if tt == html.ErrorToken {
 			return collapseWhitespace(b.String())
+		}
+		tn, _ := tokenizer.TagName()
+		tag := string(tn)
 
+		switch tt {
 		case html.StartTagToken, html.SelfClosingTagToken:
-			tn, _ := tokenizer.TagName()
-			tag := string(tn)
-			if tag == "script" || tag == "style" || tag == "noscript" {
+			if isSkipTag(tag) {
 				skip++
 			}
-			// Insert whitespace for block elements.
 			if isBlockElement(tag) && b.Len() > 0 {
 				b.WriteByte('\n')
 			}
-
 		case html.EndTagToken:
-			tn, _ := tokenizer.TagName()
-			tag := string(tn)
-			if tag == "script" || tag == "style" || tag == "noscript" {
-				if skip > 0 {
-					skip--
-				}
+			if isSkipTag(tag) && skip > 0 {
+				skip--
 			}
-
 		case html.TextToken:
 			if skip == 0 {
 				b.Write(tokenizer.Text())

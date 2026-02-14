@@ -91,24 +91,24 @@ type Provider interface {
 	Close() error
 }
 
-type ProviderFactory interface {
+type Factory interface {
 	Name() string
 	Create(model string, temperature float64) Provider
 }
 
 // Registry holds available providers.
 type Registry struct {
-	factories map[string]ProviderFactory
+	factories map[string]Factory
 }
 
 // NewRegistry creates a new provider registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		factories: make(map[string]ProviderFactory),
+		factories: make(map[string]Factory),
 	}
 }
 
-func (r *Registry) RegisterFactory(name string, f ProviderFactory) {
+func (r *Registry) RegisterFactory(name string, f Factory) {
 	r.factories[name] = f
 }
 

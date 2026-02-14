@@ -56,7 +56,6 @@ func (s *Searcher) Search(ctx context.Context, opts Options) ([]Result, error) {
 		}
 	}
 
-	// Compile regex pattern
 	pattern := opts.Pattern
 	if !opts.CaseSensitive {
 		pattern = "(?i)" + pattern
@@ -68,78 +67,80 @@ func (s *Searcher) Search(ctx context.Context, opts Options) ([]Result, error) {
 	}
 
 	var results []Result
-	err = filepath.WalkDir(opts.RootDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // Skip errors
+	err = filepath.WalkDir(opts.RootDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
 		}
-
-		// Check context cancellation
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-
-		relPath, err := filepath.Rel(opts.RootDir, path)
-		if err != nil {
-			return nil
+		if skip := s.shouldSkip(path, d, opts.RootDir); skip != nil {
+			return *skip
 		}
-
-		// Skip .git directory
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-
-		// Check gitignore
-		if s.gitignore.Matches(relPath, d.IsDir()) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		// Check file size (skip large files)
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if info.Size() > 10*1024*1024 { // Skip files > 10MB
-			return nil
-		}
-
-		if opts.ContentSearch {
-			// Search file contents
-			matches, err := s.searchFileContent(path, relPath, regex)
-			if err != nil {
-				return nil // Skip files we can't read
-			}
-			results = append(results, matches...)
-		} else {
-			// Search filename only
-			if regex.MatchString(filepath.Base(path)) || regex.MatchString(relPath) {
-				results = append(results, Result{
-					Path: relPath,
-				})
-			}
-		}
-
-		// Check max results
+		matches := s.matchEntry(path, opts.RootDir, regex, opts.ContentSearch)
+		results = append(results, matches...)
 		if opts.MaxResults > 0 && len(results) >= opts.MaxResults {
 			return filepath.SkipAll
 		}
-
 		return nil
 	})
 
 	if err != nil && err != filepath.SkipAll {
 		return nil, err
 	}
-
 	return results, nil
+}
+
+const maxSearchFileSize = 10 * 1024 * 1024 // 10 MB
+
+// shouldSkip decides whether to skip a directory entry. Returns nil to proceed,
+// or a pointer to the error to return from the walk callback.
+func (s *Searcher) shouldSkip(path string, d os.DirEntry, rootDir string) *error {
+	relPath, err := filepath.Rel(rootDir, path)
+	if err != nil {
+		skip := error(nil)
+		return &skip
+	}
+	if d.IsDir() && d.Name() == ".git" {
+		skip := filepath.SkipDir
+		return &skip
+	}
+	if s.gitignore.Matches(relPath, d.IsDir()) {
+		if d.IsDir() {
+			skip := filepath.SkipDir
+			return &skip
+		}
+		skip := error(nil)
+		return &skip
+	}
+	if d.IsDir() {
+		skip := error(nil)
+		return &skip
+	}
+	info, err := d.Info()
+	if err != nil || info.Size() > maxSearchFileSize {
+		skip := error(nil)
+		return &skip
+	}
+	return nil
+}
+
+// matchEntry checks a single file against the search pattern.
+func (s *Searcher) matchEntry(path, rootDir string, regex *regexp.Regexp, contentSearch bool) []Result {
+	relPath, _ := filepath.Rel(rootDir, path)
+	if contentSearch {
+		matches, err := s.searchFileContent(path, relPath, regex)
+		if err != nil {
+			return nil
+		}
+		return matches
+	}
+	if regex.MatchString(filepath.Base(path)) || regex.MatchString(relPath) {
+		return []Result{{Path: relPath}}
+	}
+	return nil
 }
 
 // searchFileContent searches a single file for pattern matches.

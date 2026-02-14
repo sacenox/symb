@@ -31,104 +31,104 @@ func (m Model) renderContent() string {
 	contentH := m.height - statusRows
 	var b strings.Builder
 
-	// Pre-split editor and input views
 	editorLines := strings.Split(m.editor.View(), "\n")
 	inputLines := strings.Split(m.agentInput.View(), "\n")
-
-	// Conversation visible window (wrapped to current width)
 	convLines := m.wrappedConvLines()
 	startLine := m.visibleStartLine()
-
 	bgFill := m.styles.BgFill
 
 	for row := 0; row < contentH; row++ {
-		// -- Left pane: editor -----------------------------------------------
-		edW := ly.editor.Dx()
-		if row < len(editorLines) {
-			line := editorLines[row]
-			lw := lipgloss.Width(line)
-			if lw > edW {
-				line = ansi.Truncate(line, edW, "")
-				lw = lipgloss.Width(line)
-			}
-			b.WriteString(line)
-			if lw < edW {
-				b.WriteString(bgFill.Render(strings.Repeat(" ", edW-lw)))
-			}
-		} else {
-			b.WriteString(bgFill.Render(strings.Repeat(" ", edW)))
-		}
-
-		// -- Divider ---------------------------------------------------------
+		m.renderEditorRow(&b, editorLines, row, ly.editor.Dx(), bgFill)
 		b.WriteString(m.styles.Border.Render("│"))
-
-		// -- Right pane ------------------------------------------------------
-		rw := m.convWidth()
-		relY := row // row relative to right pane top
-
-		if relY < ly.conv.Dy() {
-			// Conversation area
-			lineIdx := startLine + relY
-			if lineIdx < len(convLines) {
-				line := convLines[lineIdx]
-
-				// Selection highlight (character-level)
-				line = m.renderConvLine(line, lineIdx, rw, bgFill)
-
-				// Use hover background for padding when line is hovered
-				padFill := bgFill
-				if m.hoverConvLine == lineIdx && (m.convSel == nil || m.convSel.empty()) {
-					padFill = m.styles.Hover
-				}
-
-				lw := lipgloss.Width(line)
-				b.WriteString(line)
-				if lw < rw {
-					b.WriteString(padFill.Render(strings.Repeat(" ", rw-lw)))
-				}
-			} else {
-				b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
-			}
-
-		} else if relY == ly.sep.Min.Y {
-			// Separator line between conversation and input
-			b.WriteString(m.styles.Border.Render(strings.Repeat("─", rw)))
-
-		} else {
-			// Input area
-			inputRow := relY - ly.input.Min.Y
-			if inputRow >= 0 && inputRow < len(inputLines) {
-				line := inputLines[inputRow]
-				lw := lipgloss.Width(line)
-				if lw > rw {
-					line = ansi.Truncate(line, rw, "")
-					lw = lipgloss.Width(line)
-				}
-				b.WriteString(line)
-				if lw < rw {
-					b.WriteString(bgFill.Render(strings.Repeat(" ", rw-lw)))
-				}
-			} else {
-				b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
-			}
-		}
-
+		m.renderRightPaneRow(&b, convLines, inputLines, row, startLine, bgFill)
 		b.WriteByte('\n')
 	}
 
-	// -- Status separator: ───┴─── ------------------------------------------
-	divX := ly.div.Min.X
+	m.renderStatusBar(&b, bgFill)
+	return b.String()
+}
+
+// renderEditorRow writes one row of the left (editor) pane to b.
+func (m Model) renderEditorRow(b *strings.Builder, editorLines []string, row, edW int, bgFill lipgloss.Style) {
+	if row < len(editorLines) {
+		line := editorLines[row]
+		lw := lipgloss.Width(line)
+		if lw > edW {
+			line = ansi.Truncate(line, edW, "")
+			lw = lipgloss.Width(line)
+		}
+		b.WriteString(line)
+		if lw < edW {
+			b.WriteString(bgFill.Render(strings.Repeat(" ", edW-lw)))
+		}
+	} else {
+		b.WriteString(bgFill.Render(strings.Repeat(" ", edW)))
+	}
+}
+
+// renderRightPaneRow writes one row of the right pane (conv / sep / input).
+func (m Model) renderRightPaneRow(b *strings.Builder, convLines, inputLines []string, row, startLine int, bgFill lipgloss.Style) {
+	ly := m.layout
+	rw := m.convWidth()
+
+	switch {
+	case row < ly.conv.Dy():
+		m.renderConvRow(b, convLines, startLine+row, rw, bgFill)
+	case row == ly.sep.Min.Y:
+		b.WriteString(m.styles.Border.Render(strings.Repeat("─", rw)))
+	default:
+		renderPaddedLine(b, inputLines, row-ly.input.Min.Y, rw, bgFill)
+	}
+}
+
+// renderConvRow writes one conversation line with selection/hover highlight.
+func (m Model) renderConvRow(b *strings.Builder, convLines []string, lineIdx, rw int, bgFill lipgloss.Style) {
+	if lineIdx >= len(convLines) {
+		b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
+		return
+	}
+	line := m.renderConvLine(convLines[lineIdx], lineIdx, rw, bgFill)
+	padFill := bgFill
+	if m.hoverConvLine == lineIdx && (m.convSel == nil || m.convSel.empty()) {
+		padFill = m.styles.Hover
+	}
+	lw := lipgloss.Width(line)
+	b.WriteString(line)
+	if lw < rw {
+		b.WriteString(padFill.Render(strings.Repeat(" ", rw-lw)))
+	}
+}
+
+// renderPaddedLine writes a line from lines[idx] padded/truncated to width,
+// or a blank fill if idx is out of range.
+func renderPaddedLine(b *strings.Builder, lines []string, idx, width int, bgFill lipgloss.Style) {
+	if idx >= 0 && idx < len(lines) {
+		line := lines[idx]
+		lw := lipgloss.Width(line)
+		if lw > width {
+			line = ansi.Truncate(line, width, "")
+			lw = lipgloss.Width(line)
+		}
+		b.WriteString(line)
+		if lw < width {
+			b.WriteString(bgFill.Render(strings.Repeat(" ", width-lw)))
+		}
+	} else {
+		b.WriteString(bgFill.Render(strings.Repeat(" ", width)))
+	}
+}
+
+// renderStatusBar writes the status separator and bar.
+func (m Model) renderStatusBar(b *strings.Builder, bgFill lipgloss.Style) {
+	divX := m.layout.div.Min.X
 	b.WriteString(m.styles.Border.Render(strings.Repeat("─", divX)))
 	b.WriteString(m.styles.Border.Render("┴"))
 	b.WriteString(m.styles.Border.Render(strings.Repeat("─", m.width-divX-1)))
 	b.WriteByte('\n')
 
-	// -- Status bar ----------------------------------------------------------
 	left := m.styles.StatusText.Render(" symb")
 	spin := strings.TrimSpace(m.spinner.View())
-	leftW := lipgloss.Width(left)
-	spinW := lipgloss.Width(spin)
-	gap := m.width - leftW - spinW - 1
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(spin) - 1
 	if gap < 0 {
 		gap = 0
 	}
@@ -136,6 +136,4 @@ func (m Model) renderContent() string {
 	b.WriteString(bgFill.Render(strings.Repeat(" ", gap)))
 	b.WriteString(spin)
 	b.WriteString(bgFill.Render(" "))
-
-	return b.String()
 }

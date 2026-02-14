@@ -1,4 +1,4 @@
-package mcp_tools
+package mcptools
 
 import (
 	"context"
@@ -57,111 +57,34 @@ func NewReadHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *ReadHand
 }
 
 // Handle implements the mcp.ToolHandler interface.
-func (h *ReadHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
+func (h *ReadHandler) Handle(_ context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
 	var args ReadArgs
 	if err := json.Unmarshal(arguments, &args); err != nil {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
-			IsError: true,
-		}, nil
+		return toolError("Invalid arguments: %v", err), nil
 	}
-
 	if args.File == "" {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentBlock{{Type: "text", Text: "File path cannot be empty"}},
-			IsError: true,
-		}, nil
+		return toolError("File path cannot be empty"), nil
 	}
 
-	// Security: Convert to absolute path and validate
-	absPath, err := filepath.Abs(args.File)
+	absPath, err := validatePath(args.File)
 	if err != nil {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid file path: %v", err)}},
-			IsError: true,
-		}, nil
+		return toolError("%v", err), nil
 	}
 
-	// Get current working directory for validation
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to get working directory: %v", err)}},
-			IsError: true,
-		}, nil
-	}
-
-	// Security: Prevent path traversal - only allow files within or below working directory
-	relPath, err := filepath.Rel(workingDir, absPath)
-	if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentBlock{{Type: "text", Text: "Access denied: path outside working directory"}},
-			IsError: true,
-		}, nil
-	}
-
-	// Read file content
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to read file: %v", err)}},
-			IsError: true,
-		}, nil
+		return toolError("Failed to read file: %v", err), nil
 	}
 
-	// Record that this file was read (enables editing)
 	h.tracker.MarkRead(absPath)
-
-	// Warm up LSP for this file (fire-and-forget).
-	// Use Background context since this outlives the tool-call context.
 	if h.lspManager != nil {
 		go h.lspManager.TouchFile(context.Background(), absPath)
 	}
 
 	lines := strings.Split(string(content), "\n")
-
-	// Extract line range if specified
-	var selectedContent string
-	if args.Start > 0 || args.End > 0 {
-		start := args.Start
-		end := args.End
-
-		// Default start to 1 if not specified
-		if start <= 0 {
-			start = 1
-		}
-
-		// Validate start is in range
-		if start < 1 || start > len(lines) {
-			return &mcp.ToolResult{
-				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Start line %d out of range (file has %d lines)", start, len(lines))}},
-				IsError: true,
-			}, nil
-		}
-
-		// Default end to end of file if not specified or out of range
-		if end <= 0 || end > len(lines) {
-			end = len(lines)
-		}
-
-		// Validate range
-		if start > end {
-			return &mcp.ToolResult{
-				Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid range: start (%d) > end (%d)", start, end)}},
-				IsError: true,
-			}, nil
-		}
-
-		// Extract range (convert to 0-indexed)
-		selectedContent = strings.Join(lines[start-1:end], "\n")
-	} else {
-		selectedContent = string(content)
-	}
-
-	// Return hashline-tagged content to the LLM
-	startLine := 1
-	if args.Start > 0 {
-		startLine = args.Start
+	selectedContent, startLine, err := extractRange(lines, string(content), args.Start, args.End)
+	if err != nil {
+		return toolError("%v", err), nil
 	}
 
 	tagged := hashline.TagLines(selectedContent, startLine)
@@ -178,8 +101,44 @@ func (h *ReadHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Read %s%s (%d lines):\n\n%s", args.File, rangeInfo, len(tagged), taggedOutput)}},
-		IsError: false,
 	}, nil
+}
+
+// validatePath resolves a file path, ensuring it's within the working directory.
+func validatePath(file string) (string, error) {
+	absPath, err := filepath.Abs(file)
+	if err != nil {
+		return "", fmt.Errorf("invalid file path: %w", err)
+	}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+	relPath, err := filepath.Rel(workingDir, absPath)
+	if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
+		return "", fmt.Errorf("access denied: path outside working directory")
+	}
+	return absPath, nil
+}
+
+// extractRange returns the selected content and start line number for a line range.
+func extractRange(lines []string, full string, start, end int) (string, int, error) {
+	if start <= 0 && end <= 0 {
+		return full, 1, nil
+	}
+	if start <= 0 {
+		start = 1
+	}
+	if start < 1 || start > len(lines) {
+		return "", 0, fmt.Errorf("start line %d out of range (file has %d lines)", start, len(lines))
+	}
+	if end <= 0 || end > len(lines) {
+		end = len(lines)
+	}
+	if start > end {
+		return "", 0, fmt.Errorf("invalid range: start (%d) > end (%d)", start, end)
+	}
+	return strings.Join(lines[start-1:end], "\n"), start, nil
 }
 
 // DetectLanguage returns the Chroma language identifier based on file extension.

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/xonecas/symb/internal/mcp_tools"
+	"github.com/xonecas/symb/internal/mcptools"
 	"github.com/xonecas/symb/internal/provider"
 )
 
@@ -15,54 +15,18 @@ import (
 // ---------------------------------------------------------------------------
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 
 	// -- Window resize -------------------------------------------------------
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		if m.divX == 0 {
-			m.divX = m.width / 2
-		}
-		// Constrain divider
-		if m.divX < minPaneWidth {
-			m.divX = minPaneWidth
-		}
-		if m.divX > m.width-minPaneWidth {
-			m.divX = m.width - minPaneWidth
-		}
-		m.layout = generateLayout(m.width, m.height, m.divX)
-		m.updateComponentSizes()
+		m.handleResize(msg)
 
-	// -- Clipboard read response (from ctrl+shift+v) -------------------------
+	// -- Paste (clipboard read or bracketed paste) ---------------------------
 	case tea.ClipboardMsg:
-		text := msg.String()
-		if text != "" {
-			switch m.focus {
-			case focusInput:
-				m.agentInput.DeleteSelection()
-				m.agentInput.InsertText(text)
-			case focusEditor:
-				m.editor.DeleteSelection()
-				m.editor.InsertText(text)
-			}
-		}
+		m.insertPaste(msg.String())
 		return m, nil
-
-	// -- Bracketed paste (terminal paste via ctrl+v / middle-click) ----------
 	case tea.PasteMsg:
-		text := msg.Content
-		if text != "" {
-			switch m.focus {
-			case focusInput:
-				m.agentInput.DeleteSelection()
-				m.agentInput.InsertText(text)
-			case focusEditor:
-				m.editor.DeleteSelection()
-				m.editor.InsertText(text)
-			}
-		}
+		m.insertPaste(msg.Content)
 		return m, nil
 
 	// -- Mouse ---------------------------------------------------------------
@@ -71,33 +35,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// -- Keyboard ------------------------------------------------------------
 	case tea.KeyPressMsg:
-		switch msg.Keystroke() {
-		case "ctrl+c":
-			m.cancel()
-			return m, tea.Quit
-
-		case "ctrl+shift+c":
-			if cmd := m.copySelection(); cmd != nil {
-				return m, cmd
-			}
-			return m, nil
-
-		case "ctrl+shift+v":
-			return m, tea.ReadClipboard
-
-		case "esc":
-			if m.focus == focusInput {
-				m.agentInput.Blur()
-			} else {
-				m.editor.Blur()
-			}
-			return m, nil
-		case "enter":
-			if m.focus == focusInput && m.agentInput.Value() != "" {
-				userMsg := m.agentInput.Value()
-				m.agentInput.Reset()
-				return m, m.sendToLLM(userMsg)
-			}
+		if mdl, cmd, handled := m.handleKeyPress(msg); handled {
+			return mdl, cmd
 		}
 
 	// -- LLM batch (multiple messages drained from updateChan) ---------------
@@ -106,41 +45,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// -- LLM user message (sent before streaming begins) ---------------------
 	case llmUserMsg:
-		now := time.Now()
-		m.history = append(m.history, provider.Message{
-			Role: "user", Content: msg.content, CreatedAt: now,
-		})
-		m.appendText(styledLines(msg.content, m.styles.Text)...)
-		m.appendText("")
-		sep := m.makeSeparator("0s", now.Format("15:04:05"))
-		wasBottom := m.appendText(sep)
-		m.appendText("")
-		if wasBottom {
-			m.scrollOffset = 0
-		}
-		return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
+		return m.handleUserMsg(msg), tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 
-	case mcp_tools.ShowMsg:
-		m.editor.SetValue(msg.Content)
-		m.editor.Language = msg.Language
-		if msg.Language == "diff" {
-			m.editor.SetLineBg(diffLineBg(msg.Content))
-		} else {
-			m.editor.SetLineBg(nil)
-		}
-		m.editor.DiagnosticLines = nil // Clear stale diagnostics on file switch.
-		if msg.FilePath != "" {
-			markers := mcp_tools.GitFileMarkers(m.ctx, msg.FilePath)
-			m.editor.SetGutterMarkers(markers)
-		} else {
-			m.editor.SetGutterMarkers(nil)
-		}
-		m.editorFilePath = msg.AbsPath
-		m.setFocus(focusEditor)
+	case mcptools.ShowMsg:
+		m.handleShowMsg(msg)
 		return m, nil
 
 	case LSPDiagnosticsMsg:
-		// Only apply diagnostics if they match the file currently in the editor.
 		if msg.FilePath == m.editorFilePath {
 			m.editor.DiagnosticLines = msg.Lines
 		}
@@ -152,6 +63,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Always tick spinner
+	var cmds []tea.Cmd
 	var cmd tea.Cmd
 	m.spinner, cmd = m.spinner.Update(msg)
 	cmds = append(cmds, cmd)
@@ -167,6 +79,104 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// handleResize applies a window size change and re-derives layout.
+func (m *Model) handleResize(msg tea.WindowSizeMsg) {
+	m.width, m.height = msg.Width, msg.Height
+	if m.divX == 0 {
+		m.divX = m.width / 2
+	}
+	if m.divX < minPaneWidth {
+		m.divX = minPaneWidth
+	}
+	if m.divX > m.width-minPaneWidth {
+		m.divX = m.width - minPaneWidth
+	}
+	m.layout = generateLayout(m.width, m.height, m.divX)
+	m.updateComponentSizes()
+}
+
+// insertPaste inserts pasted text into the focused component.
+func (m *Model) insertPaste(text string) {
+	if text == "" {
+		return
+	}
+	switch m.focus {
+	case focusInput:
+		m.agentInput.DeleteSelection()
+		m.agentInput.InsertText(text)
+	case focusEditor:
+		m.editor.DeleteSelection()
+		m.editor.InsertText(text)
+	}
+}
+
+// handleKeyPress processes key events. Returns (model, cmd, true) if handled.
+func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
+	switch msg.Keystroke() {
+	case "ctrl+c":
+		m.cancel()
+		return *m, tea.Quit, true
+	case "ctrl+shift+c":
+		if cmd := m.copySelection(); cmd != nil {
+			return *m, cmd, true
+		}
+		return *m, nil, true
+	case "ctrl+shift+v":
+		return *m, tea.ReadClipboard, true
+	case "esc":
+		if m.focus == focusInput {
+			m.agentInput.Blur()
+		} else {
+			m.editor.Blur()
+		}
+		return *m, nil, true
+	case "enter":
+		if m.focus == focusInput && m.agentInput.Value() != "" {
+			userMsg := m.agentInput.Value()
+			m.agentInput.Reset()
+			return *m, m.sendToLLM(userMsg), true
+		}
+	}
+	return Model{}, nil, false
+}
+
+// handleUserMsg records a user message in history and conversation display.
+func (m *Model) handleUserMsg(msg llmUserMsg) Model {
+	now := time.Now()
+	m.history = append(m.history, provider.Message{
+		Role: "user", Content: msg.content, CreatedAt: now,
+	})
+	m.appendText(styledLines(msg.content, m.styles.Text)...)
+	m.appendText("")
+	sep := m.makeSeparator("0s", now.Format("15:04:05"))
+	wasBottom := m.appendText(sep)
+	m.appendText("")
+	if wasBottom {
+		m.scrollOffset = 0
+	}
+	return *m
+}
+
+// handleShowMsg loads content from a ShowMsg into the editor.
+func (m *Model) handleShowMsg(msg mcptools.ShowMsg) {
+	m.editor.SetValue(msg.Content)
+	m.editor.Language = msg.Language
+	if msg.Language == langDiff {
+		m.editor.SetLineBg(diffLineBg(msg.Content))
+	} else {
+		m.editor.SetLineBg(nil)
+	}
+	m.editor.DiagnosticLines = nil
+	if msg.FilePath != "" {
+		markers := mcptools.GitFileMarkers(m.ctx, msg.FilePath)
+		m.editor.SetGutterMarkers(markers)
+	} else {
+		m.editor.SetGutterMarkers(nil)
+	}
+	m.editorFilePath = msg.AbsPath
+	m.setFocus(focusEditor)
+}
+
 // handleLLMBatch processes a batch of messages drained from updateChan.
 // Delta messages are accumulated first, with a single rebuildStreamEntries
 // at the end, avoiding per-token re-wraps.
@@ -176,24 +186,12 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	for _, raw := range batch {
 		switch msg := raw.(type) {
 		case llmReasoningDeltaMsg:
-			if !m.streaming {
-				m.streaming = true
-				m.streamEntryStart = len(m.convEntries)
-				m.streamWrapStart = len(m.wrappedConvLines())
-				m.streamingReasoning = ""
-				m.streamingContent = ""
-			}
+			m.ensureStreaming()
 			m.streamingReasoning += msg.content
 			needRebuild = true
 
 		case llmContentDeltaMsg:
-			if !m.streaming {
-				m.streaming = true
-				m.streamEntryStart = len(m.convEntries)
-				m.streamWrapStart = len(m.wrappedConvLines())
-				m.streamingReasoning = ""
-				m.streamingContent = ""
-			}
+			m.ensureStreaming()
 			m.streamingContent += msg.content
 			needRebuild = true
 
@@ -201,31 +199,20 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.history = append(m.history, msg.msg)
 
 		case llmAssistantMsg:
-			// Flush any pending streaming rebuild before finalizing.
-			if needRebuild {
-				m.rebuildStreamEntries()
-				needRebuild = false
-			}
+			needRebuild = m.flushRebuild(needRebuild)
 			m.applyAssistantMsg(msg)
 
 		case llmToolResultMsg:
-			if needRebuild {
-				m.rebuildStreamEntries()
-				needRebuild = false
-			}
+			needRebuild = m.flushRebuild(needRebuild)
 			m.applyToolResultMsg(msg)
 
 		case llmErrorMsg:
-			if needRebuild {
-				m.rebuildStreamEntries()
-			}
+			m.flushRebuild(needRebuild)
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
 			return m, nil
 
 		case llmDoneMsg:
-			if needRebuild {
-				m.rebuildStreamEntries()
-			}
+			m.flushRebuild(needRebuild)
 			m.appendText("")
 			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
 			m.appendText(sep)
@@ -234,12 +221,30 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Apply one rebuild for all accumulated deltas.
-	if needRebuild {
-		m.rebuildStreamEntries()
-	}
+	m.flushRebuild(needRebuild)
 
 	// More messages may follow — keep listening.
 	return m, m.waitForLLMUpdate()
+}
+
+// ensureStreaming initialises stream state on the first delta of a turn.
+func (m *Model) ensureStreaming() {
+	if m.streaming {
+		return
+	}
+	m.streaming = true
+	m.streamEntryStart = len(m.convEntries)
+	m.streamWrapStart = len(m.wrappedConvLines())
+	m.streamingReasoning = ""
+	m.streamingContent = ""
+}
+
+// flushRebuild calls rebuildStreamEntries when needed and returns false.
+func (m *Model) flushRebuild(needed bool) bool {
+	if needed {
+		m.rebuildStreamEntries()
+	}
+	return false
 }
 
 // applyAssistantMsg finalizes streaming state and appends the assistant's

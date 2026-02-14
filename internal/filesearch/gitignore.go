@@ -143,79 +143,79 @@ func parseGitignorePattern(pattern string) *gitignorePattern {
 func gitignoreGlobToRegex(pattern string) string {
 	var result strings.Builder
 
-	// Anchor patterns that start with /
 	anchored := false
 	if strings.HasPrefix(pattern, "/") {
 		result.WriteString("^")
 		pattern = pattern[1:]
 		anchored = true
 	} else {
-		// Match anywhere in path
 		result.WriteString("(^|/)")
 	}
 
-	i := 0
-	for i < len(pattern) {
-		ch := pattern[i]
-		switch ch {
-		case '*':
-			if i+1 < len(pattern) && pattern[i+1] == '*' {
-				// ** matches any number of directories
-				if i+2 < len(pattern) && pattern[i+2] == '/' {
-					result.WriteString("(.*/)?")
-					i += 3
-					continue
-				}
-				result.WriteString(".*")
-				i += 2
-			} else {
-				// * matches anything except /
-				result.WriteString("[^/]*")
-				i++
-			}
-		case '?':
-			result.WriteString("[^/]")
-			i++
-		case '.', '+', '(', ')', '|', '^', '$', '@', '%':
-			// Escape regex special characters
-			result.WriteByte('\\')
-			result.WriteByte(ch)
-			i++
-		case '[':
-			// Character class - find the closing ]
-			j := i + 1
-			for j < len(pattern) && pattern[j] != ']' {
-				j++
-			}
-			if j < len(pattern) {
-				result.WriteString(pattern[i : j+1])
-				i = j + 1
-			} else {
-				result.WriteString("\\[")
-				i++
-			}
-		case '\\':
-			// Escape next character
-			if i+1 < len(pattern) {
-				result.WriteByte('\\')
-				result.WriteByte(pattern[i+1])
-				i += 2
-			} else {
-				result.WriteString("\\\\")
-				i++
-			}
-		default:
-			result.WriteByte(ch)
-			i++
-		}
+	for i := 0; i < len(pattern); {
+		i += convertGlobChar(&result, pattern, i)
 	}
 
-	// For anchored patterns, don't allow matching subdirectories
 	if anchored {
 		result.WriteString("$")
 	} else {
 		result.WriteString("(/.*)?$")
 	}
-
 	return result.String()
+}
+
+// convertGlobChar writes the regex equivalent of pattern[i] into b and returns
+// the number of characters consumed.
+func convertGlobChar(b *strings.Builder, pattern string, i int) int {
+	ch := pattern[i]
+	switch ch {
+	case '*':
+		return convertGlobStar(b, pattern, i)
+	case '?':
+		b.WriteString("[^/]")
+		return 1
+	case '.', '+', '(', ')', '|', '^', '$', '@', '%':
+		b.WriteByte('\\')
+		b.WriteByte(ch)
+		return 1
+	case '[':
+		return convertGlobCharClass(b, pattern, i)
+	case '\\':
+		if i+1 < len(pattern) {
+			b.WriteByte('\\')
+			b.WriteByte(pattern[i+1])
+			return 2
+		}
+		b.WriteString("\\\\")
+		return 1
+	default:
+		b.WriteByte(ch)
+		return 1
+	}
+}
+
+func convertGlobStar(b *strings.Builder, pattern string, i int) int {
+	if i+1 < len(pattern) && pattern[i+1] == '*' {
+		if i+2 < len(pattern) && pattern[i+2] == '/' {
+			b.WriteString("(.*/)?")
+			return 3
+		}
+		b.WriteString(".*")
+		return 2
+	}
+	b.WriteString("[^/]*")
+	return 1
+}
+
+func convertGlobCharClass(b *strings.Builder, pattern string, i int) int {
+	j := i + 1
+	for j < len(pattern) && pattern[j] != ']' {
+		j++
+	}
+	if j < len(pattern) {
+		b.WriteString(pattern[i : j+1])
+		return j + 1 - i
+	}
+	b.WriteString("\\[")
+	return 1
 }

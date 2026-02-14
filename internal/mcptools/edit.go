@@ -1,4 +1,4 @@
-package mcp_tools
+package mcptools
 
 import (
 	"context"
@@ -123,12 +123,31 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 	if err := json.Unmarshal(arguments, &args); err != nil {
 		return toolError("Invalid arguments: %v", err), nil
 	}
-
 	if args.File == "" {
 		return toolError("File path cannot be empty"), nil
 	}
+	if err := validateEditOps(args); err != nil {
+		return toolError("%v", err), nil
+	}
 
-	// Count operations — exactly one must be set
+	absPath, err := validatePath(args.File)
+	if err != nil {
+		return toolError("%v", err), nil
+	}
+
+	if args.Create != nil {
+		return h.handleCreate(ctx, absPath, args.File, args.Create)
+	}
+
+	if !h.tracker.WasRead(absPath) {
+		return toolError("You must Read the file before editing it. Use Read on %s first — you need the line hashes.", args.File), nil
+	}
+
+	return h.applyEdit(ctx, absPath, args)
+}
+
+// validateEditOps ensures exactly one operation is specified.
+func validateEditOps(args EditArgs) error {
 	ops := 0
 	if args.Replace != nil {
 		ops++
@@ -143,36 +162,13 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 		ops++
 	}
 	if ops != 1 {
-		return toolError("Exactly one operation (replace, insert, delete, or create) must be specified"), nil
+		return fmt.Errorf("exactly one operation (replace, insert, delete, or create) must be specified")
 	}
+	return nil
+}
 
-	// Security: validate path
-	absPath, err := filepath.Abs(args.File)
-	if err != nil {
-		return toolError("Invalid file path: %v", err), nil
-	}
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return toolError("Failed to get working directory: %v", err), nil
-	}
-
-	relPath, err := filepath.Rel(workingDir, absPath)
-	if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
-		return toolError("Access denied: path outside working directory"), nil
-	}
-
-	// Dispatch to operation handler
-	if args.Create != nil {
-		return h.handleCreate(ctx, absPath, args.File, args.Create)
-	}
-
-	// Enforce read-before-edit: file must have been Read first
-	if !h.tracker.WasRead(absPath) {
-		return toolError("You must Read the file before editing it. Use Read on %s first — you need the line hashes.", args.File), nil
-	}
-
-	// All other ops require reading the existing file
+// applyEdit reads the file, applies the edit operation, writes it back, and returns fresh hashes.
+func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditArgs) (*mcp.ToolResult, error) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return toolError("Failed to read file: %v", err), nil
@@ -188,7 +184,6 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 	case args.Delete != nil:
 		result, err = applyDelete(lines, args.Delete)
 	}
-
 	if err != nil {
 		return toolError("%v", err), nil
 	}
@@ -197,13 +192,9 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 		return toolError("Failed to write file: %v", err), nil
 	}
 
-	// Return hashline-tagged view of the updated file
 	tagged := hashline.TagLines(result, 1)
-	taggedOutput := hashline.FormatTagged(tagged)
+	text := fmt.Sprintf("Edited %s (%d lines):\n\n%s", args.File, len(tagged), hashline.FormatTagged(tagged))
 
-	text := fmt.Sprintf("Edited %s (%d lines):\n\n%s", args.File, len(tagged), taggedOutput)
-
-	// Closed-loop LSP diagnostics: notify and wait for errors/warnings.
 	if h.lspManager != nil {
 		diags := h.lspManager.NotifyAndWait(ctx, absPath, 5*time.Second)
 		text += lsp.FormatDiagnostics(args.File, diags)

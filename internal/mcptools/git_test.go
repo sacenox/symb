@@ -1,4 +1,4 @@
-package mcp_tools
+package mcptools
 
 import (
 	"context"

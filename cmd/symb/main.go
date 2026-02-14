@@ -13,67 +13,33 @@ import (
 	"github.com/xonecas/symb/internal/config"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
-	"github.com/xonecas/symb/internal/mcp_tools"
+	"github.com/xonecas/symb/internal/mcptools"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/store"
 	"github.com/xonecas/symb/internal/tui"
 )
 
 func main() {
-	// Configure zerolog to write to file (TUI uses stdout)
 	if err := setupFileLogging(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to setup logging: %v\n", err)
 	}
-	// Load configuration
-	configPath := filepath.Join(".", "config.toml")
-	cfg, err := config.Load(configPath)
+
+	cfg, err := config.Load(filepath.Join(".", "config.toml"))
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Load credentials
 	creds, err := config.LoadCredentials()
 	if err != nil {
 		fmt.Printf("Error loading credentials: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Create provider registry
-	registry := provider.NewRegistry()
+	registry := buildRegistry(cfg, creds)
 
-	// Register all providers from config
-	for name, providerCfg := range cfg.Providers {
-		var factory provider.ProviderFactory
+	providerName, providerCfg := resolveProvider(cfg, registry)
 
-		if providerCfg.APIKeyName != "" {
-			apiKey := creds.GetAPIKey(providerCfg.APIKeyName)
-			factory = provider.NewOpenCodeFactory(name, providerCfg.Endpoint, apiKey)
-		} else {
-			factory = provider.NewOllamaFactory(name, providerCfg.Endpoint)
-		}
-
-		registry.RegisterFactory(name, factory)
-	}
-
-	// Get default provider
-	providerName := cfg.DefaultProvider
-	if providerName == "" {
-		providers := registry.List()
-		if len(providers) == 0 {
-			fmt.Println("Error: No providers configured")
-			os.Exit(1)
-		}
-		providerName = providers[0]
-	}
-
-	providerCfg, ok := cfg.Providers[providerName]
-	if !ok {
-		fmt.Printf("Error: Provider %q not found\n", providerName)
-		os.Exit(1)
-	}
-
-	// Create provider
 	prov, err := registry.Create(providerName, providerCfg.Model, providerCfg.Temperature)
 	if err != nil {
 		fmt.Printf("Error creating provider: %v\n", err)
@@ -81,100 +47,115 @@ func main() {
 	}
 	defer prov.Close()
 
-	// Create MCP proxy
-	var mcpClient mcp.UpstreamClient
-	if cfg.MCP.Upstream != "" {
-		mcpClient = mcp.NewClient(cfg.MCP.Upstream)
-	}
-
-	proxy := mcp.NewProxy(mcpClient)
-	if err := proxy.Initialize(context.Background()); err != nil {
-		fmt.Printf("Warning: MCP init failed: %v\n", err)
-	}
+	proxy, lspManager, showHandler, webCache := setupServices(cfg, creds)
 	defer proxy.Close()
-
-	// Create LSP manager
-	lspManager := lsp.NewManager()
 	defer lspManager.StopAll(context.Background())
-
-	// Register local tools
-	fileTracker := mcp_tools.NewFileReadTracker()
-
-	readTool := mcp_tools.NewReadTool()
-	readHandler := mcp_tools.NewReadHandler(fileTracker, lspManager)
-	proxy.RegisterTool(readTool, readHandler.Handle)
-
-	showTool := mcp_tools.NewShowTool()
-	showHandler := mcp_tools.NewShowHandler()
-	proxy.RegisterTool(showTool, showHandler.Handle)
-
-	grepTool := mcp_tools.NewGrepTool()
-	grepHandler := mcp_tools.MakeGrepHandler()
-	proxy.RegisterTool(grepTool, grepHandler)
-
-	editTool := mcp_tools.NewEditTool()
-	editHandler := mcp_tools.NewEditHandler(fileTracker, lspManager)
-	proxy.RegisterTool(editTool, editHandler.Handle)
-
-	// Open web cache (SQLite-backed, persisted across sessions).
-	// If data dir or db open fails, webCache stays nil — handlers degrade gracefully.
-	var webCache *store.Cache
-	if cacheDir, err := config.EnsureDataDir(); err != nil {
-		fmt.Printf("Warning: cache dir failed: %v\n", err)
-	} else {
-		cacheTTL := time.Duration(cfg.Cache.CacheTTLOrDefault()) * time.Hour
-		webCache, err = store.Open(filepath.Join(cacheDir, "cache.db"), cacheTTL)
-		if err != nil {
-			fmt.Printf("Warning: cache open failed: %v\n", err)
-		}
-	}
 	if webCache != nil {
 		defer webCache.Close()
 	}
 
-	// Register git tools
-	gitStatusTool := mcp_tools.NewGitStatusTool()
-	proxy.RegisterTool(gitStatusTool, mcp_tools.MakeGitStatusHandler())
-
-	gitDiffTool := mcp_tools.NewGitDiffTool()
-	proxy.RegisterTool(gitDiffTool, mcp_tools.MakeGitDiffHandler())
-
-	// Register web tools
-	webFetchTool := mcp_tools.NewWebFetchTool()
-	webFetchHandler := mcp_tools.MakeWebFetchHandler(webCache)
-	proxy.RegisterTool(webFetchTool, webFetchHandler)
-
-	exaKey := creds.GetAPIKey("exa_ai")
-	webSearchTool := mcp_tools.NewWebSearchTool()
-	webSearchHandler := mcp_tools.MakeWebSearchHandler(webCache, exaKey, "")
-	proxy.RegisterTool(webSearchTool, webSearchHandler)
-
-	// List all tools (local + upstream)
 	tools, err := proxy.ListTools(context.Background())
 	if err != nil {
 		fmt.Printf("Warning: Failed to list tools: %v\n", err)
 		tools = []mcp.Tool{}
 	}
 
-	// Create the BubbleTea program with model-specific prompt
 	p := tea.NewProgram(
 		tui.New(prov, proxy, tools, providerCfg.Model),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
-
-	// Set program reference for tools that need it
 	showHandler.SetProgram(p)
-
-	// Wire LSP diagnostics callback to TUI
 	lspManager.SetCallback(func(absPath string, lines map[int]int) {
 		p.Send(tui.LSPDiagnosticsMsg{FilePath: absPath, Lines: lines})
 	})
 
-	// Run the program
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running symb: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func buildRegistry(cfg *config.Config, creds *config.Credentials) *provider.Registry {
+	registry := provider.NewRegistry()
+	for name, providerCfg := range cfg.Providers {
+		var factory provider.Factory
+		if providerCfg.APIKeyName != "" {
+			factory = provider.NewOpenCodeFactory(name, providerCfg.Endpoint, creds.GetAPIKey(providerCfg.APIKeyName))
+		} else {
+			factory = provider.NewOllamaFactory(name, providerCfg.Endpoint)
+		}
+		registry.RegisterFactory(name, factory)
+	}
+	return registry
+}
+
+func resolveProvider(cfg *config.Config, registry *provider.Registry) (string, config.ProviderConfig) {
+	name := cfg.DefaultProvider
+	if name == "" {
+		providers := registry.List()
+		if len(providers) == 0 {
+			fmt.Println("Error: No providers configured")
+			os.Exit(1)
+		}
+		name = providers[0]
+	}
+	pcfg, ok := cfg.Providers[name]
+	if !ok {
+		fmt.Printf("Error: Provider %q not found\n", name)
+		os.Exit(1)
+	}
+	return name, pcfg
+}
+
+func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *lsp.Manager, *mcptools.ShowHandler, *store.Cache) {
+	var mcpClient mcp.UpstreamClient
+	if cfg.MCP.Upstream != "" {
+		mcpClient = mcp.NewClient(cfg.MCP.Upstream)
+	}
+	proxy := mcp.NewProxy(mcpClient)
+	if err := proxy.Initialize(context.Background()); err != nil {
+		fmt.Printf("Warning: MCP init failed: %v\n", err)
+	}
+
+	lspManager := lsp.NewManager()
+	fileTracker := mcptools.NewFileReadTracker()
+
+	readHandler := mcptools.NewReadHandler(fileTracker, lspManager)
+	proxy.RegisterTool(mcptools.NewReadTool(), readHandler.Handle)
+
+	showHandler := mcptools.NewShowHandler()
+	proxy.RegisterTool(mcptools.NewShowTool(), showHandler.Handle)
+
+	proxy.RegisterTool(mcptools.NewGrepTool(), mcptools.MakeGrepHandler())
+
+	editHandler := mcptools.NewEditHandler(fileTracker, lspManager)
+	proxy.RegisterTool(mcptools.NewEditTool(), editHandler.Handle)
+
+	webCache := openWebCache(cfg)
+
+	proxy.RegisterTool(mcptools.NewGitStatusTool(), mcptools.MakeGitStatusHandler())
+	proxy.RegisterTool(mcptools.NewGitDiffTool(), mcptools.MakeGitDiffHandler())
+	proxy.RegisterTool(mcptools.NewWebFetchTool(), mcptools.MakeWebFetchHandler(webCache))
+
+	exaKey := creds.GetAPIKey("exa_ai")
+	proxy.RegisterTool(mcptools.NewWebSearchTool(), mcptools.MakeWebSearchHandler(webCache, exaKey, ""))
+
+	return proxy, lspManager, showHandler, webCache
+}
+
+func openWebCache(cfg *config.Config) *store.Cache {
+	cacheDir, err := config.EnsureDataDir()
+	if err != nil {
+		fmt.Printf("Warning: cache dir failed: %v\n", err)
+		return nil
+	}
+	cacheTTL := time.Duration(cfg.Cache.CacheTTLOrDefault()) * time.Hour
+	cache, err := store.Open(filepath.Join(cacheDir, "cache.db"), cacheTTL)
+	if err != nil {
+		fmt.Printf("Warning: cache open failed: %v\n", err)
+		return nil
+	}
+	return cache
 }
 
 func setupFileLogging() error {

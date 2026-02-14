@@ -5,7 +5,7 @@ import "charm.land/lipgloss/v2"
 // Semantic color palette — grayscale "suit and tie" with a single accent.
 var (
 	// Accent — used sparingly: cursor, spinner, active indicators.
-	ColorHighlight = lipgloss.Color("#00E5CC")
+	ColorHighlight = lipgloss.Color("#00dfff")
 
 	// Backgrounds
 	ColorBg = lipgloss.Color("#000000") // Pure black — consistent everywhere
