@@ -227,6 +227,9 @@ type Model struct {
 	// Editor state
 	editorFilePath string // absolute path of the file currently shown in the editor
 
+	// Pending tool calls: maps tool call ID → arguments for line extraction
+	pendingToolCalls map[string]provider.ToolCall
+
 	// Mouse state
 	resizingPane bool
 

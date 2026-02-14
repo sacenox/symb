@@ -293,6 +293,10 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 		}
 	}
 	for _, tc := range msg.toolCalls {
+		if m.pendingToolCalls == nil {
+			m.pendingToolCalls = make(map[string]provider.ToolCall)
+		}
+		m.pendingToolCalls[tc.ID] = tc
 		entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(formatToolCall(tc))
 		wasBottom := m.appendText(entry)
 		if wasBottom {
@@ -320,10 +324,13 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		filePath = sm[1]
 	}
 
-	// Extract start line from "(lines N-M)" for cursor positioning.
+	// Extract target line for cursor positioning.
+	// Read results: from "(lines N-M)". Edit results: from the tool call arguments.
 	var startLine int
 	if sm := toolResultLineRe.FindStringSubmatch(msg.content); sm != nil {
 		startLine, _ = strconv.Atoi(sm[1])
+	} else if tc, ok := m.pendingToolCalls[msg.toolCallID]; ok && tc.Name == "Edit" {
+		startLine = toolCallEditLine(tc.Arguments)
 	}
 
 	lines := strings.Split(msg.content, "\n")
@@ -352,6 +359,40 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	if wasBottom {
 		m.scrollOffset = 0
 	}
+}
+
+// toolCallEditLine extracts the target line from an Edit tool call's arguments.
+// Returns the start line of the edit operation (replace/insert/delete), or 0.
+func toolCallEditLine(args json.RawMessage) int {
+	var parsed struct {
+		Replace *struct {
+			Start struct {
+				Line int `json:"line"`
+			} `json:"start"`
+		} `json:"replace"`
+		Insert *struct {
+			After struct {
+				Line int `json:"line"`
+			} `json:"after"`
+		} `json:"insert"`
+		Delete *struct {
+			Start struct {
+				Line int `json:"line"`
+			} `json:"start"`
+		} `json:"delete"`
+	}
+	if json.Unmarshal(args, &parsed) != nil {
+		return 0
+	}
+	switch {
+	case parsed.Replace != nil:
+		return parsed.Replace.Start.Line
+	case parsed.Insert != nil:
+		return parsed.Insert.After.Line
+	case parsed.Delete != nil:
+		return parsed.Delete.Start.Line
+	}
+	return 0
 }
 
 // formatToolCall renders a tool call as Name(key="val", key2="val2").
