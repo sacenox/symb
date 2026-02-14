@@ -115,18 +115,8 @@ Needs an undo.
 
 https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
 
-### Conversation log improvements:
+### improvements:
 
-Update hover iteraction on tool responses for ux and tool call tui output.
-
-- Show LSP diagnostics after each mutation call in conversation log, as part of the tool response.
-- Render responses and user messages with markdown syntax.
-- Smarter click on tool response:
- - Click on Read response: Opens the file, with cursor at read start.
- - Click on Edit response: Opens the editted file, with cursor at the change
- - Click on Grep: Show output in full, each match is clickable to open the file with cursor at the match.
- - Click on Shell tool, show output in full, try to parse filenames into clickable aread that opens
-- Show tool call arguments expanded but simplified, not json: `Grep(pattern="...", ...)`, for all tools.
 - Improve markdown syntax hl overall
 
 ### Statusbar implementation
