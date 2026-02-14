@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/xonecas/symb/internal/constants"
+	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
@@ -109,6 +110,8 @@ type entryKind int
 const (
 	entryText       entryKind = iota // Plain text (user, assistant, separator)
 	entryToolResult                  // Tool result — clickable to view full content in editor
+	entryUndo                        // Undo control — clickable to undo last turn
+	entrySeparator                   // Demoted undo — a turn-end separator that can be re-promoted
 )
 
 // convEntry is a single logical entry in the conversation pane.
@@ -147,6 +150,22 @@ func (s convSelection) ordered() (start, end convPos) {
 }
 
 func (s convSelection) empty() bool { return s.anchor == s.active }
+
+// FileReadResetter allows clearing the file read tracker on undo.
+type FileReadResetter interface {
+	Reset()
+}
+
+// ---------------------------------------------------------------------------
+// Turn tracking (for undo)
+// ---------------------------------------------------------------------------
+
+// turnBoundary marks the start of a user turn in both history and convEntries.
+type turnBoundary struct {
+	historyIdx int   // index in m.history where the user message is
+	convIdx    int   // index in m.convEntries where this turn's display starts
+	dbMsgID    int64 // messages.id of the user message (for DB cleanup)
+}
 
 // ---------------------------------------------------------------------------
 // Model
@@ -195,6 +214,12 @@ type Model struct {
 	streamEntryStart   int    // Index in convEntries where streaming entries begin (-1 = none)
 	streamWrapStart    int    // Number of cached wrapped lines before streaming entries
 
+	// Undo
+	deltaTracker   *delta.Tracker
+	turnBoundaries []turnBoundary
+	fileTracker    FileReadResetter // for clearing read-tracking on undo
+	tsIndex        *treesitter.Index
+
 	// Editor state
 	editorFilePath string // absolute path of the file currently shown in the editor
 
@@ -210,7 +235,7 @@ type Model struct {
 }
 
 // New creates a new TUI model.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -274,6 +299,10 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 
 		store:     db,
 		sessionID: sessionID,
+
+		deltaTracker: dt,
+		fileTracker:  ft,
+		tsIndex:      idx,
 
 		streamEntryStart: -1,
 		hoverConvLine:    -1,

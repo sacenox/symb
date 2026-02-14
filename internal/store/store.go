@@ -47,12 +47,25 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
+
+CREATE TABLE IF NOT EXISTS file_deltas (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	session_id  TEXT NOT NULL,
+	turn_id     INTEGER NOT NULL,
+	file_path   TEXT NOT NULL,
+	op          TEXT NOT NULL,
+	old_content BLOB,
+	created     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_deltas_turn ON file_deltas(session_id, turn_id);
 `
 
 // saveReq is an internal message sent to the background save goroutine.
 type saveReq struct {
 	sessionID string
 	msg       SessionMessage
+	flush     chan struct{} // if non-nil, signal after processing (used by Flush)
 }
 
 // Cache is a SQLite-backed cache for web results and session storage.
@@ -105,6 +118,14 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 	go c.saveLoop()
 	c.purgeStale()
 	return c, nil
+}
+
+// DB returns the underlying *sql.DB for shared access (e.g. delta tracker).
+func (c *Cache) DB() *sql.DB {
+	if c == nil {
+		return nil
+	}
+	return c.db
 }
 
 // Close drains pending saves and closes the database.

@@ -241,6 +241,9 @@ func (m *Model) isClickableLine(lineIdx int) bool {
 	if m.convEntries[entryIdx].kind == entryToolResult {
 		return true
 	}
+	if m.convEntries[entryIdx].kind == entryUndo {
+		return true
+	}
 	if lineIdx >= len(lines) {
 		return false
 	}
@@ -263,6 +266,11 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 		return nil
 	}
 	entry := m.convEntries[entryIdx]
+
+	// Undo control: emit undoMsg
+	if entry.kind == entryUndo {
+		return func() tea.Msg { return undoMsg{} }
+	}
 
 	// Tool result: open the source file or fall back to raw content
 	if entry.kind == entryToolResult {

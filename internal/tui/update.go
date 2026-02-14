@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/provider"
 )
 
@@ -55,6 +56,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case UpdateToolsMsg:
 		m.mcpTools = msg.Tools
 		return m, nil
+
+	case undoMsg:
+		return m.handleUndo(), nil
 	}
 
 	// Always tick spinner
@@ -139,8 +143,33 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 	now := time.Now()
 	userMsg := provider.Message{Role: "user", Content: msg.content, CreatedAt: now}
+
+	historyIdx := len(m.history)
+	convIdx := len(m.convEntries)
 	m.history = append(m.history, userMsg)
-	m.saveMessage(userMsg)
+
+	// Save synchronously to get DB row ID for undo tracking.
+	var dbMsgID int64
+	if m.store != nil {
+		id, err := m.store.SaveMessageSync(m.sessionID, messageToStore(userMsg))
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to save user message; undo disabled for this turn")
+		} else {
+			dbMsgID = id
+		}
+	}
+
+	// Set delta tracker turn so file edits are linked.
+	if m.deltaTracker != nil && dbMsgID > 0 {
+		m.deltaTracker.BeginTurn(dbMsgID)
+	}
+
+	m.turnBoundaries = append(m.turnBoundaries, turnBoundary{
+		historyIdx: historyIdx,
+		convIdx:    convIdx,
+		dbMsgID:    dbMsgID,
+	})
+
 	m.appendText(styledLines(msg.content, m.styles.Text)...)
 	m.appendText("")
 	sep := m.makeSeparator("0s", now.Format("15:04:05"))
@@ -189,9 +218,13 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 
 		case llmDoneMsg:
 			m.flushRebuild(needRebuild)
+			// Replace previous turn's undo entry with a normal separator.
+			m.demoteOldUndo()
 			m.appendText("")
+			// Append undo control instead of a plain separator for the latest turn.
+			// Store the separator text in full so it can be restored on demote.
 			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
-			m.appendText(sep)
+			m.appendConv(m.makeUndoEntry(sep))
 			return m, nil
 		}
 	}
@@ -300,4 +333,92 @@ func (m *Model) updateComponentSizes() {
 	m.editor.SetHeight(m.layout.editor.Dy())
 	m.agentInput.SetWidth(m.layout.input.Dx() - 2) // padding for border
 	m.agentInput.SetHeight(inputRows)
+}
+
+// demoteOldUndo finds the existing entryUndo in convEntries and demotes it
+// to an entrySeparator (preserving the original display for potential
+// re-promotion). Called before appending a new undo entry so only the
+// latest turn shows the undo control.
+func (m *Model) demoteOldUndo() {
+	for i := len(m.convEntries) - 1; i >= 0; i-- {
+		if m.convEntries[i].kind == entryUndo {
+			m.convEntries[i].kind = entrySeparator
+			// full field carries the original separator display text.
+			m.convEntries[i].display = m.convEntries[i].full
+			m.convLines = nil // invalidate cache
+			return
+		}
+	}
+}
+
+// handleUndo reverts the most recent turn: restores files, truncates history
+// and convEntries, and cleans up the database.
+func (m *Model) handleUndo() Model {
+	if m.streaming || len(m.turnBoundaries) == 0 {
+		return *m
+	}
+
+	tb := m.turnBoundaries[len(m.turnBoundaries)-1]
+	m.turnBoundaries = m.turnBoundaries[:len(m.turnBoundaries)-1]
+
+	// 1. Reverse filesystem changes.
+	var undoErr error
+	var restoredFiles []string
+	if m.deltaTracker != nil && tb.dbMsgID > 0 {
+		restoredFiles, undoErr = m.deltaTracker.Undo(m.sessionID, tb.dbMsgID)
+		m.deltaTracker.DeleteTurn(m.sessionID, tb.dbMsgID)
+	}
+
+	// 2. Truncate in-memory history and display.
+	m.history = m.history[:tb.historyIdx]
+	m.convEntries = m.convEntries[:tb.convIdx]
+	m.convLines = nil // invalidate cache
+
+	// 2b. Show error after truncation so it's visible.
+	if undoErr != nil {
+		m.appendText("", m.styles.Error.Render("undo file restore failed: "+undoErr.Error()), "")
+	}
+
+	// 3. Flush async saves then delete messages from DB.
+	if m.store != nil && tb.dbMsgID > 0 {
+		m.store.Flush()
+		if err := m.store.DeleteMessagesFrom(m.sessionID, tb.dbMsgID); err != nil {
+			log.Warn().Err(err).Msg("undo: failed to delete messages")
+		}
+	}
+
+	// 4. Clear file-read tracker (LLM will re-Read as needed).
+	if m.fileTracker != nil {
+		m.fileTracker.Reset()
+	}
+
+	// 5. Update tree-sitter index for restored files only.
+	if m.tsIndex != nil {
+		for _, f := range restoredFiles {
+			m.tsIndex.UpdateFile(f)
+		}
+	}
+
+	// 6. Promote previous turn's demoted separator back to undo, if any.
+	if len(m.turnBoundaries) > 0 {
+		for i := len(m.convEntries) - 1; i >= 0; i-- {
+			if m.convEntries[i].kind == entrySeparator {
+				// full carries the original separator display text.
+				m.convEntries[i] = m.makeUndoEntry(m.convEntries[i].full)
+				m.convLines = nil
+				break
+			}
+		}
+	}
+
+	// 7. Reset streaming state.
+	m.streaming = false
+	m.streamEntryStart = -1
+	m.streamingReasoning = ""
+	m.streamingContent = ""
+
+	// 8. Scroll to bottom.
+	m.scrollOffset = 0
+
+	return *m
 }

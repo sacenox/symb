@@ -60,6 +60,10 @@ func (c *Cache) SaveMessage(sessionID string, msg SessionMessage) {
 func (c *Cache) saveLoop() {
 	defer close(c.done)
 	for req := range c.saveCh {
+		if req.flush != nil {
+			close(req.flush)
+			continue
+		}
 		c.writeMessage(req.sessionID, req.msg)
 	}
 }
@@ -85,6 +89,64 @@ func (c *Cache) writeMessage(sessionID string, msg SessionMessage) {
 
 	// Touch session updated time.
 	c.db.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID) //nolint:errcheck
+}
+
+// SaveMessageSync persists a message synchronously and returns its DB row ID.
+// Used for turn-start messages where we need the ID immediately.
+func (c *Cache) SaveMessageSync(sessionID string, msg SessionMessage) (int64, error) {
+	if c == nil {
+		return 0, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	tc := msg.ToolCalls
+	if tc == nil {
+		tc = json.RawMessage("[]")
+	}
+
+	res, err := c.db.Exec(
+		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		sessionID, msg.Role, msg.Content, msg.Reasoning, string(tc), msg.ToolCallID, msg.CreatedAt.Unix(),
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	c.db.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID) //nolint:errcheck
+
+	return res.LastInsertId()
+}
+
+// Flush blocks until all queued async saves have been written to the DB.
+// Times out after 5 seconds to avoid deadlocking the caller.
+func (c *Cache) Flush() {
+	if c == nil {
+		return
+	}
+	done := make(chan struct{})
+	select {
+	case c.saveCh <- saveReq{flush: done}:
+		<-done
+	case <-time.After(5 * time.Second):
+		log.Warn().Msg("flush timed out waiting to enqueue")
+	}
+}
+
+// DeleteMessagesFrom removes all messages with id >= minID for a session.
+func (c *Cache) DeleteMessagesFrom(sessionID string, minID int64) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	_, err := c.db.Exec(
+		"DELETE FROM messages WHERE session_id = ? AND id >= ?",
+		sessionID, minID,
+	)
+	return err
 }
 
 // LoadMessages returns all messages for a session, ordered by ID.

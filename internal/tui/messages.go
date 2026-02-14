@@ -40,6 +40,9 @@ type llmErrorMsg struct{ err error }
 type llmContentDeltaMsg struct{ content string }
 type llmReasoningDeltaMsg struct{ content string }
 
+// undoMsg is sent when the user clicks the undo control.
+type undoMsg struct{}
+
 // llmBatchMsg carries multiple messages drained from updateChan in one go.
 type llmBatchMsg []tea.Msg
 

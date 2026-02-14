@@ -28,3 +28,10 @@ func (t *FileReadTracker) WasRead(absPath string) bool {
 	_, ok := t.read[absPath]
 	return ok
 }
+
+// Reset clears all read records (used on undo).
+func (t *FileReadTracker) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.read = make(map[string]struct{})
+}

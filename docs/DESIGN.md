@@ -98,12 +98,13 @@ Parse project with tree-sitter for structural awareness. Feed relevant
 symbols/scope to LLM as auto-context instead of whole files.
 **Uses 4k tokens on a small project like this** -- ohoh... Maybe return updated treesiter information with Grep matches for less token usage overall? Context inhection then can reduced/compacted?
 
-## Features waiting implementation for current version:
-
 ### Undo!
 
 - User should be able to undo conversation turns. The most recent entry should show a clear clickable area labelled undo.
 - Clicking undo reverses context history, tool calls, filesystem changes, file changes. Resets the conversation to that exact point
+
+
+## Features waiting implementation for current version:
 
 ### Shell Execution Tool
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
@@ -109,14 +110,15 @@ After each edit you receive fresh hashes — use those for subsequent edits, not
 
 // EditHandler handles Edit tool calls.
 type EditHandler struct {
-	tracker    *FileReadTracker
-	lspManager *lsp.Manager
-	tsIndex    *treesitter.Index
+	tracker      *FileReadTracker
+	lspManager   *lsp.Manager
+	tsIndex      *treesitter.Index
+	deltaTracker *delta.Tracker
 }
 
 // NewEditHandler creates a handler for the Edit tool.
-func NewEditHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *EditHandler {
-	return &EditHandler{tracker: tracker, lspManager: lspManager}
+func NewEditHandler(tracker *FileReadTracker, lspManager *lsp.Manager, dt *delta.Tracker) *EditHandler {
+	return &EditHandler{tracker: tracker, lspManager: lspManager, deltaTracker: dt}
 }
 
 // SetTSIndex sets the tree-sitter index for incremental updates on edit.
@@ -193,6 +195,10 @@ func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditAr
 		return toolError("%v", err), nil
 	}
 
+	if h.deltaTracker != nil {
+		h.deltaTracker.RecordModify(absPath, content)
+	}
+
 	if err := os.WriteFile(absPath, []byte(result), 0600); err != nil {
 		return toolError("Failed to write file: %v", err), nil
 	}
@@ -223,6 +229,10 @@ func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath str
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return toolError("Failed to create directories: %v", err), nil
+	}
+
+	if h.deltaTracker != nil {
+		h.deltaTracker.RecordCreate(absPath)
 	}
 
 	if err := os.WriteFile(absPath, []byte(op.Content), 0600); err != nil {

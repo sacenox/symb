@@ -126,6 +126,12 @@ func (m Model) makeSeparator(dur string, ts string) string {
 	return m.styles.Dim.Render(label + strings.Repeat("─", fill))
 }
 
+// makeUndoEntry creates a convEntry for the undo control.
+// sepDisplay is the styled separator text to restore if this entry is demoted.
+func (m Model) makeUndoEntry(sepDisplay string) convEntry {
+	return convEntry{display: m.styles.Dim.Render("undo"), kind: entryUndo, full: sepDisplay}
+}
+
 // visibleStartLine returns the index of the first visible wrapped conversation line.
 func (m *Model) visibleStartLine() int {
 	lines := m.wrappedConvLines()

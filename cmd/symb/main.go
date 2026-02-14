@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/config"
+	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/mcptools"
@@ -85,8 +86,13 @@ func main() {
 	svc.readHandler.SetTSIndex(tsIndex)
 	svc.editHandler.SetTSIndex(tsIndex)
 
+	// Set session on delta tracker so file deltas are linked.
+	if svc.deltaTracker != nil {
+		svc.deltaTracker.SetSession(sessionID)
+	}
+
 	p := tea.NewProgram(
-		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex),
+		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
@@ -132,11 +138,13 @@ func resolveProvider(cfg *config.Config, registry *provider.Registry) (string, c
 }
 
 type services struct {
-	proxy       *mcp.Proxy
-	lspManager  *lsp.Manager
-	webCache    *store.Cache
-	readHandler *mcptools.ReadHandler
-	editHandler *mcptools.EditHandler
+	proxy        *mcp.Proxy
+	lspManager   *lsp.Manager
+	webCache     *store.Cache
+	readHandler  *mcptools.ReadHandler
+	editHandler  *mcptools.EditHandler
+	fileTracker  *mcptools.FileReadTracker
+	deltaTracker *delta.Tracker
 }
 
 func setupServices(cfg *config.Config, creds *config.Credentials) services {
@@ -157,10 +165,16 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 
 	proxy.RegisterTool(mcptools.NewGrepTool(), mcptools.MakeGrepHandler())
 
-	editHandler := mcptools.NewEditHandler(fileTracker, lspManager)
-	proxy.RegisterTool(mcptools.NewEditTool(), editHandler.Handle)
-
 	webCache := openWebCache(cfg)
+
+	// Create delta tracker for undo support, sharing the same DB.
+	var dt *delta.Tracker
+	if webCache != nil {
+		dt = delta.New(webCache.DB())
+	}
+
+	editHandler := mcptools.NewEditHandler(fileTracker, lspManager, dt)
+	proxy.RegisterTool(mcptools.NewEditTool(), editHandler.Handle)
 
 	proxy.RegisterTool(mcptools.NewWebFetchTool(), mcptools.MakeWebFetchHandler(webCache))
 
@@ -168,11 +182,13 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 	proxy.RegisterTool(mcptools.NewWebSearchTool(), mcptools.MakeWebSearchHandler(webCache, exaKey, ""))
 
 	return services{
-		proxy:       proxy,
-		lspManager:  lspManager,
-		webCache:    webCache,
-		readHandler: readHandler,
-		editHandler: editHandler,
+		proxy:        proxy,
+		lspManager:   lspManager,
+		webCache:     webCache,
+		readHandler:  readHandler,
+		editHandler:  editHandler,
+		fileTracker:  fileTracker,
+		deltaTracker: dt,
 	}
 }
 

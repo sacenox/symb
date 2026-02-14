@@ -36,7 +36,7 @@ func newTrackedHandler(t *testing.T, absPath string) *EditHandler {
 	t.Helper()
 	tracker := NewFileReadTracker()
 	tracker.MarkRead(absPath)
-	return NewEditHandler(tracker, nil)
+	return NewEditHandler(tracker, nil, nil)
 }
 
 func callEdit(t *testing.T, handler *EditHandler, args EditArgs) (string, bool) {
@@ -159,7 +159,7 @@ func TestEditCreate(t *testing.T) {
 	defer os.Chdir(origDir) //nolint:errcheck
 
 	tracker := NewFileReadTracker()
-	handler := NewEditHandler(tracker, nil)
+	handler := NewEditHandler(tracker, nil, nil)
 	text, isErr := callEdit(t, handler, EditArgs{
 		File:   "newfile.go",
 		Create: &CreateOp{Content: "package main\n\nfunc main() {}\n"},
@@ -184,7 +184,7 @@ func TestEditCreateFailsIfExists(t *testing.T) {
 	defer cleanup()
 
 	tracker := NewFileReadTracker()
-	handler := NewEditHandler(tracker, nil)
+	handler := NewEditHandler(tracker, nil, nil)
 	_, isErr := callEdit(t, handler, EditArgs{
 		File:   "test.go",
 		Create: &CreateOp{Content: "new content"},
@@ -220,7 +220,7 @@ func TestEditNoOperation(t *testing.T) {
 	defer cleanup()
 
 	tracker := NewFileReadTracker()
-	handler := NewEditHandler(tracker, nil)
+	handler := NewEditHandler(tracker, nil, nil)
 	_, isErr := callEdit(t, handler, EditArgs{
 		File: "test.go",
 	})
@@ -262,7 +262,7 @@ func TestEditPathTraversal(t *testing.T) {
 	defer cleanup()
 
 	tracker := NewFileReadTracker()
-	handler := NewEditHandler(tracker, nil)
+	handler := NewEditHandler(tracker, nil, nil)
 	_, isErr := callEdit(t, handler, EditArgs{
 		File:   "../../../etc/passwd",
 		Create: &CreateOp{Content: "hacked"},
@@ -339,7 +339,7 @@ func TestEditRequiresReadFirst(t *testing.T) {
 
 	// Handler with empty tracker — file NOT read
 	tracker := NewFileReadTracker()
-	handler := NewEditHandler(tracker, nil)
+	handler := NewEditHandler(tracker, nil, nil)
 
 	text, isErr := callEdit(t, handler, EditArgs{
 		File: filepath.Base(path),
@@ -385,7 +385,7 @@ func TestEditCreateBypassesReadCheck(t *testing.T) {
 
 	// Empty tracker — no file read. Create should still work.
 	tracker := NewFileReadTracker()
-	handler := NewEditHandler(tracker, nil)
+	handler := NewEditHandler(tracker, nil, nil)
 	_, isErr := callEdit(t, handler, EditArgs{
 		File:   "brand-new.go",
 		Create: &CreateOp{Content: "package new\n"},
