@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -290,7 +292,7 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 		}
 	}
 	for _, tc := range msg.toolCalls {
-		entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(tc.Name+"(...)")
+		entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(formatToolCall(tc))
 		wasBottom := m.appendText(entry)
 		if wasBottom {
 			m.scrollOffset = 0
@@ -343,6 +345,34 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	if wasBottom {
 		m.scrollOffset = 0
 	}
+}
+
+// formatToolCall renders a tool call as Name(key="val", key2="val2").
+// Long values are truncated. Falls back to Name(...) on parse errors.
+func formatToolCall(tc provider.ToolCall) string {
+	const maxVal = 40
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(tc.Arguments, &args); err != nil || len(args) == 0 {
+		return tc.Name + "(...)"
+	}
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		var v interface{}
+		if err := json.Unmarshal(args[k], &v); err != nil {
+			continue
+		}
+		s := fmt.Sprintf("%v", v)
+		if len(s) > maxVal {
+			s = s[:maxVal] + "…"
+		}
+		parts = append(parts, k+"="+s)
+	}
+	return tc.Name + "(" + strings.Join(parts, ", ") + ")"
 }
 
 // updateComponentSizes pushes layout dimensions to sub-models.

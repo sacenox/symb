@@ -142,6 +142,7 @@ Right (right aligned text)
 
 - Network errors to providers (llm, and exa_search), truncated.
   - NOTE: Animated icon becomes red until next successful request.
+- Context info: tokens out/in + total context size.
 - Current llm provider config name
 - Show name and version
 - Animated icon.
