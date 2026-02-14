@@ -49,9 +49,6 @@ type Model struct {
 	MarkChgStyle  lipgloss.Style     // Style for changed-line marker
 	MarkDelStyle  lipgloss.Style     // Style for deleted-line marker
 
-	// Per-line background overrides (e.g. diff line tinting).
-	LineBg map[int]lipgloss.Style // bufRow (0-indexed) -> background style
-
 	// Per-line diagnostic severity (LSP). bufRow (0-indexed) -> severity (1=error, 2=warning).
 	DiagnosticLines map[int]int
 	DiagErrStyle    lipgloss.Style // Line number fg when line has error
@@ -418,12 +415,6 @@ func (m Model) renderGutterMark(bufRow int, lineNumSty lipgloss.Style) string {
 	default:
 		return lineNumSty.Render(" ")
 	}
-}
-
-// SetLineBg replaces the per-line background overrides.
-// Keys are 0-indexed buffer row numbers.
-func (m *Model) SetLineBg(bg map[int]lipgloss.Style) {
-	m.LineBg = bg
 }
 
 // ---------------------------------------------------------------------------

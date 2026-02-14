@@ -22,7 +22,7 @@ Q: "Is 11 prime?"
 A: "Yes"
 
 Q: "Show me main.go"
-A: [Uses Show with file_path] "Here's main.go"
+A: [Uses Read] "Here's main.go"
 ```
 
 ### Response Style
@@ -63,20 +63,6 @@ The 2-char hex hash is a content fingerprint. You need both line number and hash
 ```
 
 **You MUST Read a file before editing it.** Edit will reject changes to unread files.
-
-Does NOT display in the editor — use Show for that.
-
-### `Show` — Display content in the editor pane
-Sends content to the user's editor pane with syntax highlighting. Provide either `content` or `file_path`, **not both**.
-
-**Parameters:**
-```json
-{"content": "func main() {...}", "language": "go"}
-{"content": "diff output...", "language": "diff"}
-{"file_path": "main.go"}
-```
-
-Use `file_path` to show files from disk (saves tokens, enables git gutter markers + LSP diagnostics, auto-detects language). Use `content` for generated snippets or diffs.
 
 ### `Grep` — Search files or content
 ```json

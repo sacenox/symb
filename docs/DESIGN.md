@@ -48,6 +48,7 @@ prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
 - **OpenCode** — remote, API key auth. Model-specific endpoint routing.
 - Both use SSE streaming with retry on initial connection (3 retries, 429/5xx).
 - Single `ChatStream()` interface method replaces `Chat`/`ChatWithTools`/`Stream`.
+- Deterministic JSON tool schemas, provider kv cache support
 
 ### MCP (`internal/mcp`)
 
@@ -59,28 +60,19 @@ Retry-After parsing.
 
 3 tools registered:
 
-- **Open** — reads file, returns hashline-tagged content (`linenum:hash|content`),
-  sends to TUI editor. Path traversal prevention.
+- **Read** — reads file, returns hashline-tagged content (`linenum:hash|content`). Path traversal prevention.
 - **Edit** — hash-anchored file editing (replace, insert, delete, create).
   Validates hashes before modifying. Returns fresh hashes after edit. Enforces
-  read-before-edit via `FileReadTracker`.
+  read-before-edit via `FileReadTracker`. Includes LSP Diagnostics.
 - **Grep** — file/content search. Regex, gitignore-aware, case sensitivity,
   max results.
 - **WebSearch and Webfetch** -- read and search the web (search by exa.ai)
 
-### Supporting Packages
-
-- `internal/hashline` — SHA-256 truncated to 2 hex chars per line. Anchor
-  validation, range validation. 7 tests, 96.7% coverage.
-- `internal/filesearch` — directory walker with `.gitignore` support, regex
-  matching, binary detection, 10MB size limit.
-- `internal/config` — TOML config, JSON credentials, env overrides.
-
 ### Git Integration
 
-- git **read** tools for the LLM: diff, status
-- Editor displays diffs with syntax hl
-- git markers in the number column for editted files in the editor
+- **DEPRECATED** too complex and messes with syntax hl adding complexity with little value. Editor displays diffs with syntax hl
+- git markers in the number column for editted files in the editor (needs work but does what it's meant to do)
+- TODO: Read includes diff for the file (or diff status, we need to consider token usage) edit tool includes updated file diff after change
 
 ### LSP Integration
 
@@ -88,6 +80,12 @@ Retry-After parsing.
 - Start with diagnostics (show errors/warnings in the number line, a error line has a red color number, warnings yellow).
 
 ## Features waiting implementation for current version:
+
+### Shell Execution Tool
+
+Run commands in sandbox (container isolation or restricted shell). Command
+whitelisting. Output streaming to conversation.
+Needs an undo.
 
 ### Context management?
 
@@ -129,23 +127,12 @@ Right (right aligned text)
 ### Git write commands and worktrees
 
 - sandboxed git worktrees for agents edits.
-- git **write** tools. (only after worktrees are functional)
 
 ### Human-in-the-Middle Tool Approval
 
 Pause before executing tool calls. Show tool name + args in a dialog. User
 approves/rejects. Configurable per-tool permissions in `config.toml` (allow,
 ask, deny). Some tools (Read/Grep) default allow, mutations (Edit) default ask.
-
-### Delete tool and undo
-
-A simple file delete tool and a undo tool, undos delete or edit calls.
-
-### Shell Execution Tool
-
-Run commands in sandbox (container isolation or restricted shell). Command
-whitelisting. Output streaming to conversation.
-
 
 ### Sub-Agent Tool
 

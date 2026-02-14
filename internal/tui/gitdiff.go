@@ -1,4 +1,4 @@
-package mcptools
+package tui
 
 import (
 	"bytes"

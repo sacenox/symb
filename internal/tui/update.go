@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/xonecas/symb/internal/mcptools"
 	"github.com/xonecas/symb/internal/provider"
 )
 
@@ -46,10 +45,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// -- LLM user message (sent before streaming begins) ---------------------
 	case llmUserMsg:
 		return m.handleUserMsg(msg), tea.Batch(m.processLLM(), m.waitForLLMUpdate())
-
-	case mcptools.ShowMsg:
-		m.handleShowMsg(msg)
-		return m, nil
 
 	case LSPDiagnosticsMsg:
 		if msg.FilePath == m.editorFilePath {
@@ -155,26 +150,6 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 		m.scrollOffset = 0
 	}
 	return *m
-}
-
-// handleShowMsg loads content from a ShowMsg into the editor.
-func (m *Model) handleShowMsg(msg mcptools.ShowMsg) {
-	m.editor.SetValue(msg.Content)
-	m.editor.Language = msg.Language
-	if msg.Language == langDiff {
-		m.editor.SetLineBg(diffLineBg(msg.Content))
-	} else {
-		m.editor.SetLineBg(nil)
-	}
-	m.editor.DiagnosticLines = nil
-	if msg.FilePath != "" {
-		markers := mcptools.GitFileMarkers(m.ctx, msg.FilePath)
-		m.editor.SetGutterMarkers(markers)
-	} else {
-		m.editor.SetGutterMarkers(nil)
-	}
-	m.editorFilePath = msg.AbsPath
-	m.setFocus(focusEditor)
 }
 
 // handleLLMBatch processes a batch of messages drained from updateChan.

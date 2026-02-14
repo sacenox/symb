@@ -47,7 +47,7 @@ func main() {
 	}
 	defer prov.Close()
 
-	proxy, lspManager, showHandler, webCache := setupServices(cfg, creds)
+	proxy, lspManager, webCache := setupServices(cfg, creds)
 	defer proxy.Close()
 	defer lspManager.StopAll(context.Background())
 	if webCache != nil {
@@ -64,7 +64,6 @@ func main() {
 		tui.New(prov, proxy, tools, providerCfg.Model),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
-	showHandler.SetProgram(p)
 	lspManager.SetCallback(func(absPath string, lines map[int]int) {
 		p.Send(tui.LSPDiagnosticsMsg{FilePath: absPath, Lines: lines})
 	})
@@ -107,7 +106,7 @@ func resolveProvider(cfg *config.Config, registry *provider.Registry) (string, c
 	return name, pcfg
 }
 
-func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *lsp.Manager, *mcptools.ShowHandler, *store.Cache) {
+func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *lsp.Manager, *store.Cache) {
 	var mcpClient mcp.UpstreamClient
 	if cfg.MCP.Upstream != "" {
 		mcpClient = mcp.NewClient(cfg.MCP.Upstream)
@@ -123,9 +122,6 @@ func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *
 	readHandler := mcptools.NewReadHandler(fileTracker, lspManager)
 	proxy.RegisterTool(mcptools.NewReadTool(), readHandler.Handle)
 
-	showHandler := mcptools.NewShowHandler()
-	proxy.RegisterTool(mcptools.NewShowTool(), showHandler.Handle)
-
 	proxy.RegisterTool(mcptools.NewGrepTool(), mcptools.MakeGrepHandler())
 
 	editHandler := mcptools.NewEditHandler(fileTracker, lspManager)
@@ -133,14 +129,12 @@ func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *
 
 	webCache := openWebCache(cfg)
 
-	proxy.RegisterTool(mcptools.NewGitStatusTool(), mcptools.MakeGitStatusHandler())
-	proxy.RegisterTool(mcptools.NewGitDiffTool(), mcptools.MakeGitDiffHandler())
 	proxy.RegisterTool(mcptools.NewWebFetchTool(), mcptools.MakeWebFetchHandler(webCache))
 
 	exaKey := creds.GetAPIKey("exa_ai")
 	proxy.RegisterTool(mcptools.NewWebSearchTool(), mcptools.MakeWebSearchHandler(webCache, exaKey, ""))
 
-	return proxy, lspManager, showHandler, webCache
+	return proxy, lspManager, webCache
 }
 
 func openWebCache(cfg *config.Config) *store.Cache {

@@ -52,7 +52,6 @@ func (m Model) View() string {
 	}
 
 	lineNumSty := m.LineNumStyle.Background(bg.GetBackground())
-	themeBgSeq := hexToBgSeq(m.bgHexForHighlight())
 
 	var b strings.Builder
 	for vi := 0; vi < m.height; vi++ {
@@ -64,13 +63,12 @@ func (m Model) View() string {
 			continue
 		}
 		vr := rows[vi]
-		rowBg, hasLineBg := m.resolveRowBg(vr.bufRow, bg)
 
 		if m.ShowLineNumbers {
-			m.renderGutter(&b, vr, lineNumSty, rowBg, hasLineBg)
+			m.renderGutter(&b, vr, lineNumSty)
 		}
 
-		rendered := m.renderSegment(vr, tw, cursorExpandedCol, sr, rowBg, hasLineBg, themeBgSeq)
+		rendered := m.renderSegment(vr, tw, cursorExpandedCol, sr, bg)
 		rw := lipgloss.Width(rendered)
 		if rw > tw {
 			rendered = ansi.Truncate(rendered, tw, "")
@@ -78,7 +76,7 @@ func (m Model) View() string {
 		}
 		b.WriteString(rendered)
 		if rw < tw {
-			b.WriteString(rowBg.Render(strings.Repeat(" ", tw-rw)))
+			b.WriteString(bg.Render(strings.Repeat(" ", tw-rw)))
 		}
 	}
 	return b.String()
@@ -128,20 +126,9 @@ func (m Model) cursorExpanded() int {
 	return len([]rune(expandTabs(string(m.lines[m.row][:m.col]))))
 }
 
-// resolveRowBg returns the background style for a buffer row.
-func (m Model) resolveRowBg(bufRow int, defaultBg lipgloss.Style) (lipgloss.Style, bool) {
-	if lbg, ok := m.LineBg[bufRow]; ok {
-		return lbg, true
-	}
-	return defaultBg, false
-}
-
 // renderGutter writes the gutter (line number + marker) for one visual row.
-func (m Model) renderGutter(b *strings.Builder, vr visualRow, lineNumSty, rowBg lipgloss.Style, hasLineBg bool) {
+func (m Model) renderGutter(b *strings.Builder, vr visualRow, lineNumSty lipgloss.Style) {
 	gutSty := lineNumSty
-	if hasLineBg {
-		gutSty = gutSty.Background(rowBg.GetBackground())
-	}
 	digits := m.gutterWidth - 2
 	if vr.subRow == 0 {
 		numSty := gutSty
@@ -161,7 +148,7 @@ func (m Model) renderGutter(b *strings.Builder, vr visualRow, lineNumSty, rowBg 
 }
 
 // renderSegment produces the rendered ANSI string for one visual row's text.
-func (m Model) renderSegment(vr visualRow, tw, cursorExpandedCol int, sr *selRange, rowBg lipgloss.Style, hasLineBg bool, themeBgSeq string) string {
+func (m Model) renderSegment(vr visualRow, tw, cursorExpandedCol int, sr *selRange, bg lipgloss.Style) string {
 	segRuneOff := vr.subRow * tw
 	segLen := len([]rune(vr.text))
 	hasSyntax := m.Language != "" && m.SyntaxTheme != ""
@@ -173,19 +160,15 @@ func (m Model) renderSegment(vr visualRow, tw, cursorExpandedCol int, sr *selRan
 
 	if rowHasSel {
 		return m.renderSelectedSegment(vr.text, vr.fullHL, vr.segStart, segLen,
-			selColStart, selColEnd, m.SelectionStyle, rowBg, isCursorHere, cursorExpandedCol-segRuneOff)
+			selColStart, selColEnd, m.SelectionStyle, bg, isCursorHere, cursorExpandedCol-segRuneOff)
 	}
 	if isCursorHere {
 		return m.renderCursorSegment(vr.text, vr.fullHL, vr.segStart, cursorExpandedCol-segRuneOff)
 	}
 	if hasSyntax && vr.fullHL != "" {
-		rendered := ansi.Cut(vr.fullHL, vr.segStart, vr.segEnd)
-		if hasLineBg && themeBgSeq != "" {
-			rendered = strings.ReplaceAll(rendered, themeBgSeq, colorToBgSeq(rowBg.GetBackground()))
-		}
-		return rendered
+		return ansi.Cut(vr.fullHL, vr.segStart, vr.segEnd)
 	}
-	return rowBg.Render(vr.text)
+	return bg.Render(vr.text)
 }
 
 // segmentSelection computes selection column bounds for a segment. Returns (hasSel, start, end).

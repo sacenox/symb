@@ -8,12 +8,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/xonecas/symb/internal/mcptools"
 )
-
-const langDiff = "diff"
 
 // ---------------------------------------------------------------------------
 // Mouse filter — throttle high-frequency events at program level.
@@ -270,10 +267,13 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 	// Tool result: open the source file or fall back to raw content
 	if entry.kind == entryToolResult {
 		if entry.filePath != "" {
+			absPath, _ := filepath.Abs(entry.filePath)
 			if content, err := os.ReadFile(entry.filePath); err == nil {
 				m.editor.SetValue(string(content))
 				m.editor.Language = mcptools.DetectLanguage(entry.filePath)
-				m.editor.SetLineBg(nil)
+				m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, entry.filePath))
+				m.editor.DiagnosticLines = nil
+				m.editorFilePath = absPath
 				m.setFocus(focusEditor)
 				return nil
 			}
@@ -281,14 +281,10 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 		// Fallback: show raw tool result text
 		if entry.full != "" {
 			m.editor.SetValue(entry.full)
-			lang := detectToolResultLanguage(entry.full)
-			m.editor.Language = lang
-			if lang == langDiff {
-				m.editor.SetLineBg(diffLineBg(entry.full))
-			} else {
-				m.editor.SetLineBg(nil)
-			}
+			m.editor.Language = "text"
 			m.editor.SetGutterMarkers(nil)
+			m.editor.DiagnosticLines = nil
+			m.editorFilePath = ""
 			m.setFocus(focusEditor)
 			return nil
 		}
@@ -338,50 +334,12 @@ func (m *Model) tryOpenFilePath(text string) tea.Cmd {
 	language := mcptools.DetectLanguage(path)
 	m.editor.SetValue(string(content))
 	m.editor.Language = language
-	m.editor.SetLineBg(nil)
+	m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, path))
+	m.editor.DiagnosticLines = nil
+	m.editorFilePath = absPath
 	if lineNum > 0 {
 		m.editor.GotoLine(lineNum)
 	}
 	m.setFocus(focusEditor)
 	return nil
-}
-
-// detectToolResultLanguage guesses a Chroma lexer name from tool result content.
-func detectToolResultLanguage(content string) string {
-	if strings.Contains(content, "\n@@ ") ||
-		strings.HasPrefix(content, "@@ ") ||
-		strings.HasPrefix(content, "diff ") ||
-		strings.HasPrefix(content, "--- ") {
-		return langDiff
-	}
-	return "text"
-}
-
-// diffLineBg builds per-line background styles for unified diff content.
-// Added lines get a green tint, removed lines red, hunk headers a subtle accent.
-func diffLineBg(content string) map[int]lipgloss.Style {
-	lines := strings.Split(content, "\n")
-	bg := make(map[int]lipgloss.Style)
-
-	addBg := lipgloss.NewStyle().Background(lipgloss.Color("#1a3a1a")).Foreground(ColorFg)
-	delBg := lipgloss.NewStyle().Background(lipgloss.Color("#3a1a1a")).Foreground(ColorFg)
-	hunkBg := lipgloss.NewStyle().Background(lipgloss.Color("#1a2a3a")).Foreground(ColorFg)
-
-	for i, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- "):
-			// File headers — skip, keep default bg
-		case strings.HasPrefix(line, "+"):
-			bg[i] = addBg
-		case strings.HasPrefix(line, "-"):
-			bg[i] = delBg
-		case strings.HasPrefix(line, "@@"):
-			bg[i] = hunkBg
-		}
-	}
-
-	if len(bg) == 0 {
-		return nil
-	}
-	return bg
 }

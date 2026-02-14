@@ -2,7 +2,6 @@ package editor
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 	"sync"
 
@@ -90,15 +89,6 @@ func hexNibble(c byte) int {
 		return int(c-'A') + 10
 	}
 	return 0
-}
-
-// colorToBgSeq converts a color.Color to an ANSI 24-bit background escape.
-func colorToBgSeq(c color.Color) string {
-	if c == nil {
-		return ""
-	}
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
 }
 
 // themeBg extracts the background hex color from a Chroma style.

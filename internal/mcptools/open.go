@@ -20,19 +20,11 @@ type ReadArgs struct {
 	End   int    `json:"end,omitempty"`   // Optional: end line (1-indexed)
 }
 
-// ShowMsg is the message sent to TUI to display content in the editor pane.
-type ShowMsg struct {
-	Content  string
-	Language string
-	FilePath string // display path (may be relative); empty for non-file content
-	AbsPath  string // absolute path for matching LSP diagnostics; empty for non-file content
-}
-
 // NewReadTool creates the Read tool definition.
 func NewReadTool() mcp.Tool {
 	return mcp.Tool{
 		Name:        "Read",
-		Description: `Reads a file and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Read a file before editing it with Edit. Use start/end for line ranges. Does NOT display in the editor — use Show for that.`,
+		Description: `Reads a file and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Read a file before editing it with Edit. Use start/end for line ranges.`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
