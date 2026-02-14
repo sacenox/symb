@@ -289,15 +289,12 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 				return nil
 			}
 		}
-		// Fallback: show raw tool result text
-		if entry.full != "" {
-			m.editor.SetValue(entry.full)
-			m.editor.Language = "text"
-			m.editor.SetGutterMarkers(nil)
-			m.editor.DiagnosticLines = nil
-			m.editorFilePath = ""
-			m.setFocus(focusEditor)
-			return nil
+		// No file path on entry (e.g. Grep/Shell): try to extract a
+		// file:line reference from the clicked line itself.
+		lines := m.wrappedConvLines()
+		if wrappedLine < len(lines) {
+			plain := ansi.Strip(lines[wrappedLine])
+			return m.tryOpenFilePath(plain)
 		}
 	}
 

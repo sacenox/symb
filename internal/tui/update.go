@@ -268,16 +268,7 @@ func (m *Model) flushRebuild(needed bool) bool {
 // applyAssistantMsg finalizes streaming state and appends the assistant's
 // response entries. Extracted so handleLLMBatch can reuse the logic.
 func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
-	if m.streaming {
-		m.streaming = false
-		if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
-			m.convEntries = m.convEntries[:m.streamEntryStart]
-		}
-		m.streamEntryStart = -1
-		m.streamingReasoning = ""
-		m.streamingContent = ""
-		m.convLines = nil
-	}
+	m.clearStreaming()
 	if msg.reasoning != "" {
 		wasBottom := m.appendText(styledLines(msg.reasoning, m.styles.Muted)...)
 		m.appendText("")
@@ -305,20 +296,27 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 	}
 }
 
+// clearStreaming resets active streaming state.
+func (m *Model) clearStreaming() {
+	if !m.streaming {
+		return
+	}
+	m.streaming = false
+	if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
+		m.convEntries = m.convEntries[:m.streamEntryStart]
+	}
+	m.streamEntryStart = -1
+	m.streamingReasoning = ""
+	m.streamingContent = ""
+	m.convLines = nil
+}
+
 // applyToolResultMsg appends tool result display entries.
 // It also clears any active streaming state (e.g. from ShellOutputMsg)
 // so the next applyAssistantMsg doesn't truncate the tool result entries.
 func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
-	if m.streaming {
-		m.streaming = false
-		if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
-			m.convEntries = m.convEntries[:m.streamEntryStart]
-		}
-		m.streamEntryStart = -1
-		m.streamingReasoning = ""
-		m.streamingContent = ""
-		m.convLines = nil
-	}
+	m.clearStreaming()
+
 	var filePath string
 	if sm := toolResultFileRe.FindStringSubmatch(msg.content); sm != nil {
 		filePath = sm[1]
@@ -333,10 +331,19 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		startLine = toolCallEditLine(tc.Arguments)
 	}
 
+	// Determine the tool name for display decisions.
+	var toolName string
+	if tc, ok := m.pendingToolCalls[msg.toolCallID]; ok {
+		toolName = tc.Name
+	}
+
+	// Grep and Shell show all lines (each clickable); others truncate.
+	showFull := toolName == "Grep" || toolName == "Shell"
+
 	lines := strings.Split(msg.content, "\n")
 	preview := lines
 	truncated := false
-	if len(lines) > maxPreviewLines {
+	if !showFull && len(lines) > maxPreviewLines {
 		preview = lines[:maxPreviewLines]
 		truncated = true
 	}
