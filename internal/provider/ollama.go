@@ -201,7 +201,7 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 	inSystemRun := false
 
 	for i, msg := range messages {
-		if msg.Role == "system" {
+		if msg.Role == roleSystem {
 			// Start or continue system message accumulation
 			if inSystemRun {
 				systemBuffer.WriteString("\n\n")
@@ -213,7 +213,7 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 			// Flush accumulated system messages if any
 			if inSystemRun {
 				result = append(result, ollamaReqMessage{
-					Role:    "system",
+					Role:    roleSystem,
 					Content: systemBuffer.String(),
 				})
 				systemBuffer.Reset()
@@ -226,7 +226,7 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 		// Flush at end of array
 		if i == len(messages)-1 && inSystemRun {
 			result = append(result, ollamaReqMessage{
-				Role:    "system",
+				Role:    roleSystem,
 				Content: systemBuffer.String(),
 			})
 		}

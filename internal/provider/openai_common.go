@@ -272,7 +272,7 @@ func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai
 	var conversationMessages []openai.ChatCompletionMessage
 
 	for _, msg := range messages {
-		if msg.Role == "system" {
+		if msg.Role == roleSystem {
 			systemMessages = append(systemMessages, msg.Content)
 		} else {
 			conversationMessages = append(conversationMessages, msg)
@@ -284,7 +284,7 @@ func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai
 	if len(systemMessages) > 0 {
 		mergedSystem := strings.Join(systemMessages, "\n\n")
 		result = append(result, openai.ChatCompletionMessage{
-			Role:    "system",
+			Role:    roleSystem,
 			Content: mergedSystem,
 		})
 	}

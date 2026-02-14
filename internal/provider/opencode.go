@@ -36,15 +36,11 @@ const (
 	opencodeResponsesEndpoint       = "/responses"
 )
 
+// opencodeModelEndpoints overrides the prefix-based fallback in opencodeEndpointForModel.
+// Only list models whose endpoint differs from what the prefix logic would choose.
 var opencodeModelEndpoints = map[string]string{
-	"big-pickle":                 opencodeChatCompletionsEndpoint,
-	"gemini-3-pro":               "/models/gemini-3-pro",
-	"gemini-3-flash":             "/models/gemini-3-flash",
-	"glm-4.7-free":               opencodeChatCompletionsEndpoint,
-	"gpt-5-nano":                 opencodeChatCompletionsEndpoint, // Using chat/completions despite docs saying /responses (500 errors)
-	"kimi-k2.5-free":             opencodeChatCompletionsEndpoint,
-	"minimax-m2.1-free":          opencodeMessagesEndpoint,
-	"trinity-large-preview-free": opencodeChatCompletionsEndpoint,
+	// gpt-5-nano uses /chat/completions despite the gpt- prefix (/responses gives 500 errors)
+	"gpt-5-nano": opencodeChatCompletionsEndpoint,
 }
 
 // NewOpenCode creates a new OpenCode Zen provider.
@@ -72,10 +68,20 @@ func (p *OpenCodeProvider) Name() string {
 
 // ChatStream sends messages with optional tools and returns a channel of streaming events.
 func (p *OpenCodeProvider) ChatStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
-	if opencodeEndpointForModel(p.model) != opencodeChatCompletionsEndpoint {
-		return nil, fmt.Errorf("opencode model %q does not support streaming via chat completions endpoint", p.model)
-	}
+	endpoint := opencodeEndpointForModel(p.model)
 
+	switch endpoint {
+	case opencodeMessagesEndpoint:
+		return p.chatStreamAnthropic(ctx, messages, tools)
+	case opencodeChatCompletionsEndpoint:
+		return p.chatStreamOpenAI(ctx, messages, tools)
+	default:
+		return nil, fmt.Errorf("opencode model %q uses unsupported endpoint %q", p.model, endpoint)
+	}
+}
+
+// chatStreamOpenAI streams via the OpenAI-compatible /chat/completions endpoint.
+func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
 	openaiTools, err := toOpenAITools(tools)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tool schema: %w", err)
@@ -93,16 +99,11 @@ func (p *OpenCodeProvider) ChatStream(ctx context.Context, messages []Message, t
 		return nil, err
 	}
 
-	headers := make(map[string]string)
-	if p.apiKey != "" {
-		headers["Authorization"] = "Bearer " + p.apiKey
-	}
-
 	reader, err := httpDoSSE(ctx, httpRequestConfig{
 		client:   p.httpClient,
-		url:      p.baseURL + opencodeEndpointForModel(p.model),
+		url:      p.baseURL + opencodeChatCompletionsEndpoint,
 		body:     body,
-		headers:  headers,
+		headers:  p.authHeaders(),
 		provider: p.name,
 		model:    p.model,
 	})
@@ -118,6 +119,64 @@ func (p *OpenCodeProvider) ChatStream(ctx context.Context, messages []Message, t
 	}()
 
 	return ch, nil
+}
+
+// chatStreamAnthropic streams via the Anthropic /messages endpoint.
+func (p *OpenCodeProvider) chatStreamAnthropic(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
+	system, anthropicMsgs := toAnthropicMessages(messages)
+
+	anthropicTools, err := toAnthropicTools(tools)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tool schema: %w", err)
+	}
+
+	req := anthropicRequest{
+		Model:       p.model,
+		Messages:    anthropicMsgs,
+		System:      system,
+		MaxTokens:   16384,
+		Temperature: p.temperature,
+		Stream:      true,
+		Tools:       anthropicTools,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := p.authHeaders()
+	headers["x-api-key"] = p.apiKey
+	headers["anthropic-version"] = "2023-06-01"
+
+	reader, err := httpDoSSE(ctx, httpRequestConfig{
+		client:   p.httpClient,
+		url:      p.baseURL + opencodeMessagesEndpoint,
+		body:     body,
+		headers:  headers,
+		provider: p.name,
+		model:    p.model,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ch := make(chan StreamEvent)
+	go func() {
+		defer close(ch)
+		defer reader.Close()
+		parseAnthropicSSEStream(ctx, reader, ch)
+	}()
+
+	return ch, nil
+}
+
+// authHeaders returns common auth headers for requests.
+func (p *OpenCodeProvider) authHeaders() map[string]string {
+	headers := make(map[string]string)
+	if p.apiKey != "" {
+		headers["Authorization"] = "Bearer " + p.apiKey
+	}
+	return headers
 }
 
 func opencodeEndpointForModel(model string) string {

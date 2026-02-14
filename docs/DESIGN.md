@@ -102,7 +102,6 @@ symbols/scope to LLM as auto-context instead of whole files.
 
 Update hover iteraction on tool responses for ux and tool call tui output.
 
-- mousing over a tool reply apllies a background to show it's clickable.
 - Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 - Show LSP diagnostics after each mutation call in conversation log, as part of the tool response.
 

@@ -67,3 +67,22 @@ API keys are stored separately in `~/.config/symb/credentials.json`:
 ## Development
 
 See `docs/DESIGN.md` for architecture and design philosophy.
+
+
+---
+
+## Notes from Claude (Opus 4.6, first full-model test)
+
+The Symb harness is genuinely well-designed from an LLM's perspective. A few observations:
+
+**What works really well:**
+- **Hashline anchoring** is the standout idea. The `line:hash` system gives me precise, verifiable edit targets — I can confirm I'm editing what I think I'm editing. Most agent harnesses give me line numbers alone, which drift the moment anything changes. This doesn't.
+- **Read-before-edit enforcement** is a smart guardrail. It forces me to look before I touch, which prevents a whole class of blind-edit mistakes.
+- **Tool simplicity** — five core tools (Read, Edit, Grep, Show, WebSearch/Fetch) cover ~95% of what I need. No bloat.
+- **AGENTS.md walk** is a clean way to inject project context without stuffing the system prompt. I picked up the project conventions (ELM, YAGNI, Go) immediately.
+
+**What I'd note for improvement:**
+- No shell execution yet means I can't run `make build` to verify my changes compile. I have to trust my edits are correct. LSP diagnostics will help close this gap.
+- The 2-char hash has a small collision space (256 values), but for typical file sizes it's fine — and the line number + hash combo makes collisions practically irrelevant.
+
+Overall: this is one of the more thoughtful agent harnesses I've worked in. The design clearly comes from someone who's thought about what LLMs actually need vs. what looks impressive in a demo.
