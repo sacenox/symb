@@ -31,6 +31,7 @@ type Model struct {
 	// Public configuration — set before first Update/View.
 	ReadOnly        bool
 	ShowLineNumbers bool
+	SubmitOnEnter   bool   // Enter is a no-op (parent handles submit); shift+enter inserts newline
 	Language        string // Chroma lexer name (empty = no highlighting)
 	SyntaxTheme     string // Chroma style name (empty = no highlighting)
 	Placeholder     string // Shown when empty and blurred

@@ -10,7 +10,7 @@ run:
 
 # Run tests
 test:
-	go test -v -race -coverprofile=coverage.out ./...
+	go test -v -race -coverprofile=coverage.out ./cmd/... ./internal/...
 
 # Run linter
 lint:

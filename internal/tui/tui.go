@@ -231,6 +231,9 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 
 	ai := editor.New()
 	ai.Placeholder = "Type a message..."
+	ai.SubmitOnEnter = true
+	ai.Language = "markdown"
+	ai.SyntaxTheme = constants.SyntaxTheme
 	ai.CursorStyle = cursorStyle
 	ai.SelectionStyle = selStyle
 	ai.PlaceholderSty = lipgloss.NewStyle().Foreground(ColorDim).Background(ColorBg)

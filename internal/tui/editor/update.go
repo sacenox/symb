@@ -181,7 +181,17 @@ func (m *Model) handleEditKey(key string) bool {
 		} else {
 			m.deleteForward()
 		}
+	case "shift+enter":
+		if m.SubmitOnEnter {
+			m.DeleteSelection()
+			m.insertNewline()
+		} else {
+			return false
+		}
 	case "enter":
+		if m.SubmitOnEnter {
+			return false // Let parent handle submit
+		}
 		m.DeleteSelection()
 		m.insertNewline()
 	case "tab":
