@@ -117,8 +117,8 @@ type convEntry struct {
 	full     string    // Fallback raw content (when no file path, e.g. Grep results)
 }
 
-// toolResultFileRe extracts the file path from "Opened path ..." / "Edited path ..." / "Created path ..." headers.
-var toolResultFileRe = regexp.MustCompile(`^(?:Opened|Edited|Created)\s+(\S+)`)
+// toolResultFileRe extracts the file path from "Read path ..." / "Edited path ..." / "Created path ..." headers.
+var toolResultFileRe = regexp.MustCompile(`^(?:Read|Edited|Created)\s+(\S+)`)
 
 // filePathRe matches file references like "path/to/file.go:123" or just "path/to/file.go".
 // Requires a '/' to avoid matching version numbers like "v1.0".

@@ -100,9 +100,13 @@ func main() {
 	// Register local tools
 	fileTracker := mcp_tools.NewFileReadTracker()
 
-	openForUserTool := mcp_tools.NewOpenForUserTool()
-	openForUserHandler := mcp_tools.NewOpenForUserHandler(fileTracker, lspManager)
-	proxy.RegisterTool(openForUserTool, openForUserHandler.Handle)
+	readTool := mcp_tools.NewReadTool()
+	readHandler := mcp_tools.NewReadHandler(fileTracker, lspManager)
+	proxy.RegisterTool(readTool, readHandler.Handle)
+
+	showTool := mcp_tools.NewShowTool()
+	showHandler := mcp_tools.NewShowHandler()
+	proxy.RegisterTool(showTool, showHandler.Handle)
 
 	grepTool := mcp_tools.NewGrepTool()
 	grepHandler := mcp_tools.MakeGrepHandler()
@@ -159,8 +163,7 @@ func main() {
 	)
 
 	// Set program reference for tools that need it
-	openForUserHandler.SetProgram(p)
-	editHandler.SetProgram(p)
+	showHandler.SetProgram(p)
 
 	// Wire LSP diagnostics callback to TUI
 	lspManager.SetCallback(func(absPath string, lines map[int]int) {

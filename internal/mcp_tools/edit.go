@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
@@ -67,7 +66,7 @@ func NewEditTool() mcp.Tool {
 						"description": "Anchor for first line to replace",
 						"properties": map[string]interface{}{
 							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Open output"},
+							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
 						},
 						"required": []string{"line", "hash"},
 					},
@@ -76,7 +75,7 @@ func NewEditTool() mcp.Tool {
 						"description": "Anchor for last line to replace",
 						"properties": map[string]interface{}{
 							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Open output"},
+							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
 						},
 						"required": []string{"line", "hash"},
 					},
@@ -93,7 +92,7 @@ func NewEditTool() mcp.Tool {
 						"description": "Anchor for the line to insert after",
 						"properties": map[string]interface{}{
 							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Open output"},
+							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
 						},
 						"required": []string{"line", "hash"},
 					},
@@ -110,7 +109,7 @@ func NewEditTool() mcp.Tool {
 						"description": "Anchor for first line to delete",
 						"properties": map[string]interface{}{
 							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Open output"},
+							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
 						},
 						"required": []string{"line", "hash"},
 					},
@@ -119,7 +118,7 @@ func NewEditTool() mcp.Tool {
 						"description": "Anchor for last line to delete",
 						"properties": map[string]interface{}{
 							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Open output"},
+							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
 						},
 						"required": []string{"line", "hash"},
 					},
@@ -142,10 +141,10 @@ func NewEditTool() mcp.Tool {
 
 	return mcp.Tool{
 		Name: "Edit",
-		Description: `Edit a file using hash-anchored operations. You MUST Open the file first to get line hashes.
-Each line from Open is tagged as "linenum:hash|content". Use the line number and hash as anchors.
+		Description: `Edit a file using hash-anchored operations. You MUST Read the file first to get line hashes.
+Each line from Read is tagged as "linenum:hash|content". Use the line number and hash as anchors.
 Exactly one operation per call: replace, insert, delete, or create.
-If a hash does not match, the file changed since you read it — re-Open and retry.
+If a hash does not match, the file changed since you read it — re-Read and retry.
 After each edit you receive fresh hashes — use those for subsequent edits, not the old ones.`,
 		InputSchema: schemaJSON,
 	}
@@ -153,7 +152,6 @@ After each edit you receive fresh hashes — use those for subsequent edits, not
 
 // EditHandler handles Edit tool calls.
 type EditHandler struct {
-	program    *tea.Program
 	tracker    *FileReadTracker
 	lspManager *lsp.Manager
 }
@@ -161,11 +159,6 @@ type EditHandler struct {
 // NewEditHandler creates a handler for the Edit tool.
 func NewEditHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *EditHandler {
 	return &EditHandler{tracker: tracker, lspManager: lspManager}
-}
-
-// SetProgram sets the tea.Program instance after it's created.
-func (h *EditHandler) SetProgram(program *tea.Program) {
-	h.program = program
 }
 
 // Handle implements the mcp.ToolHandler interface.
@@ -218,9 +211,9 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 		return h.handleCreate(ctx, absPath, args.File, args.Create)
 	}
 
-	// Enforce read-before-edit: file must have been opened first
+	// Enforce read-before-edit: file must have been Read first
 	if !h.tracker.WasRead(absPath) {
-		return toolError("You must Open the file before editing it. Use Open to read %s first — you need the line hashes.", args.File), nil
+		return toolError("You must Read the file before editing it. Use Read on %s first — you need the line hashes.", args.File), nil
 	}
 
 	// All other ops require reading the existing file
@@ -246,17 +239,6 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 
 	if err := os.WriteFile(absPath, []byte(result), 0600); err != nil {
 		return toolError("Failed to write file: %v", err), nil
-	}
-
-	// Show updated file in TUI editor
-	language := DetectLanguage(args.File)
-	if h.program != nil {
-		h.program.Send(OpenForUserMsg{
-			Content:  result,
-			Language: language,
-			FilePath: args.File,
-			AbsPath:  absPath,
-		})
 	}
 
 	// Return hashline-tagged view of the updated file
@@ -290,17 +272,6 @@ func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath str
 
 	if err := os.WriteFile(absPath, []byte(op.Content), 0600); err != nil {
 		return toolError("Failed to create file: %v", err), nil
-	}
-
-	// Show in TUI
-	language := DetectLanguage(displayPath)
-	if h.program != nil {
-		h.program.Send(OpenForUserMsg{
-			Content:  op.Content,
-			Language: language,
-			FilePath: displayPath,
-			AbsPath:  absPath,
-		})
 	}
 
 	tagged := hashline.TagLines(op.Content, 1)

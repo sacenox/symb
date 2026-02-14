@@ -82,12 +82,16 @@ Retry-After parsing.
 - Editor displays diffs with syntax hl
 - git markers in the number column for editted files in the editor
 
-## Features waiting implementation for current version:
-
 ### LSP Integration
 
+- Show closed loop feedback on mutations done by the llm.
 - Start with diagnostics (show errors/warnings in the number line, a error line has a red color number, warnings yellow).
-- Candidates: `go.lsp.dev/protocol` or `github.com/sourcegraph/go-lsp`.
+
+## Features waiting implementation for current version:
+
+### Context management?
+
+https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
 
 ### Tree-Sitter Context
 
@@ -96,17 +100,17 @@ symbols/scope to LLM as auto-context instead of whole files.
 
 ### Tool improvements:
 
-Separate OpenForUser into Read and Show. Read sends the output to the llm, Show sends it to the editor after read.  Update hover iteraction on tool responses for ux. Ui improvements.
+Separate OpenForUser into Read and Show.
+Read sends the output to the llm. 
+Show can send any content the llm passes to the editor.
+- Allows LLM to send snippets, git diffs and full file contents to the editor without big refactor.
 
-- Open (or as it's called internally open for user): Change to Read, shows the read output to the llm. User can click to see if he wants, no automatic loading it to the editor. Includes the current diff and lsp information for the file on read.
-- Show, new tool: Open and send to the editor.
-- All tools: don't auto update the editor (Show excluded).
+Update hover iteraction on tool responses for ux and tool call tui output.
+
 - mousing over a tool reply apllies a background to show it's clickable.
 - Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
+- Show LSP diagnostics after each mutation call in conversation log, as part of the tool response.
 
-### Context management?
-
-https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
 
 ### Statusbar implementation
 

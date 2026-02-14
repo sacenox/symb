@@ -230,13 +230,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendText(sep)
 		return m, nil
 
-	case mcp_tools.OpenForUserMsg:
+	case mcp_tools.ShowMsg:
 		m.editor.SetValue(msg.Content)
 		m.editor.Language = msg.Language
 		m.editor.SetLineBg(nil)
 		m.editor.DiagnosticLines = nil // Clear stale diagnostics on file switch.
-		markers := mcp_tools.GitFileMarkers(m.ctx, msg.FilePath)
-		m.editor.SetGutterMarkers(markers)
+		if msg.FilePath != "" {
+			markers := mcp_tools.GitFileMarkers(m.ctx, msg.FilePath)
+			m.editor.SetGutterMarkers(markers)
+		} else {
+			m.editor.SetGutterMarkers(nil)
+		}
 		m.editorFilePath = msg.AbsPath
 		m.setFocus(focusEditor)
 		return m, nil

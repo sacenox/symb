@@ -8,35 +8,34 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
 )
 
-// OpenForUserArgs represents arguments for Open tool.
-type OpenForUserArgs struct {
+// ReadArgs represents arguments for the Read tool.
+type ReadArgs struct {
 	File  string `json:"file"`
 	Start int    `json:"start,omitempty"` // Optional: start line (1-indexed)
 	End   int    `json:"end,omitempty"`   // Optional: end line (1-indexed)
 }
 
-// OpenForUserMsg is the message sent to TUI to open file content in editor.
-type OpenForUserMsg struct {
+// ShowMsg is the message sent to TUI to display content in the editor pane.
+type ShowMsg struct {
 	Content  string
 	Language string
-	FilePath string // display path (may be relative)
-	AbsPath  string // absolute path for matching LSP diagnostics
+	FilePath string // display path (may be relative); empty for non-file content
+	AbsPath  string // absolute path for matching LSP diagnostics; empty for non-file content
 }
 
-// NewOpenForUserTool creates the Open tool definition.
-func NewOpenForUserTool() mcp.Tool {
+// NewReadTool creates the Read tool definition.
+func NewReadTool() mcp.Tool {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"file": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the file to open",
+				"description": "Path to the file to read",
 			},
 			"start": map[string]interface{}{
 				"type":        "integer",
@@ -53,32 +52,26 @@ func NewOpenForUserTool() mcp.Tool {
 	schemaJSON, _ := json.Marshal(schema)
 
 	return mcp.Tool{
-		Name:        "Open",
-		Description: `Opens a file in the editor and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Open a file before editing it with Edit. Use start/end for line ranges.`,
+		Name:        "Read",
+		Description: `Reads a file and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Read a file before editing it with Edit. Use start/end for line ranges. Does NOT display in the editor — use Show for that.`,
 		InputSchema: schemaJSON,
 	}
 }
 
-// OpenForUserHandler handles Open tool calls and sends messages to the TUI program.
-type OpenForUserHandler struct {
-	program    *tea.Program
+// ReadHandler handles Read tool calls.
+type ReadHandler struct {
 	tracker    *FileReadTracker
 	lspManager *lsp.Manager
 }
 
-// NewOpenForUserHandler creates a handler for Open tool.
-func NewOpenForUserHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *OpenForUserHandler {
-	return &OpenForUserHandler{tracker: tracker, lspManager: lspManager}
-}
-
-// SetProgram sets the tea.Program instance after it's created.
-func (h *OpenForUserHandler) SetProgram(program *tea.Program) {
-	h.program = program
+// NewReadHandler creates a handler for the Read tool.
+func NewReadHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *ReadHandler {
+	return &ReadHandler{tracker: tracker, lspManager: lspManager}
 }
 
 // Handle implements the mcp.ToolHandler interface.
-func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
-	var args OpenForUserArgs
+func (h *ReadHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
+	var args ReadArgs
 	if err := json.Unmarshal(arguments, &args); err != nil {
 		return &mcp.ToolResult{
 			Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid arguments: %v", err)}},
@@ -178,19 +171,6 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 		selectedContent = string(content)
 	}
 
-	// Detect language from file extension
-	language := DetectLanguage(args.File)
-
-	// Send message to TUI to update editor
-	if h.program != nil {
-		h.program.Send(OpenForUserMsg{
-			Content:  selectedContent,
-			Language: language,
-			FilePath: args.File,
-			AbsPath:  absPath,
-		})
-	}
-
 	// Return hashline-tagged content to the LLM
 	startLine := 1
 	if args.Start > 0 {
@@ -210,7 +190,7 @@ func (h *OpenForUserHandler) Handle(ctx context.Context, arguments json.RawMessa
 	}
 
 	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Opened %s%s (%d lines):\n\n%s", args.File, rangeInfo, len(tagged), taggedOutput)}},
+		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Read %s%s (%d lines):\n\n%s", args.File, rangeInfo, len(tagged), taggedOutput)}},
 		IsError: false,
 	}, nil
 }
