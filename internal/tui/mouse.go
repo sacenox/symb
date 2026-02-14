@@ -83,6 +83,11 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// --- Hover: clear when outside conv area --------------------------------
+	if _, isMotion := msg.(tea.MouseMotionMsg); isMotion && !inRect(x, y, m.layout.conv) {
+		m.hoverConvLine = -1
+	}
+
 	// --- Editor: forward with original coords (left pane starts at 0) -------
 	if inRect(x, y, m.layout.editor) {
 		var cmd tea.Cmd
@@ -120,6 +125,15 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		case tea.MouseMotionMsg:
 			if m.convDragging && m.convSel != nil && totalLines > 0 {
 				m.convSel.active = m.convPosFromScreen(x, y, totalLines)
+			}
+			// Update hover state
+			if totalLines > 0 {
+				lineIdx := m.visibleStartLine() + (y - m.layout.conv.Min.Y)
+				if lineIdx >= 0 && lineIdx < totalLines && m.isClickableLine(lineIdx) {
+					m.hoverConvLine = lineIdx
+				} else {
+					m.hoverConvLine = -1
+				}
 			}
 
 		case tea.MouseReleaseMsg:
@@ -186,6 +200,28 @@ func (m Model) translateMouse(msg tea.MouseMsg, offX, offY int) tea.Msg {
 		return ev
 	}
 	return msg
+}
+
+// isClickableLine returns true if the wrapped line at lineIdx is clickable
+// (tool result entry or contains a file path reference).
+func (m *Model) isClickableLine(lineIdx int) bool {
+	lines := m.wrappedConvLines() // ensures convLineSource is also fresh
+	src := m.convLineSource
+	if lineIdx < 0 || lineIdx >= len(src) {
+		return false
+	}
+	entryIdx := src[lineIdx]
+	if entryIdx < 0 || entryIdx >= len(m.convEntries) {
+		return false
+	}
+	if m.convEntries[entryIdx].kind == entryToolResult {
+		return true
+	}
+	if lineIdx >= len(lines) {
+		return false
+	}
+	plain := ansi.Strip(lines[lineIdx])
+	return filePathRe.MatchString(plain)
 }
 
 // handleConvClick resolves a click on a wrapped conversation line.

@@ -1,58 +1,67 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-pickle"
+default_provider = "ollama-qwen-small"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
 endpoint = "http://localhost:11434"
 model = "qwen3:8b"
-temperature = 0.3
+temperature = 0.2
 
 [providers.ollama-qwen-small]
 endpoint = "http://localhost:11434"
 model = "qwen3:4b"
-temperature = 0.3
+temperature = 0.2
 
 [providers.ollama-llama]
 endpoint = "http://localhost:11434"
 model = "llama3.1:8b"
-temperature = 0.3
+temperature = 0.2
 
 [providers.ollama-llama32]
 endpoint = "http://localhost:11434"
 model = "llama3.2"
-temperature = 0.3
+temperature = 0.2
 
 [providers.mfd-deepseek]
 endpoint = "http://localhost:11434"
 model = "MFDoom/deepseek-r1-tool-calling:14b"
-temperature = 0.3
+temperature = 0.2
 
 # OpenCode Zen providers (cloud)
 [providers.zen-nano]
 endpoint = "https://opencode.ai/zen/v1"
 model = "gpt-5-nano"
 api_key_name = "opencode_zen"
-temperature = 0.3
+temperature = 0.2
 
 [providers.zen-pickle]
 endpoint = "https://opencode.ai/zen/v1"
 model = "big-pickle"
 api_key_name = "opencode_zen"
-temperature = 0.3
+temperature = 0.2
+
+[providers.zen-opus]
+endpoint = "https://opencode.ai/zen/v1"
+model = "claude-opus-4-6"
+api_key_name = "opencode_zen"
+temperature = 0.2
 
 [mcp]
 upstream = ""
 
-# UI settings for Symb TUI
 [ui]
-theme = "molokai"
-split_ratio = 0.5
-syntax_theme = "monokai"
+# TODO: Code needs to pull these constants.
+# TODO: highlight color
+#       selection background
+#       link background
+#       grayscale used
+#       syntax theme
 
 [cache]
 ttl_hours = 24
 
 [git]
+# TODO: When adding worktrees later
 enable_sandbox = false

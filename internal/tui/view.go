@@ -15,7 +15,7 @@ import (
 func (m Model) View() tea.View {
 	v := tea.NewView(m.renderContent())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeAllMotion
 	// Keyboard enhancements are automatically enabled in v2 (Kitty protocol).
 	// This gives us ctrl+shift+c/v disambiguation.
 	return v
@@ -75,10 +75,16 @@ func (m Model) renderContent() string {
 				// Selection highlight (character-level)
 				line = m.renderConvLine(line, lineIdx, rw, bgFill)
 
+				// Use hover background for padding when line is hovered
+				padFill := bgFill
+				if m.hoverConvLine == lineIdx && (m.convSel == nil || m.convSel.empty()) {
+					padFill = m.styles.Hover
+				}
+
 				lw := lipgloss.Width(line)
 				b.WriteString(line)
 				if lw < rw {
-					b.WriteString(bgFill.Render(strings.Repeat(" ", rw-lw)))
+					b.WriteString(padFill.Render(strings.Repeat(" ", rw-lw)))
 				}
 			} else {
 				b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))

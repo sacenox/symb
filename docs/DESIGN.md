@@ -100,17 +100,11 @@ symbols/scope to LLM as auto-context instead of whole files.
 
 ### Tool improvements:
 
-Separate OpenForUser into Read and Show.
-Read sends the output to the llm. 
-Show can send any content the llm passes to the editor.
-- Allows LLM to send snippets, git diffs and full file contents to the editor without big refactor.
-
 Update hover iteraction on tool responses for ux and tool call tui output.
 
 - mousing over a tool reply apllies a background to show it's clickable.
 - Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 - Show LSP diagnostics after each mutation call in conversation log, as part of the tool response.
-
 
 ### Statusbar implementation
 

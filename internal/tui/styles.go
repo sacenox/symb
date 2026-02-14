@@ -18,7 +18,8 @@ var (
 	ColorSurface = ColorHighlight            // Selection highlight — reuse accent
 
 	// Semantic aliases
-	ColorError = lipgloss.Color("#932e2e")
+	ColorError  = lipgloss.Color("#932e2e")
+	ColorLinkBg = lipgloss.Color("#111111") // Subtle hover background for clickable elements
 )
 
 // Styles holds all pre-built lipgloss styles used across the TUI.
@@ -36,6 +37,9 @@ type Styles struct {
 	Border    lipgloss.Style // Divider, separator lines
 	Selection lipgloss.Style // Mouse text selection highlight
 	BgFill    lipgloss.Style // Pure black background fill for empty areas
+
+	// Hover
+	Hover lipgloss.Style // Highlight text on subtle dark bg for clickable hover
 
 	// Status bar
 	StatusText lipgloss.Style // Status bar text
@@ -55,6 +59,8 @@ func DefaultStyles() Styles {
 		Border:    bg.Foreground(ColorBorder),
 		Selection: lipgloss.NewStyle().Background(ColorSurface).Foreground(ColorBg),
 		BgFill:    bg,
+
+		Hover: lipgloss.NewStyle().Background(ColorLinkBg).Foreground(ColorHighlight),
 
 		StatusText: bg.Foreground(ColorDim),
 	}

@@ -197,6 +197,9 @@ type Model struct {
 	// Conversation selection
 	convSel      *convSelection
 	convDragging bool
+
+	// Hover state: wrapped line index under cursor (-1 = none)
+	hoverConvLine int
 }
 
 // New creates a new TUI model.
@@ -255,6 +258,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		cancel:      cancel,
 
 		streamEntryStart: -1,
+		hoverConvLine:    -1,
 	}
 }
 

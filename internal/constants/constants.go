@@ -1,5 +1,8 @@
 package constants
 
+// TODO: Add constants for:
+//   - highlight color for search matches
+
 // SyntaxTheme is the Chroma syntax highlighting theme used in the editor.
 //
 // TODO: AFTER MVP -- Add way to toggle theme
