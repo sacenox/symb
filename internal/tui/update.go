@@ -340,7 +340,10 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	// Grep and Shell show all lines (each clickable); others truncate.
 	showFull := toolName == "Grep" || toolName == "Shell"
 
-	lines := strings.Split(msg.content, "\n")
+	// Split diagnostic lines from the main content so they're always shown.
+	body, diagLines := extractDiagLines(msg.content)
+
+	lines := strings.Split(body, "\n")
 	preview := lines
 	truncated := false
 	if !showFull && len(lines) > maxPreviewLines {
@@ -349,22 +352,56 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	}
 
 	arrow := m.styles.ToolArrow.Render("←") + "  "
+	entry := func(display string) convEntry {
+		return convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine}
+	}
 	var wasBottom bool
 	for i, line := range preview {
-		display := m.styles.Dim.Render(line)
+		display := m.styleToolResultLine(line)
 		if i == 0 {
 			display = arrow + display
-			wasBottom = m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
+			wasBottom = m.appendConv(entry(display))
 		} else {
-			m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
+			m.appendConv(entry(display))
 		}
 	}
 	if truncated {
 		hint := fmt.Sprintf("  ... %d more lines (click to view)", len(lines)-maxPreviewLines)
-		m.appendConv(convEntry{display: m.styles.Muted.Render(hint), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
+		m.appendConv(entry(m.styles.Muted.Render(hint)))
+	}
+	for _, dl := range diagLines {
+		m.appendConv(entry(m.styleToolResultLine(dl)))
 	}
 	if wasBottom {
 		m.scrollOffset = 0
+	}
+}
+
+// extractDiagLines splits diagnostic lines from tool result content.
+// Returns the body without the diagnostics block and the ERROR/WARNING lines.
+func extractDiagLines(content string) (body string, diags []string) {
+	idx := strings.Index(content, "\nLSP diagnostics:")
+	if idx < 0 {
+		return content, nil
+	}
+	for _, dl := range strings.Split(content[idx+1:], "\n") {
+		if strings.HasPrefix(dl, "ERROR ") || strings.HasPrefix(dl, "WARNING ") {
+			diags = append(diags, dl)
+		}
+	}
+	return content[:idx], diags
+}
+
+// styleToolResultLine applies semantic styling to a tool result line.
+// Diagnostic lines (ERROR/WARNING) get colored; everything else is dim.
+func (m *Model) styleToolResultLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "ERROR "):
+		return m.styles.Error.Render(line)
+	case strings.HasPrefix(line, "WARNING "):
+		return m.styles.Warning.Render(line)
+	default:
+		return m.styles.Dim.Render(line)
 	}
 }
 

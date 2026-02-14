@@ -18,8 +18,9 @@ var (
 	ColorSurface = ColorHighlight            // Selection highlight — reuse accent
 
 	// Semantic aliases
-	ColorError  = lipgloss.Color("#932e2e")
-	ColorLinkBg = lipgloss.Color("#111111") // Subtle hover background for clickable elements
+	ColorError   = lipgloss.Color("#932e2e")
+	ColorWarning = lipgloss.Color("#8a6d2b")
+	ColorLinkBg  = lipgloss.Color("#111111") // Subtle hover background for clickable elements
 )
 
 // Styles holds all pre-built lipgloss styles used across the TUI.
@@ -30,6 +31,7 @@ type Styles struct {
 	Muted     lipgloss.Style // Reasoning, secondary
 	Dim       lipgloss.Style // Timestamps, placeholders
 	Error     lipgloss.Style // Errors
+	Warning   lipgloss.Style // Warnings
 	ToolCall  lipgloss.Style // Tool call arrows
 	ToolArrow lipgloss.Style // Tool arrow symbol
 
@@ -53,6 +55,7 @@ func DefaultStyles() Styles {
 		Muted:     bg.Foreground(ColorMuted),
 		Dim:       bg.Foreground(ColorDim),
 		Error:     bg.Foreground(ColorError),
+		Warning:   bg.Foreground(ColorWarning),
 		ToolCall:  bg.Foreground(ColorDim),
 		ToolArrow: bg.Foreground(ColorMuted),
 
