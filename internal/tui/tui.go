@@ -120,10 +120,14 @@ type convEntry struct {
 	kind     entryKind // Entry type
 	filePath string    // Source file path (for tool results that reference a file)
 	full     string    // Fallback raw content (when no file path, e.g. Grep results)
+	line     int       // Target line (1-indexed) for cursor positioning on click (0 = none)
 }
 
 // toolResultFileRe extracts the file path from "Read path ..." / "Edited path ..." / "Created path ..." headers.
 var toolResultFileRe = regexp.MustCompile(`^(?:Read|Edited|Created)\s+(\S+)`)
+
+// toolResultLineRe extracts the start line from "(lines N-M)" in tool result headers.
+var toolResultLineRe = regexp.MustCompile(`\(lines\s+(\d+)-\d+\)`)
 
 // filePathRe matches file references like "path/to/file.go:123" or just "path/to/file.go".
 // Requires a '/' to avoid matching version numbers like "v1.0".

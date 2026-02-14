@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -319,6 +320,12 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		filePath = sm[1]
 	}
 
+	// Extract start line from "(lines N-M)" for cursor positioning.
+	var startLine int
+	if sm := toolResultLineRe.FindStringSubmatch(msg.content); sm != nil {
+		startLine, _ = strconv.Atoi(sm[1])
+	}
+
 	lines := strings.Split(msg.content, "\n")
 	preview := lines
 	truncated := false
@@ -333,14 +340,14 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		display := m.styles.Dim.Render(line)
 		if i == 0 {
 			display = arrow + display
-			wasBottom = m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
+			wasBottom = m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
 		} else {
-			m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
+			m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
 		}
 	}
 	if truncated {
 		hint := fmt.Sprintf("  ... %d more lines (click to view)", len(lines)-maxPreviewLines)
-		m.appendConv(convEntry{display: m.styles.Muted.Render(hint), kind: entryToolResult, filePath: filePath, full: msg.content})
+		m.appendConv(convEntry{display: m.styles.Muted.Render(hint), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
 	}
 	if wasBottom {
 		m.scrollOffset = 0

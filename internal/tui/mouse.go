@@ -282,6 +282,9 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 				m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, entry.filePath))
 				m.editor.DiagnosticLines = nil
 				m.editorFilePath = absPath
+				if entry.line > 0 {
+					m.editor.GotoLine(entry.line)
+				}
 				m.setFocus(focusEditor)
 				return nil
 			}
