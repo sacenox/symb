@@ -179,7 +179,7 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 		dbMsgID:    dbMsgID,
 	})
 
-	m.appendText(styledLines(msg.content, m.styles.Text)...)
+	m.appendText(highlightMarkdown(msg.content, m.styles.Text)...)
 	m.appendText("")
 	sep := m.makeSeparator("0s", now.Format("15:04:05"))
 	wasBottom := m.appendText(sep)
@@ -277,7 +277,7 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 		}
 	}
 	if msg.content != "" {
-		wasBottom := m.appendText(styledLines(msg.content, m.styles.Text)...)
+		wasBottom := m.appendText(highlightMarkdown(msg.content, m.styles.Text)...)
 		m.appendText("")
 		if wasBottom {
 			m.scrollOffset = 0

@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/xonecas/symb/internal/constants"
+	"github.com/xonecas/symb/internal/highlight"
 )
 
 // ---------------------------------------------------------------------------
@@ -12,6 +14,23 @@ import (
 
 // convWidth returns the usable width of the conversation pane.
 func (m Model) convWidth() int { return m.layout.conv.Dx() }
+
+// highlightMarkdown highlights markdown text line-by-line via Chroma.
+// Line-by-line keeps each call tiny and cacheable, so streaming stays fast.
+// Fenced code blocks lose inner language highlighting but delimiters are styled.
+func highlightMarkdown(text string, fallback lipgloss.Style) []string {
+	raw := strings.Split(text, "\n")
+	out := make([]string, len(raw))
+	for i, line := range raw {
+		hl := highlight.CachedHighlight(line, "markdown", constants.SyntaxTheme, "#000000")
+		if hl == line {
+			out[i] = fallback.Render(line)
+		} else {
+			out[i] = hl
+		}
+	}
+	return out
+}
 
 // styledLines applies a lipgloss style to each line in a multi-line text.
 // No wrapping — lines are stored raw for later wrapping at render time.
@@ -60,7 +79,7 @@ func (m *Model) rebuildStreamEntries() {
 		m.convEntries = append(m.convEntries, textEntries(styledLines(m.streamingReasoning, m.styles.Muted)...)...)
 	}
 	if m.streamingContent != "" {
-		m.convEntries = append(m.convEntries, textEntries(styledLines(m.streamingContent, m.styles.Text)...)...)
+		m.convEntries = append(m.convEntries, textEntries(highlightMarkdown(m.streamingContent, m.styles.Text)...)...)
 	}
 
 	// Incrementally re-wrap only the streaming entries.
