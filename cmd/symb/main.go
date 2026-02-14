@@ -18,6 +18,7 @@ import (
 	"github.com/xonecas/symb/internal/mcptools"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/store"
+	"github.com/xonecas/symb/internal/treesitter"
 	"github.com/xonecas/symb/internal/tui"
 )
 
@@ -49,31 +50,46 @@ func main() {
 	}
 	defer prov.Close()
 
-	proxy, lspManager, webCache := setupServices(cfg, creds)
-	defer proxy.Close()
-	defer lspManager.StopAll(context.Background())
-	if webCache != nil {
-		defer webCache.Close()
+	svc := setupServices(cfg, creds)
+	defer svc.proxy.Close()
+	defer svc.lspManager.StopAll(context.Background())
+	if svc.webCache != nil {
+		defer svc.webCache.Close()
 	}
 
-	tools, err := proxy.ListTools(context.Background())
+	tools, err := svc.proxy.ListTools(context.Background())
 	if err != nil {
 		fmt.Printf("Warning: Failed to list tools: %v\n", err)
 		tools = []mcp.Tool{}
 	}
 
 	sessionID := newSessionID()
-	if webCache != nil {
-		if err := webCache.CreateSession(sessionID); err != nil {
+	if svc.webCache != nil {
+		if err := svc.webCache.CreateSession(sessionID); err != nil {
 			fmt.Printf("Warning: failed to create session: %v\n", err)
 		}
 	}
 
+	// Build tree-sitter project symbol index.
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Warning: failed to get working directory: %v\n", err)
+		cwd = "."
+	}
+	tsIndex := treesitter.NewIndex(cwd)
+	if err := tsIndex.Build(); err != nil {
+		log.Warn().Err(err).Msg("tree-sitter index build failed")
+	}
+
+	// Wire index into Read/Edit handlers for incremental updates.
+	svc.readHandler.SetTSIndex(tsIndex)
+	svc.editHandler.SetTSIndex(tsIndex)
+
 	p := tea.NewProgram(
-		tui.New(prov, proxy, tools, providerCfg.Model, webCache, sessionID),
+		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
-	lspManager.SetCallback(func(absPath string, lines map[int]int) {
+	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
 		p.Send(tui.LSPDiagnosticsMsg{FilePath: absPath, Lines: lines})
 	})
 
@@ -115,7 +131,15 @@ func resolveProvider(cfg *config.Config, registry *provider.Registry) (string, c
 	return name, pcfg
 }
 
-func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *lsp.Manager, *store.Cache) {
+type services struct {
+	proxy       *mcp.Proxy
+	lspManager  *lsp.Manager
+	webCache    *store.Cache
+	readHandler *mcptools.ReadHandler
+	editHandler *mcptools.EditHandler
+}
+
+func setupServices(cfg *config.Config, creds *config.Credentials) services {
 	var mcpClient mcp.UpstreamClient
 	if cfg.MCP.Upstream != "" {
 		mcpClient = mcp.NewClient(cfg.MCP.Upstream)
@@ -143,7 +167,13 @@ func setupServices(cfg *config.Config, creds *config.Credentials) (*mcp.Proxy, *
 	exaKey := creds.GetAPIKey("exa_ai")
 	proxy.RegisterTool(mcptools.NewWebSearchTool(), mcptools.MakeWebSearchHandler(webCache, exaKey, ""))
 
-	return proxy, lspManager, webCache
+	return services{
+		proxy:       proxy,
+		lspManager:  lspManager,
+		webCache:    webCache,
+		readHandler: readHandler,
+		editHandler: editHandler,
+	}
 }
 
 func openWebCache(cfg *config.Config) *store.Cache {

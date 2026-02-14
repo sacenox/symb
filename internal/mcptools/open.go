@@ -11,6 +11,7 @@ import (
 	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
+	"github.com/xonecas/symb/internal/treesitter"
 )
 
 // ReadArgs represents arguments for the Read tool.
@@ -41,12 +42,16 @@ func NewReadTool() mcp.Tool {
 type ReadHandler struct {
 	tracker    *FileReadTracker
 	lspManager *lsp.Manager
+	tsIndex    *treesitter.Index
 }
 
 // NewReadHandler creates a handler for the Read tool.
 func NewReadHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *ReadHandler {
 	return &ReadHandler{tracker: tracker, lspManager: lspManager}
 }
+
+// SetTSIndex sets the tree-sitter index for incremental updates on read.
+func (h *ReadHandler) SetTSIndex(idx *treesitter.Index) { h.tsIndex = idx }
 
 // Handle implements the mcp.ToolHandler interface.
 func (h *ReadHandler) Handle(_ context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
@@ -71,6 +76,9 @@ func (h *ReadHandler) Handle(_ context.Context, arguments json.RawMessage) (*mcp
 	h.tracker.MarkRead(absPath)
 	if h.lspManager != nil {
 		go h.lspManager.TouchFile(context.Background(), absPath)
+	}
+	if h.tsIndex != nil {
+		go h.tsIndex.UpdateFile(absPath)
 	}
 
 	lines := strings.Split(string(content), "\n")

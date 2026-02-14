@@ -14,6 +14,7 @@ import (
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/store"
+	"github.com/xonecas/symb/internal/treesitter"
 	"github.com/xonecas/symb/internal/tui/editor"
 )
 
@@ -209,7 +210,7 @@ type Model struct {
 }
 
 // New creates a new TUI model.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -248,7 +249,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ch := make(chan tea.Msg, 500)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	systemPrompt := llm.BuildSystemPrompt(modelID)
+	systemPrompt := llm.BuildSystemPrompt(modelID, idx)
 	systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}
 
 	if db != nil {

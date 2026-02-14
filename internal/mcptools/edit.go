@@ -12,6 +12,7 @@ import (
 	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/lsp"
 	"github.com/xonecas/symb/internal/mcp"
+	"github.com/xonecas/symb/internal/treesitter"
 )
 
 // EditArgs represents arguments for the Edit tool.
@@ -110,12 +111,16 @@ After each edit you receive fresh hashes — use those for subsequent edits, not
 type EditHandler struct {
 	tracker    *FileReadTracker
 	lspManager *lsp.Manager
+	tsIndex    *treesitter.Index
 }
 
 // NewEditHandler creates a handler for the Edit tool.
 func NewEditHandler(tracker *FileReadTracker, lspManager *lsp.Manager) *EditHandler {
 	return &EditHandler{tracker: tracker, lspManager: lspManager}
 }
+
+// SetTSIndex sets the tree-sitter index for incremental updates on edit.
+func (h *EditHandler) SetTSIndex(idx *treesitter.Index) { h.tsIndex = idx }
 
 // Handle implements the mcp.ToolHandler interface.
 func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
@@ -199,6 +204,9 @@ func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditAr
 		diags := h.lspManager.NotifyAndWait(ctx, absPath, 5*time.Second)
 		text += lsp.FormatDiagnostics(args.File, diags)
 	}
+	if h.tsIndex != nil {
+		h.tsIndex.UpdateFile(absPath)
+	}
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentBlock{{Type: "text", Text: text}},
@@ -230,6 +238,9 @@ func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath str
 	if h.lspManager != nil {
 		diags := h.lspManager.NotifyAndWait(ctx, absPath, 5*time.Second)
 		text += lsp.FormatDiagnostics(displayPath, diags)
+	}
+	if h.tsIndex != nil {
+		h.tsIndex.UpdateFile(absPath)
 	}
 
 	return &mcp.ToolResult{

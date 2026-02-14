@@ -17,3 +17,4 @@
 - [Lipgloss](https://github.com/charmbracelet/lipgloss).
 - Use Makefile commands to build, lint and test.
 - Use `journalctl -u ollama --no-pager -n 100` to see ollama logs
+- Data directory: `~/.config/symb/` (cache.db, credentials.json, logs/)

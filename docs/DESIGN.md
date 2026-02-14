@@ -45,6 +45,9 @@ prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
     - symb.md: symb specific prompt text
     - <model name>-<segment name>.md: model specific instructions
     - base: common model instructions. and template tags to insert symb and model specific segments.
+    - Ensure proper ordering of prompt
+    - Fix language, system prompt should be presented as model afnostic, the LLM shouldn't know anythign about other promots.
+    - Consider token count and optimize where possible
 
 ### Providers (`internal/provider`)
 
@@ -89,12 +92,13 @@ Retry-After parsing.
 - each message includes all tool calls
 - opening the app opens a new session (more controls later). Same behaviour
 
-## Features waiting implementation for current version:
-
 ### Tree-Sitter Context
 
 Parse project with tree-sitter for structural awareness. Feed relevant
 symbols/scope to LLM as auto-context instead of whole files.
+**Uses 4k tokens on a small project like this** -- ohoh... Maybe return updated treesiter information with Grep matches for less token usage overall? Context inhection then can reduced/compacted?
+
+## Features waiting implementation for current version:
 
 ### Undo!
 

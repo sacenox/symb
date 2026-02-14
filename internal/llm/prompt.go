@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/xonecas/symb/internal/treesitter"
 )
 
 // Embedded prompt files
@@ -94,17 +96,27 @@ func LoadAgentInstructions() string {
 }
 
 // BuildSystemPrompt constructs the complete system prompt by combining
-// the model-specific base prompt with any AGENTS.md instructions.
-func BuildSystemPrompt(modelID string) string {
+// the model-specific base prompt with any AGENTS.md instructions and
+// optionally a tree-sitter project symbol outline.
+func BuildSystemPrompt(modelID string, idx *treesitter.Index) string {
 	basePrompt := SelectPrompt(modelID)
 	agentInstructions := LoadAgentInstructions()
 
-	if agentInstructions == "" {
-		return basePrompt
+	var parts []string
+	if agentInstructions != "" {
+		parts = append(parts, agentInstructions)
 	}
 
-	// Prepend agent instructions to base prompt
-	return agentInstructions + "\n\n---\n\n" + basePrompt
+	// Append tree-sitter project outline if available.
+	if idx != nil {
+		outline := treesitter.FormatOutline(idx.Snapshot())
+		if outline != "" {
+			parts = append(parts, outline)
+		}
+	}
+
+	parts = append(parts, basePrompt)
+	return strings.Join(parts, "\n\n---\n\n")
 }
 
 // readFileIfExists reads a file if it exists, returns empty string otherwise.
