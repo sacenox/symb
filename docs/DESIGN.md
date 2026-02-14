@@ -103,14 +103,13 @@ symbols/scope to LLM as auto-context instead of whole files.
 - User should be able to undo conversation turns. The most recent entry should show a clear clickable area labelled undo.
 - Clicking undo reverses context history, tool calls, filesystem changes, file changes. Resets the conversation to that exact point
 
-
-## Features waiting implementation for current version:
-
 ### Shell Execution Tool
 
 Run commands in sandbox (container isolation or restricted shell). Command
 whitelisting. Output streaming to conversation.
 Needs an undo.
+
+## Features waiting implementation for current version:
 
 ### Context management?
 
@@ -120,14 +119,15 @@ https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Ma
 
 Update hover iteraction on tool responses for ux and tool call tui output.
 
-- Show tool call arguments expanded: `Grep(pattern="...", ...)`, for all tools.
 - Show LSP diagnostics after each mutation call in conversation log, as part of the tool response.
-- Render responses with markdown syntax. Improve markdown syntax hl overall
+- Render responses and user messages with markdown syntax.
 - Smarter click on tool response:
  - Click on Read response: Opens the file, with cursor at read start.
  - Click on Edit response: Opens the editted file, with cursor at the change
  - Click on Grep: Show output in full, each match is clickable to open the file with cursor at the match.
  - Click on Shell tool, show output in full, try to parse filenames into clickable aread that opens
+- Show tool call arguments expanded but simplified, not json: `Grep(pattern="...", ...)`, for all tools.
+- Improve markdown syntax hl overall
 
 ### Statusbar implementation
 
@@ -145,6 +145,22 @@ Right (right aligned text)
 - Current llm provider config name
 - Show name and version
 - Animated icon.
+
+### File Search modal
+
+Opens via keybind: <ctrl + f>
+
+File search modal:
+ - Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
+ - Top row is the input for the file search query
+ - Rest of the modal is the list of matches.
+ - Results update after the user stops typing for a few hundred miliseconds.
+ - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
+ - `Enter` on input selects the first match closing the modal
+ - `Enter` on result list row selected the selected row. closing the modal
+ - `ESC` cancels the file search closing the modal.
+
+ Selection is opened in the editor.
 
 ---
 
@@ -170,19 +186,6 @@ or decomposing complex operations.
 Execute multiple independent tool calls concurrently within a single LLM
 turn. Needs careful coordination with FileReadTracker and TUI updates.
 
-### File Search in agent input box
-
-Typing `@` shows a file search modal. Substiture `@` in the input with the selected pathname
-File search modal:
- - Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
- - Top row is the input for the file search query
- - Rest of the modal is the list of matches.
- - Results update after the user stops typing for a few hundred miliseconds.
- - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
- - `Enter` on input selects the first match
- - `Enter` on result list row selected the selected row.
- - `ESC` cancels the file search and leaves the literal `@` character
-
 ### Editor-LLM link:
 
 LLM input (in the spirit of the app, symbiotic):
@@ -192,7 +195,7 @@ LLM input (in the spirit of the app, symbiotic):
 
 ### UI Polish
 
-- Empty-state decoration in conversation pane.
+- Empty-state decoration in conversation pane and editor
 
 ### Tests
 
