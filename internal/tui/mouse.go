@@ -239,7 +239,15 @@ func (m *Model) isClickableLine(lineIdx int) bool {
 		return false
 	}
 	if m.convEntries[entryIdx].kind == entryToolResult {
-		return true
+		// Entries with a file path (Read/Edit/Create) are always clickable.
+		if m.convEntries[entryIdx].filePath != "" {
+			return true
+		}
+		// Others (Grep/Shell) only if the line itself contains a file path.
+		if lineIdx < len(lines) {
+			return filePathRe.MatchString(ansi.Strip(lines[lineIdx]))
+		}
+		return false
 	}
 	if m.convEntries[entryIdx].kind == entryUndo {
 		return true
