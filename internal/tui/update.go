@@ -233,7 +233,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mcp_tools.ShowMsg:
 		m.editor.SetValue(msg.Content)
 		m.editor.Language = msg.Language
-		m.editor.SetLineBg(nil)
+		if msg.Language == "diff" {
+			m.editor.SetLineBg(diffLineBg(msg.Content))
+		} else {
+			m.editor.SetLineBg(nil)
+		}
 		m.editor.DiagnosticLines = nil // Clear stale diagnostics on file switch.
 		if msg.FilePath != "" {
 			markers := mcp_tools.GitFileMarkers(m.ctx, msg.FilePath)
