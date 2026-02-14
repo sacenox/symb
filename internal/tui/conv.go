@@ -49,7 +49,7 @@ func (m *Model) appendText(lines ...string) bool {
 
 // rebuildStreamEntries replaces any existing streaming entries with fresh
 // styled entries from the current streamingReasoning and streamingContent.
-// Called on each delta to reflect incremental updates.
+// Only re-wraps the streaming portion — the stable prefix is preserved.
 func (m *Model) rebuildStreamEntries() {
 	// Remove old streaming entries
 	if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
@@ -62,7 +62,31 @@ func (m *Model) rebuildStreamEntries() {
 	if m.streamingContent != "" {
 		m.convEntries = append(m.convEntries, textEntries(styledLines(m.streamingContent, m.styles.Text)...)...)
 	}
-	m.convLines = nil // invalidate cache
+
+	// Incrementally re-wrap only the streaming entries.
+	w := m.convWidth()
+	if m.convLines != nil && m.convCachedW == w && m.streamWrapStart <= len(m.convLines) {
+		// Truncate cached lines/source to the stable prefix.
+		m.convLines = m.convLines[:m.streamWrapStart]
+		m.convLineSource = m.convLineSource[:m.streamWrapStart]
+		// Wrap only new streaming entries and append.
+		for i := m.streamEntryStart; i < len(m.convEntries); i++ {
+			entry := m.convEntries[i]
+			if entry.display == "" {
+				m.convLines = append(m.convLines, "")
+				m.convLineSource = append(m.convLineSource, i)
+			} else {
+				wrapped := wrapANSI(entry.display, w)
+				for range wrapped {
+					m.convLineSource = append(m.convLineSource, i)
+				}
+				m.convLines = append(m.convLines, wrapped...)
+			}
+		}
+	} else {
+		// Cache invalid or width changed — full rebuild.
+		m.convLines = nil
+	}
 }
 
 // wrappedConvLines returns the conversation wrapped to the current convWidth.

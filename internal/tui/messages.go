@@ -38,6 +38,9 @@ type llmErrorMsg struct{ err error }
 type llmContentDeltaMsg struct{ content string }
 type llmReasoningDeltaMsg struct{ content string }
 
+// llmBatchMsg carries multiple messages drained from updateChan in one go.
+type llmBatchMsg []tea.Msg
+
 // UpdateToolsMsg is exported so main.go can send it via program.Send.
 type UpdateToolsMsg struct{ Tools []mcp.Tool }
 
@@ -56,7 +59,21 @@ func (m Model) sendToLLM(userInput string) tea.Cmd {
 }
 
 func (m Model) waitForLLMUpdate() tea.Cmd {
-	return func() tea.Msg { return <-m.updateChan }
+	ch := m.updateChan
+	return func() tea.Msg {
+		// Block until at least one message arrives.
+		first := <-ch
+		batch := llmBatchMsg{first}
+		// Drain all pending messages without blocking.
+		for {
+			select {
+			case msg := <-ch:
+				batch = append(batch, msg)
+			default:
+				return batch
+			}
+		}
+	}
 }
 
 func (m Model) processLLM() tea.Cmd {

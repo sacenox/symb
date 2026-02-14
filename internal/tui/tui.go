@@ -187,6 +187,7 @@ type Model struct {
 	streamingContent   string // In-progress content text
 	streaming          bool   // Whether we're currently streaming
 	streamEntryStart   int    // Index in convEntries where streaming entries begin (-1 = none)
+	streamWrapStart    int    // Number of cached wrapped lines before streaming entries
 
 	// Editor state
 	editorFilePath string // absolute path of the file currently shown in the editor

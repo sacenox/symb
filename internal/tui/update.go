@@ -100,6 +100,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	// -- LLM batch (multiple messages drained from updateChan) ---------------
+	case llmBatchMsg:
+		return m.handleLLMBatch(msg)
+
 	// -- LLM messages --------------------------------------------------------
 	case llmUserMsg:
 		now := time.Now()
@@ -120,6 +124,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.streaming {
 			m.streaming = true
 			m.streamEntryStart = len(m.convEntries)
+			m.streamWrapStart = len(m.wrappedConvLines())
 			m.streamingReasoning = ""
 			m.streamingContent = ""
 		}
@@ -134,6 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.streaming {
 			m.streaming = true
 			m.streamEntryStart = len(m.convEntries)
+			m.streamWrapStart = len(m.wrappedConvLines())
 			m.streamingReasoning = ""
 			m.streamingContent = ""
 		}
@@ -275,6 +281,159 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// handleLLMBatch processes a batch of messages drained from updateChan.
+// Delta messages are accumulated first, with a single rebuildStreamEntries
+// at the end, avoiding per-token re-wraps.
+func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
+	needRebuild := false
+	var finalCmd tea.Cmd
+
+	for _, raw := range batch {
+		switch msg := raw.(type) {
+		case llmReasoningDeltaMsg:
+			if !m.streaming {
+				m.streaming = true
+				m.streamEntryStart = len(m.convEntries)
+				m.streamWrapStart = len(m.wrappedConvLines())
+				m.streamingReasoning = ""
+				m.streamingContent = ""
+			}
+			m.streamingReasoning += msg.content
+			needRebuild = true
+
+		case llmContentDeltaMsg:
+			if !m.streaming {
+				m.streaming = true
+				m.streamEntryStart = len(m.convEntries)
+				m.streamWrapStart = len(m.wrappedConvLines())
+				m.streamingReasoning = ""
+				m.streamingContent = ""
+			}
+			m.streamingContent += msg.content
+			needRebuild = true
+
+		case llmHistoryMsg:
+			m.history = append(m.history, msg.msg)
+
+		case llmAssistantMsg:
+			// Flush any pending streaming rebuild before finalizing.
+			if needRebuild {
+				m.rebuildStreamEntries()
+				needRebuild = false
+			}
+			m.applyAssistantMsg(msg)
+
+		case llmToolResultMsg:
+			if needRebuild {
+				m.rebuildStreamEntries()
+				needRebuild = false
+			}
+			m.applyToolResultMsg(msg)
+
+		case llmErrorMsg:
+			if needRebuild {
+				m.rebuildStreamEntries()
+			}
+			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
+			return m, nil
+
+		case llmDoneMsg:
+			if needRebuild {
+				m.rebuildStreamEntries()
+			}
+			m.appendText("")
+			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
+			m.appendText(sep)
+			return m, nil
+		}
+	}
+
+	// Apply one rebuild for all accumulated deltas.
+	if needRebuild {
+		m.rebuildStreamEntries()
+	}
+
+	// Keep scroll pinned to bottom during streaming.
+	if m.scrollOffset == 0 {
+		m.scrollOffset = 0
+	}
+
+	// More messages may follow — keep listening.
+	finalCmd = m.waitForLLMUpdate()
+	return m, finalCmd
+}
+
+// applyAssistantMsg finalizes streaming state and appends the assistant's
+// response entries. Extracted so handleLLMBatch can reuse the logic.
+func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
+	if m.streaming {
+		m.streaming = false
+		if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
+			m.convEntries = m.convEntries[:m.streamEntryStart]
+		}
+		m.streamEntryStart = -1
+		m.streamingReasoning = ""
+		m.streamingContent = ""
+		m.convLines = nil
+	}
+	if msg.reasoning != "" {
+		wasBottom := m.appendText(styledLines(msg.reasoning, m.styles.Muted)...)
+		m.appendText("")
+		if wasBottom {
+			m.scrollOffset = 0
+		}
+	}
+	if msg.content != "" {
+		wasBottom := m.appendText(styledLines(msg.content, m.styles.Text)...)
+		m.appendText("")
+		if wasBottom {
+			m.scrollOffset = 0
+		}
+	}
+	for _, tc := range msg.toolCalls {
+		entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(tc.Name+"(...)")
+		wasBottom := m.appendText(entry)
+		if wasBottom {
+			m.scrollOffset = 0
+		}
+	}
+}
+
+// applyToolResultMsg appends tool result display entries.
+func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
+	var filePath string
+	if sm := toolResultFileRe.FindStringSubmatch(msg.content); sm != nil {
+		filePath = sm[1]
+	}
+
+	lines := strings.Split(msg.content, "\n")
+	preview := lines
+	truncated := false
+	if len(lines) > maxPreviewLines {
+		preview = lines[:maxPreviewLines]
+		truncated = true
+	}
+
+	arrow := m.styles.ToolArrow.Render("←") + "  "
+	var wasBottom bool
+	for i, line := range preview {
+		display := m.styles.Dim.Render(line)
+		if i == 0 {
+			display = arrow + display
+			wasBottom = m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
+		} else {
+			m.appendConv(convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content})
+		}
+	}
+	if truncated {
+		hint := fmt.Sprintf("  ... %d more lines (click to view)", len(lines)-maxPreviewLines)
+		m.appendConv(convEntry{display: m.styles.Muted.Render(hint), kind: entryToolResult, filePath: filePath, full: msg.content})
+	}
+	if wasBottom {
+		m.scrollOffset = 0
+	}
 }
 
 // updateComponentSizes pushes layout dimensions to sub-models.
