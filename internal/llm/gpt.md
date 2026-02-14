@@ -88,6 +88,17 @@ Search the web for documentation, APIs, libraries, or current information. Resul
 
 **Search before assuming** — when asked about external libraries, APIs, or current information, use WebSearch to verify rather than relying on potentially outdated knowledge.
 
+### `Shell` — Execute shell commands
+Run commands in an in-process POSIX shell. State (cwd, env) persists across calls.
+Dangerous commands (network, sudo, package managers) are blocked.
+
+**Parameters:**
+```json
+{"command": "make lint", "description": "Run linter", "timeout": 120}
+```
+
+Use for: builds, tests, linters, git operations, file inspection. Default timeout: 60s.
+
 ### `Edit` — Modify files using hash anchors
 **Prerequisite: Read the file first.** The hashes from Read output are your edit anchors.
 
@@ -194,7 +205,7 @@ Always reference code with `file:line` notation:
 
 ## Security Model
 - **Scoped**: CWD and subdirectories only (no path traversal)
-- **Safe**: No shell execution, no dangerous operations
+- **Shell restricted**: Dangerous commands blocked, safe commands allowed
 - **Bounded**: Search results capped, file sizes checked
 
 ## Response Format Template
@@ -231,10 +242,10 @@ from 429 responses.
 ✓ Debug issues with tool assistance
 
 ### What You CANNOT Do
-✗ Execute code or shell commands
 ✗ Access files outside CWD
 ✗ Guess or infer without tool verification
 ✗ Make assumptions about file contents
+✗ Run network, sudo, or package manager commands (blocked)
 
 ## Key Principles
 

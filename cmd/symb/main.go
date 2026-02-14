@@ -18,6 +18,7 @@ import (
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/mcptools"
 	"github.com/xonecas/symb/internal/provider"
+	"github.com/xonecas/symb/internal/shell"
 	"github.com/xonecas/symb/internal/store"
 	"github.com/xonecas/symb/internal/treesitter"
 	"github.com/xonecas/symb/internal/tui"
@@ -98,6 +99,10 @@ func main() {
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
 		p.Send(tui.LSPDiagnosticsMsg{FilePath: absPath, Lines: lines})
 	})
+	// Wire shell output streaming to TUI.
+	svc.shellHandler.OnOutput = func(chunk string) {
+		p.Send(tui.ShellOutputMsg{Content: chunk})
+	}
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running symb: %v\n", err)
@@ -143,6 +148,7 @@ type services struct {
 	webCache     *store.Cache
 	readHandler  *mcptools.ReadHandler
 	editHandler  *mcptools.EditHandler
+	shellHandler *mcptools.ShellHandler
 	fileTracker  *mcptools.FileReadTracker
 	deltaTracker *delta.Tracker
 }
@@ -181,12 +187,18 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 	exaKey := creds.GetAPIKey("exa_ai")
 	proxy.RegisterTool(mcptools.NewWebSearchTool(), mcptools.MakeWebSearchHandler(webCache, exaKey, ""))
 
+	// Shell tool — in-process POSIX interpreter with command blocking.
+	sh := shell.New("", shell.DefaultBlockFuncs())
+	shellHandler := mcptools.NewShellHandler(sh, dt)
+	proxy.RegisterTool(mcptools.NewShellTool(), shellHandler.Handle)
+
 	return services{
 		proxy:        proxy,
 		lspManager:   lspManager,
 		webCache:     webCache,
 		readHandler:  readHandler,
 		editHandler:  editHandler,
+		shellHandler: shellHandler,
 		fileTracker:  fileTracker,
 		deltaTracker: dt,
 	}

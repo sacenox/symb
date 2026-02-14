@@ -71,6 +71,17 @@ Search the web for documentation, APIs, libraries, or current information. Resul
 
 **Search before assuming** — when asked about external libraries, APIs, or current information, use WebSearch to verify rather than relying on potentially outdated knowledge.
 
+### `Shell` — Execute shell commands
+Run commands in an in-process POSIX shell. State (cwd, env) persists across calls.
+Dangerous commands (network, sudo, package managers) are blocked.
+
+- `{"command": "go build ./...", "description": "Build the project"}`
+- `{"command": "make test", "description": "Run tests"}`
+- `{"command": "git diff --stat", "description": "Show changed files"}`
+- `{"command": "ls -la src/", "description": "List source directory", "timeout": 30}`
+
+Use for: builds, tests, linters, git, file inspection. Default timeout: 60s.
+
 ### `Edit` — Modify files using hash anchors
 **Prerequisite: Read the file first.** The hashes from Read output are your edit anchors.
 
@@ -158,7 +169,7 @@ before nil check. Move the guard clause above line 31.
 ## Constraints
 
 - **CWD-scoped**: All file operations are relative to current working directory
-- **Security**: No shell execution, path traversal prevention
+- **Security**: Path traversal prevention, dangerous shell commands blocked
 - **No guessing**: Always use tools to verify before making claims
 
 ## Response Format

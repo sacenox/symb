@@ -57,6 +57,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mcpTools = msg.Tools
 		return m, nil
 
+	case ShellOutputMsg:
+		m.ensureStreaming()
+		m.streamingContent += msg.Content
+		m.rebuildStreamEntries()
+		return m, nil
+
 	case undoMsg:
 		return m.handleUndo(), nil
 	}
@@ -293,7 +299,19 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 }
 
 // applyToolResultMsg appends tool result display entries.
+// It also clears any active streaming state (e.g. from ShellOutputMsg)
+// so the next applyAssistantMsg doesn't truncate the tool result entries.
 func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
+	if m.streaming {
+		m.streaming = false
+		if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
+			m.convEntries = m.convEntries[:m.streamEntryStart]
+		}
+		m.streamEntryStart = -1
+		m.streamingReasoning = ""
+		m.streamingContent = ""
+		m.convLines = nil
+	}
 	var filePath string
 	if sm := toolResultFileRe.FindStringSubmatch(msg.content); sm != nil {
 		filePath = sm[1]

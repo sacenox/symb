@@ -66,6 +66,14 @@ Search for docs, APIs, libraries, current info. Cached 24h.
 
 **Search before assuming** — use WebSearch to verify external APIs/libraries rather than guessing.
 
+### `Shell` — Execute shell commands
+Run commands in an in-process POSIX shell. State (cwd, env) persists across calls.
+Dangerous commands (network, sudo, package managers) are blocked.
+```json
+{"command": "go test -v ./...", "description": "Run tests verbosely", "timeout": 120}
+```
+Use for: builds, tests, linters, git, file inspection. Default timeout: 60s.
+
 ### `Edit` — Modify files using hash anchors
 **Read the file first.** One operation per call. Returns fresh hashes after each edit.
 
@@ -117,7 +125,7 @@ Always include file:line:
 **Constraints:**
 - File editing via hash-anchored Edit tool (Read first)
 - CWD-scoped (no path traversal)
-- No shell execution
+- Shell restricted: dangerous commands blocked
 - Security: defensive only
 
 ## Response Pattern

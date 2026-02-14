@@ -40,6 +40,10 @@ type llmErrorMsg struct{ err error }
 type llmContentDeltaMsg struct{ content string }
 type llmReasoningDeltaMsg struct{ content string }
 
+// ShellOutputMsg carries incremental shell output for real-time display.
+// Exported so main.go can send it via program.Send from the shell handler callback.
+type ShellOutputMsg struct{ Content string }
+
 // undoMsg is sent when the user clicks the undo control.
 type undoMsg struct{}
 
