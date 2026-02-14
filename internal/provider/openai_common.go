@@ -302,23 +302,18 @@ func mergeSystemMessagesOpenAI(messages []openai.ChatCompletionMessage) []openai
 }
 
 // toOpenAITools converts provider-agnostic tools to OpenAI SDK tool format.
-func toOpenAITools(tools []Tool) ([]openai.Tool, error) {
+// Parameters is passed through as json.RawMessage to preserve deterministic
+// serialization order (important for KV-cache hit rate).
+func toOpenAITools(tools []Tool) []openai.Tool {
 	if tools == nil {
-		return nil, nil
+		return nil
 	}
+	emptyParams := json.RawMessage(`{"type":"object","properties":{}}`)
 	result := make([]openai.Tool, len(tools))
 	for i, t := range tools {
-		var params map[string]interface{}
-		if len(t.Parameters) > 0 {
-			if err := json.Unmarshal(t.Parameters, &params); err != nil {
-				return nil, err
-			}
-		}
-		if params == nil {
-			params = map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			}
+		params := t.Parameters
+		if len(params) == 0 {
+			params = emptyParams
 		}
 
 		result[i] = openai.Tool{
@@ -330,5 +325,5 @@ func toOpenAITools(tools []Tool) ([]openai.Tool, error) {
 			},
 		}
 	}
-	return result, nil
+	return result
 }

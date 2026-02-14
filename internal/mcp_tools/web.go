@@ -29,27 +29,17 @@ type WebFetchArgs struct {
 
 // NewWebFetchTool creates the WebFetch tool definition.
 func NewWebFetchTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"url": map[string]interface{}{
-				"type":        "string",
-				"description": "The URL to fetch.",
-			},
-			"max_chars": map[string]interface{}{
-				"type":        "integer",
-				"description": "Maximum characters to return. Default: 10000",
-			},
-		},
-		"required": []string{"url"},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "WebFetch",
 		Description: "Fetch a URL and return its content as cleaned text (HTML tags, scripts, and styles stripped). Results are cached.",
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"url":       {"type": "string", "description": "The URL to fetch."},
+				"max_chars": {"type": "integer", "description": "Maximum characters to return. Default: 10000"}
+			},
+			"required": ["url"]
+		}`),
 	}
 }
 
@@ -153,37 +143,19 @@ type exaResult struct {
 
 // NewWebSearchTool creates the WebSearch tool definition.
 func NewWebSearchTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"query": map[string]interface{}{
-				"type":        "string",
-				"description": "Search query.",
-			},
-			"num_results": map[string]interface{}{
-				"type":        "integer",
-				"description": "Number of results to return. Default: 5",
-			},
-			"type": map[string]interface{}{
-				"type":        "string",
-				"description": "Search type: \"auto\" (default), \"fast\", or \"deep\".",
-				"enum":        []string{"auto", "fast", "deep"},
-			},
-			"include_domains": map[string]interface{}{
-				"type":        "array",
-				"items":       map[string]interface{}{"type": "string"},
-				"description": "Only include results from these domains.",
-			},
-		},
-		"required": []string{"query"},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "WebSearch",
 		Description: "Search the web using Exa AI. Use this to look up documentation, APIs, libraries, or current information. Results are cached.",
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"query":           {"type": "string", "description": "Search query."},
+				"num_results":     {"type": "integer", "description": "Number of results to return. Default: 5"},
+				"type":            {"type": "string", "description": "Search type: \"auto\" (default), \"fast\", or \"deep\".", "enum": ["auto", "fast", "deep"]},
+				"include_domains": {"type": "array", "items": {"type": "string"}, "description": "Only include results from these domains."}
+			},
+			"required": ["query"]
+		}`),
 	}
 }
 

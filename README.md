@@ -18,13 +18,16 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 
 ## Features
 
-- **Dual-pane TUI**: Code editor on one side, agent conversation on the other
+- **Dual-pane TUI**: Code viewer on one side, agent conversation on the other
 - **Syntax highlighting**: Via Chroma for Go and other languages
 - **Clean aesthetic**: Dark grayscale with minimal distractions
 - **ELM architecture**: Built with BubbleTea for solid state management
 - **LLM integration**: Ollama local + Opencode Zen support
 - **Hashline-assisted edits**: LLM edit operations use line hashes for precise, conflict-free file modifications
 - **Web search**: Exa AI integration with configurable SQLite cache and content-aware redundant search prevention
+- **Git integration**: Diff viewing and change tracking for version control awareness
+- **LSP diagnostics**: Closed-loop edit validation with language server feedback
+- **Deterministic schemas**: KV-cache optimized tool definitions for reproducible LLM behavior
 
 ## Quick Start
 

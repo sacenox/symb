@@ -17,27 +17,17 @@ type ShowArgs struct {
 
 // NewShowTool creates the Show tool definition.
 func NewShowTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"content": map[string]interface{}{
-				"type":        "string",
-				"description": "The content to display in the editor pane",
-			},
-			"language": map[string]interface{}{
-				"type":        "string",
-				"description": "Language for syntax highlighting (e.g. go, python, diff, markdown). Defaults to text.",
-			},
-		},
-		"required": []string{"content"},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "Show",
 		Description: `Displays content in the user's editor pane with syntax highlighting. Use this to show code snippets, diffs, generated code, or any text the user should see. Does NOT read or write files.`,
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"content":  {"type": "string", "description": "The content to display in the editor pane"},
+				"language": {"type": "string", "description": "Language for syntax highlighting (e.g. go, python, diff, markdown). Defaults to text."}
+			},
+			"required": ["content"]
+		}`),
 	}
 }
 

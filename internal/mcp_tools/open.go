@@ -30,31 +30,18 @@ type ShowMsg struct {
 
 // NewReadTool creates the Read tool definition.
 func NewReadTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"file": map[string]interface{}{
-				"type":        "string",
-				"description": "Path to the file to read",
-			},
-			"start": map[string]interface{}{
-				"type":        "integer",
-				"description": "Optional: starting line number (1-indexed, inclusive)",
-			},
-			"end": map[string]interface{}{
-				"type":        "integer",
-				"description": "Optional: ending line number (1-indexed, inclusive)",
-			},
-		},
-		"required": []string{"file"},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "Read",
 		Description: `Reads a file and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Read a file before editing it with Edit. Use start/end for line ranges. Does NOT display in the editor — use Show for that.`,
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"file":  {"type": "string", "description": "Path to the file to read"},
+				"start": {"type": "integer", "description": "Optional: starting line number (1-indexed, inclusive)"},
+				"end":   {"type": "integer", "description": "Optional: ending line number (1-indexed, inclusive)"}
+			},
+			"required": ["file"]
+		}`),
 	}
 }
 

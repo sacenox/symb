@@ -82,10 +82,7 @@ func (p *OpenCodeProvider) ChatStream(ctx context.Context, messages []Message, t
 
 // chatStreamOpenAI streams via the OpenAI-compatible /chat/completions endpoint.
 func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
-	openaiTools, err := toOpenAITools(tools)
-	if err != nil {
-		return nil, fmt.Errorf("invalid tool schema: %w", err)
-	}
+	openaiTools := toOpenAITools(tools)
 
 	customReq := openCodeRequest{
 		Model:       p.model,
@@ -125,10 +122,7 @@ func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, messages []Mess
 func (p *OpenCodeProvider) chatStreamAnthropic(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
 	system, anthropicMsgs := toAnthropicMessages(messages)
 
-	anthropicTools, err := toAnthropicTools(tools)
-	if err != nil {
-		return nil, fmt.Errorf("invalid tool schema: %w", err)
-	}
+	anthropicTools := toAnthropicTools(tools)
 
 	req := anthropicRequest{
 		Model:       p.model,
@@ -147,6 +141,7 @@ func (p *OpenCodeProvider) chatStreamAnthropic(ctx context.Context, messages []M
 	headers := p.authHeaders()
 	headers["x-api-key"] = p.apiKey
 	headers["anthropic-version"] = "2023-06-01"
+	headers["anthropic-beta"] = "prompt-caching-2024-07-31"
 
 	reader, err := httpDoSSE(ctx, httpRequestConfig{
 		client:   p.httpClient,

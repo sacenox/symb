@@ -24,47 +24,30 @@ type GitDiffArgs struct {
 
 // NewGitStatusTool creates the GitStatus tool definition.
 func NewGitStatusTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"long": map[string]interface{}{
-				"type":        "boolean",
-				"description": "Use long format output. Default: false (short format)",
-			},
-		},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "GitStatus",
 		Description: "Show the working tree status. Returns modified, staged, and untracked files.",
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"long": {"type": "boolean", "description": "Use long format output. Default: false (short format)"}
+			}
+		}`),
 	}
 }
 
 // NewGitDiffTool creates the GitDiff tool definition.
 func NewGitDiffTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"file": map[string]interface{}{
-				"type":        "string",
-				"description": "Optional: specific file path to diff. If omitted, diffs all changed files.",
-			},
-			"staged": map[string]interface{}{
-				"type":        "boolean",
-				"description": "If true, show staged (cached) changes. Default: false (unstaged changes)",
-			},
-		},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "GitDiff",
 		Description: "Show changes between working tree and index (unstaged), or between index and HEAD (staged). Returns unified diff output.",
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"file":   {"type": "string", "description": "Optional: specific file path to diff. If omitted, diffs all changed files."},
+				"staged": {"type": "boolean", "description": "If true, show staged (cached) changes. Default: false (unstaged changes)"}
+			}
+		}`),
 	}
 }
 

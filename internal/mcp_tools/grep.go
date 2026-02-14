@@ -22,35 +22,19 @@ type GrepArgs struct {
 
 // NewGrepTool creates the grep tool definition.
 func NewGrepTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"pattern": map[string]interface{}{
-				"type":        "string",
-				"description": "Pattern to search for (regex). For filenames: matches against basename or path. For content: matches line contents.",
-			},
-			"content_search": map[string]interface{}{
-				"type":        "boolean",
-				"description": "If true, search file contents (grep); if false, search filenames (find). Default: false",
-			},
-			"max_results": map[string]interface{}{
-				"type":        "integer",
-				"description": "Maximum number of results to return. Default: 100",
-			},
-			"case_sensitive": map[string]interface{}{
-				"type":        "boolean",
-				"description": "Enable case-sensitive matching. Default: false (case-insensitive)",
-			},
-		},
-		"required": []string{"pattern"},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name:        "Grep",
 		Description: "Search for files by name (fuzzy) or search file contents (grep). Respects .gitignore. Use content_search=false for finding files, content_search=true for searching content.",
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"pattern":        {"type": "string", "description": "Pattern to search for (regex). For filenames: matches against basename or path. For content: matches line contents."},
+				"content_search": {"type": "boolean", "description": "If true, search file contents (grep); if false, search filenames (find). Default: false"},
+				"max_results":    {"type": "integer", "description": "Maximum number of results to return. Default: 100"},
+				"case_sensitive": {"type": "boolean", "description": "Enable case-sensitive matching. Default: false (case-insensitive)"}
+			},
+			"required": ["pattern"]
+		}`),
 	}
 }
 

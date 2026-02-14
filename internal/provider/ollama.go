@@ -101,9 +101,9 @@ type ollamaReqTool struct {
 }
 
 type ollamaReqFunction struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 type ollamaReqToolCall struct {
@@ -152,23 +152,16 @@ func toOllamaMessages(messages []Message) []ollamaReqMessage {
 	return result
 }
 
+// toOllamaTools converts provider-agnostic tools to Ollama tool format.
+// Parameters is passed through as json.RawMessage to preserve deterministic
+// serialization order (important for KV-cache hit rate).
 func toOllamaTools(tools []Tool) []ollamaReqTool {
+	emptyParams := json.RawMessage(`{"type":"object","properties":{}}`)
 	result := make([]ollamaReqTool, len(tools))
 	for i, t := range tools {
-		var params map[string]interface{}
-		if len(t.Parameters) > 0 {
-			if err := json.Unmarshal(t.Parameters, &params); err != nil {
-				params = map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				}
-			}
-		}
-		if params == nil {
-			params = map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			}
+		params := t.Parameters
+		if len(params) == 0 {
+			params = emptyParams
 		}
 
 		result[i] = ollamaReqTool{

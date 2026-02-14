@@ -48,97 +48,11 @@ type CreateOp struct {
 	Content string `json:"content"` // full file content
 }
 
+// anchor is the JSON schema fragment for a hashline anchor object.
+const anchorSchema = `{"type": "object", "properties": {"line": {"type": "integer", "description": "1-indexed line number"}, "hash": {"type": "string", "description": "2-char hex hash from Read output"}}, "required": ["line", "hash"]}`
+
 // NewEditTool creates the Edit tool definition.
 func NewEditTool() mcp.Tool {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"file": map[string]interface{}{
-				"type":        "string",
-				"description": "Path to the file to edit",
-			},
-			"replace": map[string]interface{}{
-				"type":        "object",
-				"description": "Replace lines from start to end (inclusive) with new content",
-				"properties": map[string]interface{}{
-					"start": map[string]interface{}{
-						"type":        "object",
-						"description": "Anchor for first line to replace",
-						"properties": map[string]interface{}{
-							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
-						},
-						"required": []string{"line", "hash"},
-					},
-					"end": map[string]interface{}{
-						"type":        "object",
-						"description": "Anchor for last line to replace",
-						"properties": map[string]interface{}{
-							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
-						},
-						"required": []string{"line", "hash"},
-					},
-					"content": map[string]interface{}{"type": "string", "description": "Replacement text (may be multiple lines)"},
-				},
-				"required": []string{"start", "end", "content"},
-			},
-			"insert": map[string]interface{}{
-				"type":        "object",
-				"description": "Insert new lines after the anchored line",
-				"properties": map[string]interface{}{
-					"after": map[string]interface{}{
-						"type":        "object",
-						"description": "Anchor for the line to insert after",
-						"properties": map[string]interface{}{
-							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
-						},
-						"required": []string{"line", "hash"},
-					},
-					"content": map[string]interface{}{"type": "string", "description": "Text to insert (may be multiple lines)"},
-				},
-				"required": []string{"after", "content"},
-			},
-			"delete": map[string]interface{}{
-				"type":        "object",
-				"description": "Delete lines from start to end (inclusive)",
-				"properties": map[string]interface{}{
-					"start": map[string]interface{}{
-						"type":        "object",
-						"description": "Anchor for first line to delete",
-						"properties": map[string]interface{}{
-							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
-						},
-						"required": []string{"line", "hash"},
-					},
-					"end": map[string]interface{}{
-						"type":        "object",
-						"description": "Anchor for last line to delete",
-						"properties": map[string]interface{}{
-							"line": map[string]interface{}{"type": "integer", "description": "1-indexed line number"},
-							"hash": map[string]interface{}{"type": "string", "description": "2-char hex hash from Read output"},
-						},
-						"required": []string{"line", "hash"},
-					},
-				},
-				"required": []string{"start", "end"},
-			},
-			"create": map[string]interface{}{
-				"type":        "object",
-				"description": "Create a new file (fails if file already exists)",
-				"properties": map[string]interface{}{
-					"content": map[string]interface{}{"type": "string", "description": "Full file content"},
-				},
-				"required": []string{"content"},
-			},
-		},
-		"required": []string{"file"},
-	}
-
-	schemaJSON, _ := json.Marshal(schema)
-
 	return mcp.Tool{
 		Name: "Edit",
 		Description: `Edit a file using hash-anchored operations. You MUST Read the file first to get line hashes.
@@ -146,7 +60,49 @@ Each line from Read is tagged as "linenum:hash|content". Use the line number and
 Exactly one operation per call: replace, insert, delete, or create.
 If a hash does not match, the file changed since you read it — re-Read and retry.
 After each edit you receive fresh hashes — use those for subsequent edits, not the old ones.`,
-		InputSchema: schemaJSON,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"file": {"type": "string", "description": "Path to the file to edit"},
+				"replace": {
+					"type": "object",
+					"description": "Replace lines from start to end (inclusive) with new content",
+					"properties": {
+						"start":   ` + anchorSchema + `,
+						"end":     ` + anchorSchema + `,
+						"content": {"type": "string", "description": "Replacement text (may be multiple lines)"}
+					},
+					"required": ["start", "end", "content"]
+				},
+				"insert": {
+					"type": "object",
+					"description": "Insert new lines after the anchored line",
+					"properties": {
+						"after":   ` + anchorSchema + `,
+						"content": {"type": "string", "description": "Text to insert (may be multiple lines)"}
+					},
+					"required": ["after", "content"]
+				},
+				"delete": {
+					"type": "object",
+					"description": "Delete lines from start to end (inclusive)",
+					"properties": {
+						"start": ` + anchorSchema + `,
+						"end":   ` + anchorSchema + `
+					},
+					"required": ["start", "end"]
+				},
+				"create": {
+					"type": "object",
+					"description": "Create a new file (fails if file already exists)",
+					"properties": {
+						"content": {"type": "string", "description": "Full file content"}
+					},
+					"required": ["content"]
+				}
+			},
+			"required": ["file"]
+		}`),
 	}
 }
 

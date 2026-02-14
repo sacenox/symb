@@ -15,13 +15,25 @@ const roleSystem = "system"
 // Anthropic Messages API request types.
 
 type anthropicRequest struct {
-	Model       string             `json:"model"`
-	Messages    []anthropicMessage `json:"messages"`
-	System      string             `json:"system,omitempty"`
-	MaxTokens   int                `json:"max_tokens"`
-	Temperature float64            `json:"temperature,omitempty"`
-	Stream      bool               `json:"stream"`
-	Tools       []anthropicTool    `json:"tools,omitempty"`
+	Model       string                `json:"model"`
+	Messages    []anthropicMessage    `json:"messages"`
+	System      []anthropicCacheBlock `json:"system,omitempty"`
+	MaxTokens   int                   `json:"max_tokens"`
+	Temperature float64               `json:"temperature,omitempty"`
+	Stream      bool                  `json:"stream"`
+	Tools       []anthropicTool       `json:"tools,omitempty"`
+}
+
+// anthropicCacheControl marks a block for prompt caching.
+type anthropicCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+// anthropicCacheBlock is a system prompt content block with optional cache_control.
+type anthropicCacheBlock struct {
+	Type         string                 `json:"type"` // "text"
+	Text         string                 `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -51,9 +63,10 @@ type anthropicToolResultBlock struct {
 }
 
 type anthropicTool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	InputSchema interface{} `json:"input_schema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	InputSchema  json.RawMessage        `json:"input_schema"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 // Anthropic SSE streaming response types.
@@ -81,8 +94,9 @@ type anthropicContentBlockDelta struct {
 }
 
 // toAnthropicMessages converts provider-agnostic messages to Anthropic Messages API format.
-// Returns (system, messages) — system is extracted and hoisted out.
-func toAnthropicMessages(messages []Message) (string, []anthropicMessage) {
+// Returns (system blocks, messages) — system is extracted and hoisted out.
+// The last system block gets cache_control for prompt caching.
+func toAnthropicMessages(messages []Message) ([]anthropicCacheBlock, []anthropicMessage) {
 	var systemParts []string
 	var result []anthropicMessage
 
@@ -142,27 +156,31 @@ func toAnthropicMessages(messages []Message) (string, []anthropicMessage) {
 		})
 	}
 
-	return strings.Join(systemParts, "\n\n"), result
+	var system []anthropicCacheBlock
+	if len(systemParts) > 0 {
+		system = make([]anthropicCacheBlock, len(systemParts))
+		for i, part := range systemParts {
+			system[i] = anthropicCacheBlock{Type: "text", Text: part}
+		}
+		// Mark last system block for prompt caching.
+		system[len(system)-1].CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+	}
+	return system, result
 }
 
 // toAnthropicTools converts provider-agnostic tools to Anthropic tool format.
-func toAnthropicTools(tools []Tool) ([]anthropicTool, error) {
+// InputSchema is passed through as json.RawMessage to preserve deterministic
+// serialization order (important for KV-cache hit rate).
+func toAnthropicTools(tools []Tool) []anthropicTool {
 	if tools == nil {
-		return nil, nil
+		return nil
 	}
+	emptySchema := json.RawMessage(`{"type":"object","properties":{}}`)
 	result := make([]anthropicTool, len(tools))
 	for i, t := range tools {
-		var schema interface{}
-		if len(t.Parameters) > 0 {
-			if err := json.Unmarshal(t.Parameters, &schema); err != nil {
-				return nil, err
-			}
-		}
-		if schema == nil {
-			schema = map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			}
+		schema := t.Parameters
+		if len(schema) == 0 {
+			schema = emptySchema
 		}
 		result[i] = anthropicTool{
 			Name:        t.Name,
@@ -170,7 +188,13 @@ func toAnthropicTools(tools []Tool) ([]anthropicTool, error) {
 			InputSchema: schema,
 		}
 	}
-	return result, nil
+	// Mark last tool for prompt caching. Anthropic caches the prefix up to
+	// and including blocks with cache_control, so tools + system form a
+	// stable cached prefix across turns.
+	if len(result) > 0 {
+		result[len(result)-1].CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+	}
+	return result
 }
 
 // parseAnthropicSSEStream reads Anthropic Messages API SSE events and emits StreamEvents.
