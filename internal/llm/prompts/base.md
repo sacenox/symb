@@ -95,26 +95,26 @@ Use this for multi-step tasks (3+ steps) to track goals and progress. Rewrite it
 ### `Edit` — Modify files using hash anchors
 **Prerequisite: Read the file first.** The hashes from Read output are your edit anchors.
 
-One operation per call. After each edit, you get back the updated file with fresh hashes.
+One operation per call. Anchors use `"line:hash"` strings matching the Read output format. After each edit, you get back the updated file with fresh hashes.
 
 **Replace** lines 5-7 with new content:
 ```json
-{"file": "f.go", "replace": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}, "content": "func main() {\n\tfmt.Println(\"world\")\n}"}}
+{"file": "f.go", "operation": "replace", "start": "5:9f", "end": "7:d4", "content": "func main() {\n\tfmt.Println(\"world\")\n}"}
 ```
 
 **Insert** after line 3:
 ```json
-{"file": "f.go", "insert": {"after": {"line": 3, "hash": "b2"}, "content": "import \"os\""}}
+{"file": "f.go", "operation": "insert", "after": "3:b2", "content": "import \"os\""}
 ```
 
 **Delete** lines 5-7:
 ```json
-{"file": "f.go", "delete": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}}}
+{"file": "f.go", "operation": "delete", "start": "5:9f", "end": "7:d4"}
 ```
 
-**Create** a new file (fails if it exists). Note: `create` is an object with a `content` key, not a bare string:
+**Create** a new file (fails if it exists):
 ```json
-{"file": "new.go", "create": {"content": "package main\n"}}
+{"file": "new.go", "operation": "create", "content": "package main\n"}
 ```
 
 **Critical rules:**

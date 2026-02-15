@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -114,4 +115,21 @@ func ValidateRange(start, end Anchor, lines []string) error {
 		return fmt.Errorf("start line %d is after end line %d", start.Num, end.Num)
 	}
 	return nil
+}
+
+// ParseAnchor parses a "line:hash" string (e.g. "5:ab") into an Anchor.
+func ParseAnchor(s string) (Anchor, error) {
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return Anchor{}, fmt.Errorf("invalid anchor %q: expected line:hash", s)
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return Anchor{}, fmt.Errorf("invalid anchor %q: bad line number", s)
+	}
+	h := parts[1]
+	if len(h) != HashLen {
+		return Anchor{}, fmt.Errorf("invalid anchor %q: hash must be %d hex chars", s, HashLen)
+	}
+	return Anchor{Num: n, Hash: h}, nil
 }

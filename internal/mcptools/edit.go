@@ -29,94 +29,36 @@ type editRegion struct {
 	end   int // last affected line
 }
 
-// EditArgs represents arguments for the Edit tool.
-// Exactly one of the operation fields (Replace, Insert, Delete) must be set.
+// EditArgs represents arguments for the Edit tool (flat schema).
 type EditArgs struct {
-	File    string     `json:"file"`
-	Replace *ReplaceOp `json:"replace,omitempty"`
-	Insert  *InsertOp  `json:"insert,omitempty"`
-	Delete  *DeleteOp  `json:"delete,omitempty"`
-	Create  *CreateOp  `json:"create,omitempty"`
+	File      string `json:"file"`
+	Operation string `json:"operation"`
+	Start     string `json:"start,omitempty"`   // "line:hash" anchor
+	End       string `json:"end,omitempty"`     // "line:hash" anchor
+	After     string `json:"after,omitempty"`   // "line:hash" anchor (insert)
+	Content   string `json:"content,omitempty"` // text content
 }
-
-// ReplaceOp replaces lines between start and end (inclusive) with new content.
-type ReplaceOp struct {
-	Start   hashline.Anchor `json:"start"`   // anchor for first line to replace
-	End     hashline.Anchor `json:"end"`     // anchor for last line to replace
-	Content string          `json:"content"` // replacement text (may be multiple lines)
-}
-
-// InsertOp inserts new lines after the anchored line.
-type InsertOp struct {
-	After   hashline.Anchor `json:"after"`   // anchor for the line to insert after
-	Content string          `json:"content"` // text to insert (may be multiple lines)
-}
-
-// DeleteOp deletes lines between start and end (inclusive).
-type DeleteOp struct {
-	Start hashline.Anchor `json:"start"` // anchor for first line to delete
-	End   hashline.Anchor `json:"end"`   // anchor for last line to delete
-}
-
-// CreateOp creates a new file with the given content.
-type CreateOp struct {
-	Content string `json:"content"` // full file content
-}
-
-// anchor is the JSON schema fragment for a hashline anchor object.
-const anchorSchema = `{"type": "object", "properties": {"line": {"type": "integer", "description": "1-indexed line number"}, "hash": {"type": "string", "description": "2-char hex hash from Read output"}}, "required": ["line", "hash"]}`
 
 // NewEditTool creates the Edit tool definition.
 func NewEditTool() mcp.Tool {
 	return mcp.Tool{
 		Name: "Edit",
 		Description: `Edit a file using hash-anchored operations. You MUST Read the file first to get line hashes.
-Each line from Read is tagged as "linenum:hash|content". Use the line number and hash as anchors.
+Each line from Read is tagged as "linenum:hash|content". Use "line:hash" strings as anchors.
 Exactly one operation per call: replace, insert, delete, or create.
 If a hash does not match, the file changed since you read it — re-Read and retry.
 After each edit you receive fresh hashes — use those for subsequent edits, not the old ones.`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"file": {"type": "string", "description": "Path to the file to edit"},
-				"replace": {
-					"type": "object",
-					"description": "Replace lines from start to end (inclusive) with new content",
-					"properties": {
-						"start":   ` + anchorSchema + `,
-						"end":     ` + anchorSchema + `,
-						"content": {"type": "string", "description": "Replacement text (may be multiple lines)"}
-					},
-					"required": ["start", "end", "content"]
-				},
-				"insert": {
-					"type": "object",
-					"description": "Insert new lines after the anchored line",
-					"properties": {
-						"after":   ` + anchorSchema + `,
-						"content": {"type": "string", "description": "Text to insert (may be multiple lines)"}
-					},
-					"required": ["after", "content"]
-				},
-				"delete": {
-					"type": "object",
-					"description": "Delete lines from start to end (inclusive)",
-					"properties": {
-						"start": ` + anchorSchema + `,
-						"end":   ` + anchorSchema + `
-					},
-					"required": ["start", "end"]
-				},
-				"create": {
-					"type": "object",
-					"description": "Create a new file (fails if file already exists)",
-					"properties": {
-						"content": {"type": "string", "description": "Full file content"}
-					},
-					"required": ["content"]
-				}
+				"file":      {"type": "string", "description": "Path to the file to edit"},
+				"operation": {"type": "string", "enum": ["replace", "insert", "delete", "create"], "description": "The edit operation to perform"},
+				"start":     {"type": "string", "description": "Start anchor as 'line:hash' (replace, delete)"},
+				"end":       {"type": "string", "description": "End anchor as 'line:hash' (replace, delete)"},
+				"after":     {"type": "string", "description": "Insert-after anchor as 'line:hash' (insert)"},
+				"content":   {"type": "string", "description": "Text content (replace, insert, create)"}
 			},
-			"required": ["file"]
+			"required": ["file", "operation"]
 		}`),
 	}
 }
@@ -141,13 +83,13 @@ func (h *EditHandler) SetTSIndex(idx *treesitter.Index) { h.tsIndex = idx }
 func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
 	var args EditArgs
 	if err := json.Unmarshal(arguments, &args); err != nil {
-		return toolError("%s", editUnmarshalHint(arguments, err)), nil
+		return toolError("Invalid arguments: %v", err), nil
 	}
 	if args.File == "" {
-		return toolError("File path cannot be empty"), nil
+		return toolError("file is required"), nil
 	}
-	if err := validateEditOps(args); err != nil {
-		return toolError("%v", err), nil
+	if args.Operation == "" {
+		return toolError("operation is required (replace, insert, delete, or create)"), nil
 	}
 
 	absPath, err := validatePath(args.File)
@@ -155,8 +97,8 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 		return toolError("%v", err), nil
 	}
 
-	if args.Create != nil {
-		return h.handleCreate(ctx, absPath, args.File, args.Create)
+	if args.Operation == "create" {
+		return h.handleCreate(ctx, absPath, args.File, args.Content)
 	}
 
 	if !h.tracker.WasRead(absPath) {
@@ -164,49 +106,6 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 	}
 
 	return h.applyEdit(ctx, absPath, args)
-}
-
-// validateEditOps ensures exactly one operation is specified.
-func validateEditOps(args EditArgs) error {
-	ops := 0
-	if args.Replace != nil {
-		ops++
-	}
-	if args.Insert != nil {
-		ops++
-	}
-	if args.Delete != nil {
-		ops++
-	}
-	if args.Create != nil {
-		ops++
-	}
-	if ops != 1 {
-		return fmt.Errorf("exactly one operation (replace, insert, delete, or create) must be specified")
-	}
-	return nil
-}
-
-// editUnmarshalHint returns an actionable error when JSON unmarshalling fails.
-// It detects common mistakes like passing a string for create instead of an object.
-func editUnmarshalHint(raw json.RawMessage, original error) string {
-	var probe map[string]json.RawMessage
-	if json.Unmarshal(raw, &probe) == nil {
-		for _, key := range []string{"create", "replace", "insert", "delete"} {
-			v, ok := probe[key]
-			if !ok || len(v) == 0 {
-				continue
-			}
-			// If the value starts with '"' it's a string, but the schema expects an object.
-			if v[0] == '"' {
-				return fmt.Sprintf(
-					`invalid %s: expected an object, got a string. Use {"file":"path", "%s":{"content":"..."}}`,
-					key, key,
-				)
-			}
-		}
-	}
-	return fmt.Sprintf("invalid arguments: %v", original)
 }
 
 // applyEdit reads the file, applies the edit operation, writes it back, and returns fresh hashes.
@@ -219,13 +118,15 @@ func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditAr
 
 	var result string
 	var region editRegion
-	switch {
-	case args.Replace != nil:
-		result, region, err = applyReplace(lines, args.Replace)
-	case args.Insert != nil:
-		result, region, err = applyInsert(lines, args.Insert)
-	case args.Delete != nil:
-		result, region, err = applyDelete(lines, args.Delete)
+	switch args.Operation {
+	case "replace":
+		result, region, err = applyReplace(lines, args)
+	case "insert":
+		result, region, err = applyInsert(lines, args)
+	case "delete":
+		result, region, err = applyDelete(lines, args)
+	default:
+		return toolError("unknown operation %q: use replace, insert, delete, or create", args.Operation), nil
 	}
 	if err != nil {
 		return toolError("%v", err), nil
@@ -255,7 +156,7 @@ func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditAr
 	}, nil
 }
 
-func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath string, op *CreateOp) (*mcp.ToolResult, error) {
+func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath, content string) (*mcp.ToolResult, error) {
 	// Fail if file already exists
 	if _, err := os.Stat(absPath); err == nil {
 		return toolError("File already exists: %s (use replace/insert/delete to modify)", displayPath), nil
@@ -271,11 +172,11 @@ func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath str
 		h.deltaTracker.RecordCreate(absPath)
 	}
 
-	if err := os.WriteFile(absPath, []byte(op.Content), 0600); err != nil {
+	if err := os.WriteFile(absPath, []byte(content), 0600); err != nil {
 		return toolError("Failed to create file: %v", err), nil
 	}
 
-	tagged := hashline.TagLines(op.Content, 1)
+	tagged := hashline.TagLines(content, 1)
 	taggedOutput := hashline.FormatTagged(tagged)
 
 	text := fmt.Sprintf("Created %s (%d lines):\n\n%s", displayPath, len(tagged), taggedOutput)
@@ -316,53 +217,73 @@ func formatEditResponse(displayPath string, tagged []hashline.TaggedLine, region
 		displayPath, total, winStart, winEnd, hashline.FormatTagged(window))
 }
 
-func applyReplace(lines []string, op *ReplaceOp) (string, editRegion, error) {
-	if err := hashline.ValidateRange(op.Start, op.End, lines); err != nil {
+func applyReplace(lines []string, args EditArgs) (string, editRegion, error) {
+	start, err := hashline.ParseAnchor(args.Start)
+	if err != nil {
+		return "", editRegion{}, fmt.Errorf("replace start: %w", err)
+	}
+	end, err := hashline.ParseAnchor(args.End)
+	if err != nil {
+		return "", editRegion{}, fmt.Errorf("replace end: %w", err)
+	}
+	if err := hashline.ValidateRange(start, end, lines); err != nil {
 		return "", editRegion{}, fmt.Errorf("replace: %w", err)
 	}
 
-	inserted := strings.Split(op.Content, "\n")
+	inserted := strings.Split(args.Content, "\n")
 	newLines := make([]string, 0, len(lines))
-	newLines = append(newLines, lines[:op.Start.Num-1]...)
+	newLines = append(newLines, lines[:start.Num-1]...)
 	newLines = append(newLines, inserted...)
-	newLines = append(newLines, lines[op.End.Num:]...)
+	newLines = append(newLines, lines[end.Num:]...)
 
 	region := editRegion{
-		start: op.Start.Num,
-		end:   op.Start.Num + len(inserted) - 1,
+		start: start.Num,
+		end:   start.Num + len(inserted) - 1,
 	}
 	return strings.Join(newLines, "\n"), region, nil
 }
 
-func applyInsert(lines []string, op *InsertOp) (string, editRegion, error) {
-	if err := op.After.Validate(lines); err != nil {
+func applyInsert(lines []string, args EditArgs) (string, editRegion, error) {
+	after, err := hashline.ParseAnchor(args.After)
+	if err != nil {
+		return "", editRegion{}, fmt.Errorf("insert after: %w", err)
+	}
+	if err := after.Validate(lines); err != nil {
 		return "", editRegion{}, fmt.Errorf("insert: after anchor: %w", err)
 	}
 
-	inserted := strings.Split(op.Content, "\n")
+	inserted := strings.Split(args.Content, "\n")
 	newLines := make([]string, 0, len(lines)+len(inserted))
-	newLines = append(newLines, lines[:op.After.Num]...)
+	newLines = append(newLines, lines[:after.Num]...)
 	newLines = append(newLines, inserted...)
-	newLines = append(newLines, lines[op.After.Num:]...)
+	newLines = append(newLines, lines[after.Num:]...)
 
 	region := editRegion{
-		start: op.After.Num + 1,
-		end:   op.After.Num + len(inserted),
+		start: after.Num + 1,
+		end:   after.Num + len(inserted),
 	}
 	return strings.Join(newLines, "\n"), region, nil
 }
 
-func applyDelete(lines []string, op *DeleteOp) (string, editRegion, error) {
-	if err := hashline.ValidateRange(op.Start, op.End, lines); err != nil {
+func applyDelete(lines []string, args EditArgs) (string, editRegion, error) {
+	start, err := hashline.ParseAnchor(args.Start)
+	if err != nil {
+		return "", editRegion{}, fmt.Errorf("delete start: %w", err)
+	}
+	end, err := hashline.ParseAnchor(args.End)
+	if err != nil {
+		return "", editRegion{}, fmt.Errorf("delete end: %w", err)
+	}
+	if err := hashline.ValidateRange(start, end, lines); err != nil {
 		return "", editRegion{}, fmt.Errorf("delete: %w", err)
 	}
 
 	newLines := make([]string, 0, len(lines))
-	newLines = append(newLines, lines[:op.Start.Num-1]...)
-	newLines = append(newLines, lines[op.End.Num:]...)
+	newLines = append(newLines, lines[:start.Num-1]...)
+	newLines = append(newLines, lines[end.Num:]...)
 
 	// The "region" is where the deletion happened — show surrounding context.
-	regionLine := op.Start.Num - 1
+	regionLine := start.Num - 1
 	if regionLine < 1 {
 		regionLine = 1
 	}

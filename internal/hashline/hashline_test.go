@@ -172,3 +172,20 @@ func TestRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestParseAnchor(t *testing.T) {
+	a, err := ParseAnchor("5:ab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Num != 5 || a.Hash != "ab" {
+		t.Errorf("got %+v", a)
+	}
+
+	// errors
+	for _, bad := range []string{"", "5", ":ab", "ab:5", "5:abc", "5:a"} {
+		if _, err := ParseAnchor(bad); err == nil {
+			t.Errorf("expected error for %q", bad)
+		}
+	}
+}
