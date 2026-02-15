@@ -42,14 +42,6 @@ Prompt system: model-specific base prompts (Claude, Gemini, Qwen, GPT).
 `AGENTS.md` support: walks directory tree upward collecting all AGENTS.md files,
 prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
 
-**TODO**: Extract common parts into one file, use templates to compose final prompt.
-    - symb.md: symb specific prompt text
-    - <model name>-<segment name>.md: model specific instructions
-    - base: common model instructions. and template tags to insert symb and model specific segments.
-    - Ensure proper ordering of prompt
-    - Fix language, system prompt should be presented as model afnostic, the LLM shouldn't know anythign about other promots. Should be software language agnostic (not Go focused, use pseudo-code or simple examples)
-    - Consider token count and optimize where possible
-
 ### Providers (`internal/provider`)
 
 - **Ollama** — local, OpenAI-compatible `/v1` endpoint. Extracts reasoning from
@@ -138,8 +130,6 @@ https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Ma
 
 Implement findings?
 
-## Features waiting implementation for current version:
-
 ### Statusbar implementation
 
 (in order: left to right)
@@ -148,6 +138,7 @@ Left:
 
 - Show current branch + dirty status in status bar. (needs to be updated every X frames/time) to be responsive
 - Show lsp warnings and errors count for opened editor content, if any.
+- Show path/filename for opened file if any and there are no LSP warnings/errors. (NOT DONE)
 
 Right (right aligned text)
 
@@ -157,6 +148,8 @@ Right (right aligned text)
 - Animated icon:
   - Slow animation when idle.
   - Fast animation while a request to the LLM is in-flight (whole turn)
+
+## Features waiting implementation for current version:
 
 ### File Search modal
 
@@ -173,6 +166,9 @@ File search modal:
  - `ESC` cancels the file search closing the modal.
 
  Selection is opened in the editor.
+ 
+ Make a generic modal with inputbox + list combo for re-use. The use that to make the file search one.
+ (It will be used for a command box maybe)
  
 ### Code viewer pane -> Becomes Code editor pane
 
