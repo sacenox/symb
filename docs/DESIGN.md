@@ -59,7 +59,7 @@ Retry-After parsing.
 
 ### Tools (`internal/mcptools`)
 
-3 tools registered:
+7 tools registered:
 
 - **Read** — reads file, returns hashline-tagged content (`linenum:hash|content`). Path traversal prevention.
 - **Edit** — hash-anchored file editing (replace, insert, delete, create).
@@ -67,7 +67,10 @@ Retry-After parsing.
   read-before-edit via `FileReadTracker`. Includes LSP Diagnostics.
 - **Grep** — file/content search. Regex, gitignore-aware, case sensitivity,
   max results.
-- **WebSearch and Webfetch** -- read and search the web (search by exa.ai)
+- **Shell** — sandboxed shell execution. Command blocking for dangerous ops,
+  streaming output, timeout support.
+- **TodoWrite** — LLM scratchpad/plan persistence. Visible at end of context window.
+- **WebSearch** and **WebFetch** — read and search the web (search by exa.ai).
 
 ### Git Integration
 
@@ -149,8 +152,6 @@ Right (right aligned text)
   - Slow animation when idle.
   - Fast animation while a request to the LLM is in-flight (whole turn)
 
-## Features waiting implementation for current version:
-
 ### File Search modal
 
 Opens via keybind: <ctrl + f>
@@ -170,6 +171,9 @@ File search modal:
  Make a generic modal with inputbox + list combo for re-use. The use that to make the file search one.
  (It will be used for a command box maybe)
  
+
+## Features waiting implementation for current version:
+
 ### Code viewer pane -> Becomes Code editor pane
 
  - Enable the same editting abilities as the agent input box.
