@@ -110,9 +110,14 @@ Run commands in sandbox (container isolation or restricted shell). Command
 whitelisting. Output streaming to conversation.
 Needs an undo.
 
+### TUI Rendering loop
+
+- 60fps baseline
+- Optimized frame render logic.
+
 ## Features waiting implementation for current version:
 
-### Context management?
+### Context management
 
 1. Context token count: input, output, and total tokens. Store them in db. Shown each message with the timestamp:
 
@@ -120,8 +125,9 @@ Needs an undo.
 <time elapsed> <timestamp> <toekns in current count>/<tokens out current count> (<total tokens in context at current count).
 <undo if most recent agent message>
 ```
+Refactor so it shows two lines as above with text right aligned. Remove existing `---` separator completly
 
-Gather baseline data with no context management. Then study:
+2. Gather baseline data with no context management. Then study:
 
 https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
 (Search for more resources like the one above, build a document with concise knowledge base (500 lines max)
