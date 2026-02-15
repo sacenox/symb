@@ -114,8 +114,7 @@ Needs an undo.
 
 - 60fps baseline
 - Optimized frame render logic.
-
-## Features waiting implementation for current version:
+- Integrates with hl theme.
 
 ### Context management
 
@@ -126,13 +125,17 @@ Needs an undo.
 <undo if most recent agent message>
 ```
 Refactor so it shows two lines as above with text right aligned. Remove existing `---` separator completly
+**DONE**
 
 2. Gather baseline data with no context management. Then study:
+**INPROGRESS**
 
 https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
 (Search for more resources like the one above, build a document with concise knowledge base (500 lines max)
 
 Implement findings?
+
+## Features waiting implementation for current version:
 
 ### Statusbar implementation
 
@@ -140,17 +143,17 @@ Implement findings?
 
 Left:
 
-- Show current branch + dirty status in status bar.
-- Show lsp warnings and errors count for opened editor.
+- Show current branch + dirty status in status bar. (needs to be updated every X frames/time) to be responsive
+- Show lsp warnings and errors count for opened editor content, if any.
 
 Right (right aligned text)
 
 - Network errors to providers (llm, and exa_search), truncated.
   - NOTE: Animated icon becomes red until next successful request.
-- Context info: tokens out/in + total context size.
 - Current llm provider config name
-- Show name and version
-- Animated icon.
+- Animated icon:
+  - Slow animation when idle.
+  - Fast animation while a request to the LLM is in-flight (whole turn)
 
 ### File Search modal
 

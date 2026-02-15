@@ -93,7 +93,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker),
+		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {

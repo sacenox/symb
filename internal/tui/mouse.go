@@ -290,6 +290,8 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 				m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, entry.filePath))
 				m.editor.DiagnosticLines = nil
 				m.editorFilePath = absPath
+				m.lspErrors = 0
+				m.lspWarnings = 0
 				if entry.line > 0 {
 					m.editor.GotoLine(entry.line)
 				}
@@ -353,6 +355,8 @@ func (m *Model) tryOpenFilePath(text string) tea.Cmd {
 	m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, path))
 	m.editor.DiagnosticLines = nil
 	m.editorFilePath = absPath
+	m.lspErrors = 0
+	m.lspWarnings = 0
 	if lineNum > 0 {
 		m.editor.GotoLine(lineNum)
 	}

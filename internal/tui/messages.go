@@ -3,6 +3,8 @@ package tui
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -73,6 +75,12 @@ type LSPDiagnosticsMsg struct {
 	Lines    map[int]int // bufRow (0-indexed) -> max severity (1=error, 2=warning)
 }
 
+// gitBranchMsg carries the current git branch and dirty status.
+type gitBranchMsg struct {
+	branch string
+	dirty  bool
+}
+
 // ---------------------------------------------------------------------------
 // ELM commands
 // ---------------------------------------------------------------------------
@@ -81,6 +89,37 @@ type LSPDiagnosticsMsg struct {
 func frameTick() tea.Cmd {
 	return tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+// gitBranchCmd runs git to detect the current branch and dirty status.
+func gitBranchCmd() tea.Cmd {
+	return func() tea.Msg {
+		branch := ""
+		if out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+			branch = strings.TrimSpace(string(out))
+		}
+		dirty := false
+		if err := exec.Command("git", "diff", "--quiet", "HEAD").Run(); err != nil {
+			dirty = true // exit code 1 = dirty
+		}
+		return gitBranchMsg{branch: branch, dirty: dirty}
+	}
+}
+
+// gitBranchTick schedules a git branch re-poll after a 5-second delay.
+func gitBranchTick() tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		// Run git commands inline after the delay to avoid an extra message type.
+		branch := ""
+		if out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+			branch = strings.TrimSpace(string(out))
+		}
+		dirty := false
+		if err := exec.Command("git", "diff", "--quiet", "HEAD").Run(); err != nil {
+			dirty = true
+		}
+		return gitBranchMsg{branch: branch, dirty: dirty}
 	})
 }
 

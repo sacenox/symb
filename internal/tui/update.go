@@ -47,6 +47,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// -- Frame tick (60fps) — rebuild streaming entries for live updates ------
 	case tickMsg:
 		m.tickStreaming()
+		m.tickSpinner(time.Time(msg))
 		return m, frameTick()
 
 	// -- LLM batch (multiple messages drained from updateChan) ---------------
@@ -55,6 +56,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// -- LLM user message (sent before streaming begins) ---------------------
 	case llmUserMsg:
+		m.llmInFlight = true
 		return m.handleUserMsg(msg), tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 
 	case LSPDiagnosticsMsg:
@@ -71,22 +73,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case undoMsg:
 		return m.handleUndo(), nil
+
+	case gitBranchMsg:
+		return m.handleGitBranch(msg)
 	}
 
-	// Always tick spinner
+	// Forward remaining messages to sub-models (mouse is already handled above).
+	return m.forwardToSubModels(msg)
+}
+
+// forwardToSubModels sends a non-handled message to sub-editors.
+func (m Model) forwardToSubModels(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
-	m.spinner, cmd = m.spinner.Update(msg)
+	m.editor, cmd = m.editor.Update(msg)
 	cmds = append(cmds, cmd)
-
-	// Forward non-mouse messages to focused component
-	if _, isMouse := msg.(tea.MouseMsg); !isMouse {
-		m.editor, cmd = m.editor.Update(msg)
-		cmds = append(cmds, cmd)
-		m.agentInput, cmd = m.agentInput.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
+	m.agentInput, cmd = m.agentInput.Update(msg)
+	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
@@ -94,8 +97,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleLSPDiag(msg LSPDiagnosticsMsg) Model {
 	if msg.FilePath == m.editorFilePath {
 		m.editor.DiagnosticLines = msg.Lines
+		// Count errors (severity 1) and warnings (severity 2) for the statusbar.
+		errs, warns := 0, 0
+		for _, sev := range msg.Lines {
+			switch sev {
+			case 1:
+				errs++
+			case 2:
+				warns++
+			}
+		}
+		m.lspErrors = errs
+		m.lspWarnings = warns
 	}
 	return *m
+}
+
+// handleGitBranch updates statusbar git state and schedules the next poll.
+func (m Model) handleGitBranch(msg gitBranchMsg) (tea.Model, tea.Cmd) {
+	m.gitBranch = msg.branch
+	m.gitDirty = msg.dirty
+	return m, gitBranchTick()
 }
 
 // handleResize applies a window size change and re-derives layout.
@@ -233,6 +255,9 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.applyToolResultMsg(msg)
 
 		case llmErrorMsg:
+			m.llmInFlight = false
+			m.lastNetError = msg.err.Error()
+			m.clearStreaming()
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
 			return m, nil
 
@@ -243,6 +268,8 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.totalOutputTokens += msg.outputTokens
 
 		case llmDoneMsg:
+			m.llmInFlight = false
+			m.lastNetError = ""
 			m.demoteOldUndo()
 			m.appendText("")
 			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp,
@@ -255,6 +282,22 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 
 	// More messages may follow — keep listening.
 	return m, m.waitForLLMUpdate()
+}
+
+// brailleFrames is the spinner animation sequence.
+var brailleFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// tickSpinner advances the braille spinner frame based on elapsed time.
+// Slow (~500ms/frame) when idle, fast (~100ms/frame) during LLM turns.
+func (m *Model) tickSpinner(now time.Time) {
+	interval := 500 * time.Millisecond
+	if m.llmInFlight {
+		interval = 100 * time.Millisecond
+	}
+	if now.Sub(m.spinFrameAt) >= interval {
+		m.spinFrame = (m.spinFrame + 1) % len(brailleFrames)
+		m.spinFrameAt = now
+	}
 }
 
 // tickStreaming rebuilds streaming entries when new content has arrived.

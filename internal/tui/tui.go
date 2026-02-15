@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"time"
 
-	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/xonecas/symb/internal/constants"
@@ -184,7 +183,6 @@ type Model struct {
 	width, height int
 
 	// Sub-models
-	spinner    spinner.Model
 	editor     editor.Model
 	agentInput editor.Model
 
@@ -249,16 +247,25 @@ type Model struct {
 	// Frame loop
 	streamDirty bool     // New streaming content arrived since last rebuild
 	frameLines  []string // Per-frame cache of wrapped conv lines (cleared each Update)
+
+	// Statusbar state
+	providerConfigName string // TOML config key (e.g. "zen-pickle")
+	gitBranch          string // Current git branch name
+	gitDirty           bool   // Working tree has uncommitted changes
+	lspErrors          int    // Error count for current editor file
+	lspWarnings        int    // Warning count for current editor file
+	lastNetError       string // Last LLM network error (truncated for display)
+	llmInFlight        bool   // True while an LLM turn is in progress
+
+	// Statusbar animation
+	spinFrame   int       // Current braille spinner frame index
+	spinFrameAt time.Time // When the current frame was set
 }
 
 // New creates a new TUI model.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
-
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = cursorStyle.Background(ColorBg)
 
 	selStyle := sty.Selection
 
@@ -299,7 +306,6 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	}
 
 	return Model{
-		spinner:    s,
 		editor:     ed,
 		agentInput: ai,
 		styles:     sty,
@@ -323,10 +329,12 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 
 		streamEntryStart: -1,
 		hoverConvLine:    -1,
+
+		providerConfigName: providerConfigName,
 	}
 }
 
-// Init starts spinner, cursor blink, and the 60fps frame loop.
+// Init starts cursor blink, the 60fps frame loop, and periodic git branch polling.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, func() tea.Msg { return editor.Blink() }, frameTick())
+	return tea.Batch(func() tea.Msg { return editor.Blink() }, frameTick(), gitBranchCmd())
 }
