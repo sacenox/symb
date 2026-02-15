@@ -153,6 +153,8 @@ func (m Model) renderStatusBar(b *strings.Builder, bgFill lipgloss.Style) {
 			diags = append(diags, m.styles.Warning.Render(fmt.Sprintf("⚠ %d", m.lspWarnings)))
 		}
 		leftParts = append(leftParts, strings.Join(diags, m.styles.StatusText.Render(" ")))
+	} else if m.editorFilePath != "" {
+		leftParts = append(leftParts, m.styles.StatusText.Render(m.editorFilePath))
 	}
 
 	left := strings.Join(leftParts, m.styles.StatusText.Render("  "))
