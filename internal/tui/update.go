@@ -744,6 +744,8 @@ func (m *Model) openFileModal() {
 		return items
 	}
 	md := modal.New(searchFn, "Open: ", modal.Colors{
+		Fg:     palette.Fg,
+		Bg:     palette.Bg,
 		Dim:    palette.Dim,
 		SelFg:  palette.Fg,
 		SelBg:  palette.Bg,

@@ -119,6 +119,7 @@ Needs an undo.
 <time elapsed> <timestamp> <toekns in current count>/<tokens out current count> (<total tokens in context at current count).
 <undo if most recent agent message>
 ```
+
 Refactor so it shows two lines as above with text right aligned. Remove existing `---` separator completly
 **DONE**
 
@@ -126,7 +127,7 @@ Refactor so it shows two lines as above with text right aligned. Remove existing
 - Old tool results are compacted to their header line after the assistant responds, preventing resend of full payloads on subsequent rounds.
 
 2. Gather baseline data with no context management. Then study:
-**INPROGRESS**
+   **INPROGRESS**
 
 https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
 (Search for more resources like the one above, build a document with concise knowledge base (500 lines max)
@@ -157,30 +158,35 @@ Right (right aligned text)
 Opens via keybind: <ctrl + f>
 
 File search modal:
- - Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
- - Top row is the input for the file search query
- - Rest of the modal is the list of matches.
- - Results update after the user stops typing for a few hundred miliseconds.
- - Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
- - `Enter` on input selects the first match closing the modal
- - `Enter` on result list row selected the selected row. closing the modal
- - `ESC` cancels the file search closing the modal.
 
- Selection is opened in the editor.
- 
- Make a generic modal with inputbox + list combo for re-use. The use that to make the file search one.
- (It will be used for a command box maybe)
- 
+- Centered in the UI, 80% of legth and width of the main app window, resizable with the rest of the app.
+- Top row is the input for the file search query
+- Rest of the modal is the list of matches.
+- Results update after the user stops typing for a few hundred miliseconds.
+- Up/down arrow select from the search results. If focus is on input and user presses down arrow, it focus the list. If focus is on first result and user presses up arrow focus the input.
+- `Enter` on input selects the first match closing the modal
+- `Enter` on result list row selected the selected row. closing the modal
+- `ESC` cancels the file search closing the modal.
+
+Selection is opened in the editor.
+
+Make a generic modal with inputbox + list combo for re-use. The use that to make the file search one.
+(It will be used for a command box maybe)
+
+### Session cli flags:
+
+- `-s`, `--session`: Takes a session id
+- `-l`, `--list`: Lists sessions with id, last user message timestamp, and 50 characters of the last user user message.
+- `-c`, `--continue`: continues last session (most recent user message)
 
 ## Features waiting implementation for current version:
 
 Testing current feature set
 
-
 ### Code viewer pane -> Becomes Code editor pane
 
- - Enable the same editting abilities as the agent input box.
- - <ctrl + s> Saves the file. (Do we just save it, or we send a message to the LLM to apply the edit?)
+- Enable the same editting abilities as the agent input box.
+- <ctrl + s> Saves the file. (Do we just save it, or we send a message to the LLM to apply the edit?)
 
 # TODO (after features)
 
@@ -213,9 +219,10 @@ turn. Needs careful coordination with FileReadTracker and TUI updates.
 ### Editor-LLM link:
 
 LLM input (in the spirit of the app, symbiotic):
- - User types in agent input
- - with `@cursor` or `@selected` -- Works with `@` filesearh modal.
- - creates a reference with hashes of where the user's cursor or selection is in the filesystem/file
+
+- User types in agent input
+- with `@cursor` or `@selected` -- Works with `@` filesearh modal.
+- creates a reference with hashes of where the user's cursor or selection is in the filesystem/file
 
 ### UI Polish
 
@@ -227,4 +234,3 @@ Logs should be in app data home dir, not in .local
 
 29 tests, all passing. Coverage: hashline 96.7%, filesearch 76%,
 mcp_tools 43.2%, tui/editor 42.1%, tui 41.9%.
-

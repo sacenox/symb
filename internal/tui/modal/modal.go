@@ -28,6 +28,8 @@ type SearchFunc func(query string) []Item
 
 // Colors holds the theme colors for the modal.
 type Colors struct {
+	Fg     string
+	Bg     string
 	Dim    string
 	SelFg  string
 	SelBg  string
@@ -244,14 +246,19 @@ func (m *Model) View(appWidth, appHeight int) string {
 		content += "\n" + l
 	}
 
+	bg := lipgloss.Color(m.colors.Bg)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(m.colors.Border)).
+		BorderBackground(bg).
+		Foreground(lipgloss.Color(m.colors.Fg)).
+		Background(bg).
 		Padding(0, 1).
 		Width(w - 2).
 		Render(content)
 
-	return lipgloss.Place(appWidth, appHeight, lipgloss.Center, lipgloss.Center, box)
+	return lipgloss.Place(appWidth, appHeight, lipgloss.Center, lipgloss.Center, box,
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(bg)))
 }
 
 func (m *Model) renderInput(prompt string) string {
@@ -275,7 +282,10 @@ func (m *Model) renderList(innerW, listHeight int) []string {
 		scrollOff = m.selected - listHeight + 1
 	}
 
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.colors.Dim))
+	bg := lipgloss.Color(m.colors.Bg)
+	dimStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(m.colors.Dim)).
+		Background(bg)
 	selStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(m.colors.SelFg)).
 		Background(lipgloss.Color(m.colors.SelBg))

@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-var testColors = Colors{Dim: "#666", SelFg: "#fff", SelBg: "#444", Border: "#555"}
+var testColors = Colors{Fg: "#ccc", Bg: "#1a1a2e", Dim: "#666", SelFg: "#fff", SelBg: "#444", Border: "#555"}
 
 func fruits(query string) []Item {
 	all := []Item{
