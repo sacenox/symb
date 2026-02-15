@@ -129,27 +129,32 @@ func TestValidateRange(t *testing.T) {
 	h3 := LineHash(lines[2])
 
 	// Valid range
-	if err := ValidateRange(Anchor{1, h1}, Anchor{3, h3}, lines); err != nil {
+	s, e := Anchor{1, h1}, Anchor{3, h3}
+	if err := ValidateRange(lines, &s, &e); err != nil {
 		t.Errorf("valid range failed: %v", err)
 	}
 
 	// Single line range
-	if err := ValidateRange(Anchor{2, h2}, Anchor{2, h2}, lines); err != nil {
+	s2, e2 := Anchor{2, h2}, Anchor{2, h2}
+	if err := ValidateRange(lines, &s2, &e2); err != nil {
 		t.Errorf("single line range failed: %v", err)
 	}
 
 	// Inverted range
-	if err := ValidateRange(Anchor{3, h3}, Anchor{1, h1}, lines); err == nil {
+	s3, e3 := Anchor{3, h3}, Anchor{1, h1}
+	if err := ValidateRange(lines, &s3, &e3); err == nil {
 		t.Error("inverted range should fail")
 	}
 
 	// Bad start hash
-	if err := ValidateRange(Anchor{1, "ff"}, Anchor{3, h3}, lines); err == nil {
+	s4, e4 := Anchor{1, "ff"}, Anchor{3, h3}
+	if err := ValidateRange(lines, &s4, &e4); err == nil {
 		t.Error("bad start hash should fail")
 	}
 
 	// Bad end hash
-	if err := ValidateRange(Anchor{1, h1}, Anchor{3, "ff"}, lines); err == nil {
+	s5, e5 := Anchor{1, h1}, Anchor{3, "ff"}
+	if err := ValidateRange(lines, &s5, &e5); err == nil {
 		t.Error("bad end hash should fail")
 	}
 }
@@ -187,5 +192,59 @@ func TestParseAnchor(t *testing.T) {
 		if _, err := ParseAnchor(bad); err == nil {
 			t.Errorf("expected error for %q", bad)
 		}
+	}
+}
+
+func TestAnchorRelocate(t *testing.T) {
+	lines := []string{"alpha", "beta", "gamma", "delta"}
+	betaHash := LineHash("beta")
+
+	// Wrong line number, unique hash → relocate succeeds.
+	a := Anchor{Num: 4, Hash: betaHash}
+	if err := a.Validate(lines); err != nil {
+		t.Fatalf("expected relocation, got error: %v", err)
+	}
+	if a.Num != 2 {
+		t.Errorf("expected relocated to line 2, got %d", a.Num)
+	}
+
+	// Duplicate hash → relocation fails.
+	dupes := []string{"same", "other", "same"}
+	sameHash := LineHash("same")
+	a2 := Anchor{Num: 2, Hash: sameHash}
+	if err := a2.Validate(dupes); err == nil {
+		t.Error("expected error for ambiguous hash")
+	}
+
+	// Out of range but relocatable.
+	a3 := Anchor{Num: 99, Hash: betaHash}
+	if err := a3.Validate(lines); err != nil {
+		t.Fatalf("expected relocation for out-of-range, got: %v", err)
+	}
+	if a3.Num != 2 {
+		t.Errorf("expected relocated to line 2, got %d", a3.Num)
+	}
+}
+
+func TestValidateRangeRelocate(t *testing.T) {
+	lines := []string{"alpha", "beta", "gamma", "delta"}
+	betaHash := LineHash("beta")
+	gammaHash := LineHash("gamma")
+
+	// Both anchors have wrong line numbers but unique hashes.
+	start := Anchor{Num: 10, Hash: betaHash}
+	end := Anchor{Num: 11, Hash: gammaHash}
+	if err := ValidateRange(lines, &start, &end); err != nil {
+		t.Fatalf("expected range relocation, got: %v", err)
+	}
+	if start.Num != 2 || end.Num != 3 {
+		t.Errorf("expected 2..3, got %d..%d", start.Num, end.Num)
+	}
+
+	// Relocated range inverted → error.
+	s2 := Anchor{Num: 10, Hash: gammaHash}
+	e2 := Anchor{Num: 11, Hash: betaHash}
+	if err := ValidateRange(lines, &s2, &e2); err == nil {
+		t.Error("expected error for inverted relocated range")
 	}
 }

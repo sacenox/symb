@@ -15,7 +15,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if moved := m.handleKeyPress(msg); moved {
 				m.clampCursor()
 				m.clampScroll()
-				cmds = append(cmds, m.cursor.Blink())
 			}
 		}
 	case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:

@@ -410,6 +410,7 @@ func (m Model) placeholderView() string {
 		phRunes := []rune(m.Placeholder)
 		m.cursor.SetChar(string(phRunes[0]))
 		m.cursor.TextStyle = m.PlaceholderSty
+		m.cursor.Style = m.CursorStyle
 		b.WriteString(m.cursor.View())
 		rest := m.PlaceholderSty.Render(string(phRunes[1:]))
 		rw := lipgloss.Width(m.cursor.View()) + lipgloss.Width(rest)

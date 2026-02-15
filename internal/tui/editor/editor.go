@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/cursor"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/xonecas/symb/internal/highlight"
 )
@@ -102,7 +101,7 @@ func (s selection) empty() bool {
 // New creates a new editor with sensible defaults.
 func New() Model {
 	c := cursor.New()
-	c.SetMode(cursor.CursorBlink)
+	c.SetMode(cursor.CursorStatic)
 	return Model{
 		lines:  [][]rune{{}},
 		cursor: c,
@@ -174,10 +173,6 @@ func (m *Model) GotoLine(line int) {
 	m.col = 0
 	m.clampScroll()
 }
-
-// Blink returns the initial cursor blink message. Call from Init().
-func Blink() tea.Msg { return cursor.Blink() }
-
 // ---------------------------------------------------------------------------
 // Selection API (called by parent)
 // ---------------------------------------------------------------------------

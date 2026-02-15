@@ -296,7 +296,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ed.DiagWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b"))
 
 	ai := editor.New()
-	ai.Placeholder = "Type a message..."
+	ai.Placeholder = "What's our task?"
 	ai.SubmitOnEnter = true
 	ai.Language = "markdown"
 	ai.SyntaxTheme = constants.SyntaxTheme
@@ -356,7 +356,7 @@ func newSearcherOrNil(root string) *filesearch.Searcher {
 	return s
 }
 
-// Init starts cursor blink, the 60fps frame loop, and periodic git branch polling.
+// Init starts the 60fps frame loop and periodic git branch polling.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(func() tea.Msg { return editor.Blink() }, frameTick(), gitBranchCmd())
+	return tea.Batch(frameTick(), gitBranchCmd())
 }

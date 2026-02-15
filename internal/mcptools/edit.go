@@ -226,7 +226,7 @@ func applyReplace(lines []string, args EditArgs) (string, editRegion, error) {
 	if err != nil {
 		return "", editRegion{}, fmt.Errorf("replace end: %w", err)
 	}
-	if err := hashline.ValidateRange(start, end, lines); err != nil {
+	if err := hashline.ValidateRange(lines, &start, &end); err != nil {
 		return "", editRegion{}, fmt.Errorf("replace: %w", err)
 	}
 
@@ -274,7 +274,7 @@ func applyDelete(lines []string, args EditArgs) (string, editRegion, error) {
 	if err != nil {
 		return "", editRegion{}, fmt.Errorf("delete end: %w", err)
 	}
-	if err := hashline.ValidateRange(start, end, lines); err != nil {
+	if err := hashline.ValidateRange(lines, &start, &end); err != nil {
 		return "", editRegion{}, fmt.Errorf("delete: %w", err)
 	}
 

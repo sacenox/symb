@@ -86,25 +86,52 @@ type Anchor struct {
 
 // Validate checks that the anchor matches the actual file lines.
 // lines is 0-indexed; anchor.Num is 1-indexed.
-func (a Anchor) Validate(lines []string) error {
+// On hash mismatch, it attempts to relocate by scanning for a unique
+// line with the expected hash. If found, a.Num is updated in place.
+func (a *Anchor) Validate(lines []string) error {
 	idx := a.Num - 1
+	if idx >= 0 && idx < len(lines) && LineHash(lines[idx]) == a.Hash {
+		return nil
+	}
 	if idx < 0 || idx >= len(lines) {
+		// Out of range — still try relocation before giving up.
+		if n, ok := relocate(lines, a.Hash); ok {
+			a.Num = n + 1
+			return nil
+		}
 		return fmt.Errorf("line %d out of range (file has %d lines)", a.Num, len(lines))
 	}
-	actual := LineHash(lines[idx])
-	if actual != a.Hash {
-		return &HashMismatchError{
-			Line:     a.Num,
-			Expected: a.Hash,
-			Got:      actual,
-			Content:  lines[idx],
+	// Hash mismatch — try relocation.
+	if n, ok := relocate(lines, a.Hash); ok {
+		a.Num = n + 1
+		return nil
+	}
+	return &HashMismatchError{
+		Line:     a.Num,
+		Expected: a.Hash,
+		Got:      LineHash(lines[idx]),
+		Content:  lines[idx],
+	}
+}
+
+// relocate scans lines for a unique match of hash.
+// Returns the 0-indexed line number if exactly one match is found.
+func relocate(lines []string, hash string) (int, bool) {
+	found := -1
+	for i, l := range lines {
+		if LineHash(l) == hash {
+			if found >= 0 {
+				return 0, false // duplicate — ambiguous
+			}
+			found = i
 		}
 	}
-	return nil
+	return found, found >= 0
 }
 
 // ValidateRange checks that start and end anchors are valid and ordered.
-func ValidateRange(start, end Anchor, lines []string) error {
+// Anchors may be relocated in place on hash mismatch.
+func ValidateRange(lines []string, start, end *Anchor) error {
 	if err := start.Validate(lines); err != nil {
 		return fmt.Errorf("start anchor: %w", err)
 	}
