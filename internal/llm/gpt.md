@@ -119,7 +119,7 @@ One operation per call. Returns updated file with fresh hashes after each edit.
 {"file": "f.go", "delete": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}}}
 ```
 
-**Create** a new file:
+**Create** a new file. Note: `create` is an object with a `content` key, not a bare string:
 ```json
 {"file": "new.go", "create": {"content": "package main\n"}}
 ```

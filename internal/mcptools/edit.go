@@ -16,6 +16,19 @@ import (
 	"github.com/xonecas/symb/internal/treesitter"
 )
 
+const (
+	// windowThreshold is the minimum line count to trigger windowed output.
+	windowThreshold = 50
+	// windowContext is the number of lines shown above/below the edit region.
+	windowContext = 20
+)
+
+// editRegion describes which lines (1-indexed, inclusive) were affected in the new file.
+type editRegion struct {
+	start int // first affected line
+	end   int // last affected line
+}
+
 // EditArgs represents arguments for the Edit tool.
 // Exactly one of the operation fields (Replace, Insert, Delete) must be set.
 type EditArgs struct {
@@ -128,7 +141,7 @@ func (h *EditHandler) SetTSIndex(idx *treesitter.Index) { h.tsIndex = idx }
 func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
 	var args EditArgs
 	if err := json.Unmarshal(arguments, &args); err != nil {
-		return toolError("Invalid arguments: %v", err), nil
+		return toolError("%s", editUnmarshalHint(arguments, err)), nil
 	}
 	if args.File == "" {
 		return toolError("File path cannot be empty"), nil
@@ -174,6 +187,28 @@ func validateEditOps(args EditArgs) error {
 	return nil
 }
 
+// editUnmarshalHint returns an actionable error when JSON unmarshalling fails.
+// It detects common mistakes like passing a string for create instead of an object.
+func editUnmarshalHint(raw json.RawMessage, original error) string {
+	var probe map[string]json.RawMessage
+	if json.Unmarshal(raw, &probe) == nil {
+		for _, key := range []string{"create", "replace", "insert", "delete"} {
+			v, ok := probe[key]
+			if !ok || len(v) == 0 {
+				continue
+			}
+			// If the value starts with '"' it's a string, but the schema expects an object.
+			if v[0] == '"' {
+				return fmt.Sprintf(
+					`invalid %s: expected an object, got a string. Use {"file":"path", "%s":{"content":"..."}}`,
+					key, key,
+				)
+			}
+		}
+	}
+	return fmt.Sprintf("invalid arguments: %v", original)
+}
+
 // applyEdit reads the file, applies the edit operation, writes it back, and returns fresh hashes.
 func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditArgs) (*mcp.ToolResult, error) {
 	content, err := os.ReadFile(absPath)
@@ -183,13 +218,14 @@ func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditAr
 	lines := strings.Split(string(content), "\n")
 
 	var result string
+	var region editRegion
 	switch {
 	case args.Replace != nil:
-		result, err = applyReplace(lines, args.Replace)
+		result, region, err = applyReplace(lines, args.Replace)
 	case args.Insert != nil:
-		result, err = applyInsert(lines, args.Insert)
+		result, region, err = applyInsert(lines, args.Insert)
 	case args.Delete != nil:
-		result, err = applyDelete(lines, args.Delete)
+		result, region, err = applyDelete(lines, args.Delete)
 	}
 	if err != nil {
 		return toolError("%v", err), nil
@@ -204,7 +240,7 @@ func (h *EditHandler) applyEdit(ctx context.Context, absPath string, args EditAr
 	}
 
 	tagged := hashline.TagLines(result, 1)
-	text := fmt.Sprintf("Edited %s (%d lines):\n\n%s", args.File, len(tagged), hashline.FormatTagged(tagged))
+	text := formatEditResponse(args.File, tagged, region)
 
 	if h.lspManager != nil {
 		diags := h.lspManager.NotifyAndWait(ctx, absPath, 5*time.Second)
@@ -258,40 +294,81 @@ func (h *EditHandler) handleCreate(ctx context.Context, absPath, displayPath str
 	}, nil
 }
 
-func applyReplace(lines []string, op *ReplaceOp) (string, error) {
-	if err := hashline.ValidateRange(op.Start, op.End, lines); err != nil {
-		return "", fmt.Errorf("replace: %w", err)
+// formatEditResponse builds the response text, using windowed output for large files.
+func formatEditResponse(displayPath string, tagged []hashline.TaggedLine, region editRegion) string {
+	total := len(tagged)
+	if total <= windowThreshold {
+		return fmt.Sprintf("Edited %s (%d lines):\n\n%s", displayPath, total, hashline.FormatTagged(tagged))
 	}
 
-	newLines := make([]string, 0, len(lines))
-	newLines = append(newLines, lines[:op.Start.Num-1]...)
-	newLines = append(newLines, strings.Split(op.Content, "\n")...)
-	newLines = append(newLines, lines[op.End.Num:]...)
+	// Clamp window bounds.
+	winStart := region.start - windowContext
+	if winStart < 1 {
+		winStart = 1
+	}
+	winEnd := region.end + windowContext
+	if winEnd > total {
+		winEnd = total
+	}
 
-	return strings.Join(newLines, "\n"), nil
+	window := tagged[winStart-1 : winEnd] // tagged is 0-indexed, line nums are 1-indexed
+	return fmt.Sprintf("Edited %s (%d lines, showing %d–%d):\n\n%s",
+		displayPath, total, winStart, winEnd, hashline.FormatTagged(window))
 }
 
-func applyInsert(lines []string, op *InsertOp) (string, error) {
-	if err := op.After.Validate(lines); err != nil {
-		return "", fmt.Errorf("insert: after anchor: %w", err)
+func applyReplace(lines []string, op *ReplaceOp) (string, editRegion, error) {
+	if err := hashline.ValidateRange(op.Start, op.End, lines); err != nil {
+		return "", editRegion{}, fmt.Errorf("replace: %w", err)
 	}
 
-	newLines := make([]string, 0, len(lines)+1)
+	inserted := strings.Split(op.Content, "\n")
+	newLines := make([]string, 0, len(lines))
+	newLines = append(newLines, lines[:op.Start.Num-1]...)
+	newLines = append(newLines, inserted...)
+	newLines = append(newLines, lines[op.End.Num:]...)
+
+	region := editRegion{
+		start: op.Start.Num,
+		end:   op.Start.Num + len(inserted) - 1,
+	}
+	return strings.Join(newLines, "\n"), region, nil
+}
+
+func applyInsert(lines []string, op *InsertOp) (string, editRegion, error) {
+	if err := op.After.Validate(lines); err != nil {
+		return "", editRegion{}, fmt.Errorf("insert: after anchor: %w", err)
+	}
+
+	inserted := strings.Split(op.Content, "\n")
+	newLines := make([]string, 0, len(lines)+len(inserted))
 	newLines = append(newLines, lines[:op.After.Num]...)
-	newLines = append(newLines, strings.Split(op.Content, "\n")...)
+	newLines = append(newLines, inserted...)
 	newLines = append(newLines, lines[op.After.Num:]...)
 
-	return strings.Join(newLines, "\n"), nil
+	region := editRegion{
+		start: op.After.Num + 1,
+		end:   op.After.Num + len(inserted),
+	}
+	return strings.Join(newLines, "\n"), region, nil
 }
 
-func applyDelete(lines []string, op *DeleteOp) (string, error) {
+func applyDelete(lines []string, op *DeleteOp) (string, editRegion, error) {
 	if err := hashline.ValidateRange(op.Start, op.End, lines); err != nil {
-		return "", fmt.Errorf("delete: %w", err)
+		return "", editRegion{}, fmt.Errorf("delete: %w", err)
 	}
 
 	newLines := make([]string, 0, len(lines))
 	newLines = append(newLines, lines[:op.Start.Num-1]...)
 	newLines = append(newLines, lines[op.End.Num:]...)
 
-	return strings.Join(newLines, "\n"), nil
+	// The "region" is where the deletion happened — show surrounding context.
+	regionLine := op.Start.Num - 1
+	if regionLine < 1 {
+		regionLine = 1
+	}
+	region := editRegion{
+		start: regionLine,
+		end:   regionLine,
+	}
+	return strings.Join(newLines, "\n"), region, nil
 }

@@ -65,6 +65,18 @@ func FormatTagged(tagged []TaggedLine) string {
 	return b.String()
 }
 
+// HashMismatchError is returned when an anchor's hash doesn't match the actual file content.
+type HashMismatchError struct {
+	Line     int
+	Expected string
+	Got      string
+	Content  string
+}
+
+func (e *HashMismatchError) Error() string {
+	return fmt.Sprintf("hash mismatch at line %d: expected %s, got %s — actual: %q (re-Read the file to get fresh hashes)", e.Line, e.Expected, e.Got, e.Content)
+}
+
 // Anchor identifies a line by number and hash.
 type Anchor struct {
 	Num  int    `json:"line"`
@@ -80,7 +92,12 @@ func (a Anchor) Validate(lines []string) error {
 	}
 	actual := LineHash(lines[idx])
 	if actual != a.Hash {
-		return fmt.Errorf("hash mismatch at line %d: expected %s, got %s (file changed since last read?)", a.Num, a.Hash, actual)
+		return &HashMismatchError{
+			Line:     a.Num,
+			Expected: a.Hash,
+			Got:      actual,
+			Content:  lines[idx],
+		}
 	}
 	return nil
 }

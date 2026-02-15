@@ -3,6 +3,7 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/xonecas/symb/internal/hashline"
 )
+
+const threeLineContent = "line one\nline two\nline three"
 
 // setupTestFile creates a temp file with the given content and returns its path and cleanup func.
 func setupTestFile(t *testing.T, content string) (string, func()) {
@@ -94,7 +97,7 @@ func TestEditReplace(t *testing.T) {
 }
 
 func TestEditInsert(t *testing.T) {
-	content := "line one\nline two\nline three"
+	content := threeLineContent
 	path, cleanup := setupTestFile(t, content)
 	defer cleanup()
 
@@ -196,7 +199,7 @@ func TestEditCreateFailsIfExists(t *testing.T) {
 }
 
 func TestEditHashMismatch(t *testing.T) {
-	content := "line one\nline two\nline three"
+	content := threeLineContent
 	path, cleanup := setupTestFile(t, content)
 	defer cleanup()
 
@@ -393,5 +396,120 @@ func TestEditCreateBypassesReadCheck(t *testing.T) {
 
 	if isErr {
 		t.Fatal("create should not require prior read")
+	}
+}
+
+func TestEditWindowedResponse(t *testing.T) {
+	// Build a file with >50 lines so windowed output kicks in.
+	var b strings.Builder
+	totalLines := 80
+	for i := 1; i <= totalLines; i++ {
+		if i > 1 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "line %d", i)
+	}
+	content := b.String()
+
+	path, cleanup := setupTestFile(t, content)
+	defer cleanup()
+
+	lines := strings.Split(content, "\n")
+	// Replace line 40
+	h40 := hashline.LineHash(lines[39])
+
+	handler := newTrackedHandler(t, path)
+	text, isErr := callEdit(t, handler, EditArgs{
+		File: filepath.Base(path),
+		Replace: &ReplaceOp{
+			Start:   hashline.Anchor{Num: 40, Hash: h40},
+			End:     hashline.Anchor{Num: 40, Hash: h40},
+			Content: "REPLACED LINE 40",
+		},
+	})
+
+	if isErr {
+		t.Fatalf("windowed replace failed: %s", text)
+	}
+
+	// Should show windowed output (±20 around line 40 → lines 20–60)
+	if !strings.Contains(text, "showing") {
+		t.Errorf("large file should trigger windowed output: %s", text)
+	}
+
+	// Should NOT contain line 1 (outside window)
+	if strings.Contains(text, "|line 1\n") {
+		t.Errorf("windowed output should not contain line 1")
+	}
+
+	// Should contain the replaced line
+	if !strings.Contains(text, "REPLACED LINE 40") {
+		t.Errorf("windowed output should contain replaced content")
+	}
+
+	// File on disk should be complete
+	got, _ := os.ReadFile(path)
+	if !strings.Contains(string(got), "line 1") {
+		t.Error("full file should still have line 1")
+	}
+	if !strings.Contains(string(got), "REPLACED LINE 40") {
+		t.Error("full file should have replaced content")
+	}
+}
+
+func TestEditSmallFileFullResponse(t *testing.T) {
+	// Files with <=50 lines should get full output (no "showing" header).
+	content := threeLineContent
+	path, cleanup := setupTestFile(t, content)
+	defer cleanup()
+
+	lines := strings.Split(content, "\n")
+	h1 := hashline.LineHash(lines[0])
+
+	handler := newTrackedHandler(t, path)
+	text, isErr := callEdit(t, handler, EditArgs{
+		File: filepath.Base(path),
+		Replace: &ReplaceOp{
+			Start:   hashline.Anchor{Num: 1, Hash: h1},
+			End:     hashline.Anchor{Num: 1, Hash: h1},
+			Content: "REPLACED",
+		},
+	})
+
+	if isErr {
+		t.Fatalf("small file replace failed: %s", text)
+	}
+
+	if strings.Contains(text, "showing") {
+		t.Errorf("small file should NOT trigger windowed output: %s", text)
+	}
+}
+
+func TestEditCreateStringGivesHint(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	tracker := NewFileReadTracker()
+	handler := NewEditHandler(tracker, nil, nil)
+
+	// Simulate the LLM mistake: {"file":"TODO.md", "create":"some content"}
+	raw := json.RawMessage(`{"file":"TODO.md","create":"some content"}`)
+	result, err := handler.Handle(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("should fail with string create")
+	}
+	text := result.Content[0].Text
+	if !strings.Contains(text, "expected an object") {
+		t.Errorf("should hint about object vs string: %s", text)
+	}
+	if !strings.Contains(text, `"create":{"content"`) {
+		t.Errorf("should show correct format: %s", text)
 	}
 }

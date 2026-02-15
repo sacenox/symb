@@ -102,7 +102,7 @@ One operation per call. After each edit, you get back the updated file with fres
 {"file": "f.go", "delete": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}}}
 ```
 
-**Create** a new file (fails if it exists):
+**Create** a new file (fails if it exists). Note: `create` is an object with a `content` key, not a bare string:
 ```json
 {"file": "new.go", "create": {"content": "package main\n"}}
 ```

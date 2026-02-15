@@ -106,7 +106,7 @@ One operation per call. Returns updated file with fresh hashes after each edit.
 - **replace**: `{"file": "f.go", "replace": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}, "content": "new code"}}`
 - **insert**: `{"file": "f.go", "insert": {"after": {"line": 3, "hash": "b2"}, "content": "new line"}}`
 - **delete**: `{"file": "f.go", "delete": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}}}`
-- **create**: `{"file": "new.go", "create": {"content": "package main\n"}}`
+- **create** (note: object with `content` key, not a bare string): `{"file": "new.go", "create": {"content": "package main\n"}}`
 
 **Critical rules:**
 - If a hash doesn't match, the file changed — re-Read and retry

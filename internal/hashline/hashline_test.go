@@ -1,6 +1,7 @@
 package hashline
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -103,10 +104,21 @@ func TestAnchorValidate(t *testing.T) {
 		t.Error("line 4 should be out of range")
 	}
 
-	// Wrong hash (file changed)
+	// Wrong hash (file changed) — error should include actual line content
 	a4 := Anchor{Num: 1, Hash: "ff"}
-	if err := a4.Validate(lines); err == nil {
+	err := a4.Validate(lines)
+	if err == nil {
 		t.Error("wrong hash should fail validation")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "actual:") {
+		t.Errorf("error should contain actual line content: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "func hello()") {
+		t.Errorf("error should contain the line text: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "re-Read") {
+		t.Errorf("error should suggest re-reading: %s", errMsg)
 	}
 }
 

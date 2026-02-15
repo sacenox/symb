@@ -35,7 +35,8 @@ viewer. Input pane uses same component with `ReadOnly=false`.
 Streaming multi-turn. Up to 20 tool rounds per turn. Calls
 `Provider.ChatStream()` — returns `<-chan StreamEvent`. Forwards deltas via
 `OnDelta` callback for incremental TUI rendering, emits complete messages via
-`OnMessage` callback.
+`OnMessage` callback. Tool call limit is handled by forcing the llm to give a status
+report.
 
 Prompt system: model-specific base prompts (Claude, Gemini, Qwen, GPT).
 `AGENTS.md` support: walks directory tree upward collecting all AGENTS.md files,
@@ -46,7 +47,7 @@ prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
     - <model name>-<segment name>.md: model specific instructions
     - base: common model instructions. and template tags to insert symb and model specific segments.
     - Ensure proper ordering of prompt
-    - Fix language, system prompt should be presented as model afnostic, the LLM shouldn't know anythign about other promots.
+    - Fix language, system prompt should be presented as model afnostic, the LLM shouldn't know anythign about other promots. Should be software language agnostic (not Go focused, use pseudo-code or simple examples)
     - Consider token count and optimize where possible
 
 ### Providers (`internal/provider`)

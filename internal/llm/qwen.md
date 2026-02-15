@@ -36,6 +36,7 @@ Returns **hashline-tagged** content. Each line as `linenum:hash|content`:
 1:e3|package main
 2:6a|
 3:b2|import "fmt"
+4:6a|
 5:9f|func main() {
 6:c1|	fmt.Println("hello")
 7:d4|}
@@ -80,7 +81,7 @@ Use for: builds, tests, linters, git, file inspection. Default timeout: 60s.
 - **replace**: `{"file": "f.go", "replace": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}, "content": "new code"}}`
 - **insert**: `{"file": "f.go", "insert": {"after": {"line": 3, "hash": "b2"}, "content": "new line"}}`
 - **delete**: `{"file": "f.go", "delete": {"start": {"line": 5, "hash": "9f"}, "end": {"line": 7, "hash": "d4"}}}`
-- **create**: `{"file": "new.go", "create": {"content": "package main\n"}}`
+- **create** (note: object with `content` key, not a bare string): `{"file": "new.go", "create": {"content": "package main\n"}}`
 
 Hash mismatch = file changed since read → re-Read and retry. Use fresh hashes for chained edits.
 
