@@ -26,13 +26,16 @@ type Item struct {
 // SearchFunc is called with the current query to produce results.
 type SearchFunc func(query string) []Item
 
+// Colors holds the theme colors for the modal.
+type Colors struct {
+	Dim    string
+	SelFg  string
+	SelBg  string
+	Border string
+}
+
 const (
 	debounceDelay = 250 * time.Millisecond
-
-	colorDim    = "#666666"
-	colorSelFg  = "#ffffff"
-	colorSelBg  = "#444444"
-	colorBorder = "#555555"
 
 	keyDown      = "down"
 	keyBackspace = "backspace"
@@ -52,15 +55,18 @@ type Model struct {
 	searchFn SearchFunc
 	seq      int // debounce sequence counter
 
+	colors Colors
+
 	// Prompt shown before the input text.
 	Prompt string
 }
 
 // New creates a modal with the given search function.
-func New(searchFn SearchFunc, prompt string) Model {
+func New(searchFn SearchFunc, prompt string, colors Colors) Model {
 	m := Model{
 		searchFn: searchFn,
 		Prompt:   prompt,
+		colors:   colors,
 	}
 	// Initial search with empty query.
 	m.items = searchFn("")
@@ -229,7 +235,7 @@ func (m *Model) View(appWidth, appHeight int) string {
 		listHeight = 1
 	}
 
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorDim))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.colors.Dim))
 	divider := dimStyle.Render(strings.Repeat("\u2500", innerW))
 	listLines := m.renderList(innerW, listHeight)
 
@@ -240,7 +246,7 @@ func (m *Model) View(appWidth, appHeight int) string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorBorder)).
+		BorderForeground(lipgloss.Color(m.colors.Border)).
 		Padding(0, 1).
 		Width(w - 2).
 		Render(content)
@@ -269,10 +275,10 @@ func (m *Model) renderList(innerW, listHeight int) []string {
 		scrollOff = m.selected - listHeight + 1
 	}
 
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorDim))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.colors.Dim))
 	selStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorSelFg)).
-		Background(lipgloss.Color(colorSelBg))
+		Foreground(lipgloss.Color(m.colors.SelFg)).
+		Background(lipgloss.Color(m.colors.SelBg))
 
 	var lines []string
 	for i := scrollOff; i < len(m.items) && len(lines) < listHeight; i++ {

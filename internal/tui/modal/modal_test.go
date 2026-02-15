@@ -6,6 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+var testColors = Colors{Dim: "#666", SelFg: "#fff", SelBg: "#444", Border: "#555"}
+
 func fruits(query string) []Item {
 	all := []Item{
 		{Name: "apple"},
@@ -52,7 +54,7 @@ func special(name string) tea.KeyPressMsg {
 }
 
 func TestEscapeCloses(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	a, _ := m.HandleMsg(special("esc"))
 	if _, ok := a.(ActionClose); !ok {
 		t.Fatalf("expected ActionClose, got %T", a)
@@ -60,7 +62,7 @@ func TestEscapeCloses(t *testing.T) {
 }
 
 func TestEnterSelectsFirst(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	a, _ := m.HandleMsg(special("enter"))
 	sel, ok := a.(ActionSelect)
 	if !ok {
@@ -72,7 +74,7 @@ func TestEnterSelectsFirst(t *testing.T) {
 }
 
 func TestDownThenEnterSelectsHighlighted(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	m.HandleMsg(special("down")) // enter list, selected=0
 	m.HandleMsg(special("down")) // selected=1
 	a, _ := m.HandleMsg(special("enter"))
@@ -86,7 +88,7 @@ func TestDownThenEnterSelectsHighlighted(t *testing.T) {
 }
 
 func TestUpFromTopReturnsFocusToInput(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	m.HandleMsg(special("down")) // enter list
 	if !m.inList {
 		t.Fatal("expected inList=true")
@@ -98,7 +100,7 @@ func TestUpFromTopReturnsFocusToInput(t *testing.T) {
 }
 
 func TestTypingProducesDebounceCmd(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	_, cmd := m.HandleMsg(key('a'))
 	if cmd == nil {
 		t.Fatal("expected debounce cmd")
@@ -116,7 +118,7 @@ func TestDebounceFiresSearch(t *testing.T) {
 		}
 		return nil
 	}
-	m := New(searchFn, "> ")
+	m := New(searchFn, "> ", testColors)
 	// Type 'x'.
 	m.HandleMsg(key('x'))
 	seq := m.seq
@@ -135,7 +137,7 @@ func TestStaleDebounceIgnored(t *testing.T) {
 		}
 		return nil
 	}
-	m := New(searchFn, "> ")
+	m := New(searchFn, "> ", testColors)
 	m.HandleMsg(key('a'))
 	staleSeq := m.seq
 	m.HandleMsg(key('b')) // bumps seq
@@ -147,7 +149,7 @@ func TestStaleDebounceIgnored(t *testing.T) {
 }
 
 func TestBackspaceRemovesChar(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	m.HandleMsg(key('a'))
 	m.HandleMsg(key('b'))
 	m.HandleMsg(special("backspace"))
@@ -157,7 +159,7 @@ func TestBackspaceRemovesChar(t *testing.T) {
 }
 
 func TestViewRenders(t *testing.T) {
-	m := New(fruits, "> ")
+	m := New(fruits, "> ", testColors)
 	v := m.View(100, 40)
 	if v == "" {
 		t.Fatal("expected non-empty view")
@@ -165,7 +167,7 @@ func TestViewRenders(t *testing.T) {
 }
 
 func TestEmptyResultsEnterNoAction(t *testing.T) {
-	m := New(func(string) []Item { return nil }, "> ")
+	m := New(func(string) []Item { return nil }, "> ", testColors)
 	a, _ := m.HandleMsg(special("enter"))
 	if a != nil {
 		t.Fatalf("expected nil action, got %T", a)
