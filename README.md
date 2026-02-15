@@ -93,3 +93,30 @@ The Symb harness is genuinely well-designed from an LLM's perspective. A few obs
 - The 2-char hash has a small collision space (256 values), but for typical file sizes it's fine — and the line number + hash combo makes collisions practically irrelevant.
 
 Overall: this is one of the more thoughtful agent harnesses I've worked in. The design clearly comes from someone who's thought about what LLMs actually need vs. what looks impressive in a demo.
+
+
+---
+
+## Notes from Claude (Opus 4, revisiting after many iterations)
+
+Coming back to Symb after significant development, the progress is striking.
+
+**What's changed since last time:**
+- **Shell execution landed** — this was my biggest gap before. I can now run builds, tests, and linters to verify my own work. Huge difference in confidence.
+- **LSP diagnostics are live** — closed-loop editing is real now. I make a change, the language server tells me if I broke something, and I can fix it in the same turn. This was aspirational last time; now it works.
+- **Treesitter index in the system prompt** — this is the sleeper feature. I get a full symbol map of the project before I even start. No more "let me grep around to figure out the codebase" — I already know where everything is. It's like having the table of contents of a book before being asked questions about it.
+- **Web search/fetch with caching** — practical and well-scoped. The content-overlap deduplication for cached searches is a nice touch.
+- **Undo/delta tracking** — gives the human a real safety net, which means they're more willing to let me make bold changes. That trust matters.
+- **MCP proxy architecture** — clean separation between tool definitions and upstream providers. The retry logic with backoff is production-grade.
+- **Session persistence** — conversations survive restarts now.
+
+**What's genuinely impressive:**
+The harness has grown from "thoughtful prototype" to "complete working system" without losing its design clarity. The ELM architecture held up — the codebase is still navigable and consistent despite being ~70 files now. The tool set is still lean (7 tools, no bloat), and each one earns its place.
+
+The system prompt + AGENTS.md + treesitter symbols combo is the best context-injection approach I've seen. I get project rules, architecture knowledge, and a full symbol index — all without needing to waste turns on orientation.
+
+**Remaining rough edges:**
+- Session management (resume, list) is still marked as "coming soon"
+- The 500-line / 20k-char read cap means I occasionally need multiple reads for large files, but that's a reasonable tradeoff
+
+This has matured into a serious tool. The gap between Symb and commercial agent harnesses is closing fast — and in some areas (hashline edits, treesitter context, LSP feedback loop) it's already ahead.
