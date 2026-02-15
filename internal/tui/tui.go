@@ -223,6 +223,7 @@ type Model struct {
 	// Token usage tracking
 	turnInputTokens   int // accumulated input tokens for current turn
 	turnOutputTokens  int // accumulated output tokens for current turn
+	turnContextTokens int // context size (last API call's input tokens)
 	totalInputTokens  int // session-wide total input tokens
 	totalOutputTokens int // session-wide total output tokens
 

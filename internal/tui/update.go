@@ -252,11 +252,12 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 
 	m.appendText(highlightMarkdown(msg.content, m.styles.Text)...)
 	m.appendText("")
-	sep := m.makeSeparator("0s", now.Format("15:04:05"), 0, 0, 0)
+	sep := m.makeSeparator("0s", now.Format("15:04:05"), 0, 0, 0, 0)
 	wasBottom := m.appendText(sep)
 	m.appendText("")
 	m.turnInputTokens = 0
 	m.turnOutputTokens = 0
+	m.turnContextTokens = 0
 	if wasBottom {
 		m.scrollOffset = 0
 	}
@@ -331,8 +332,9 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.lastNetError = ""
 			m.demoteOldUndo()
 			m.appendText("")
+			m.turnContextTokens = msg.contextTokens
 			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp,
-				msg.inputTokens, msg.outputTokens, m.totalInputTokens+m.totalOutputTokens)
+				msg.inputTokens, msg.outputTokens, m.totalInputTokens+m.totalOutputTokens, m.turnContextTokens)
 			m.appendConv(m.makeUndoEntry(sep)...)
 			m.trimOldTurns()
 			return m, nil

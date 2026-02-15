@@ -33,10 +33,11 @@ type llmToolResultMsg struct {
 }
 
 type llmDoneMsg struct {
-	duration     time.Duration
-	timestamp    string
-	inputTokens  int
-	outputTokens int
+	duration      time.Duration
+	timestamp     string
+	inputTokens   int
+	outputTokens  int
+	contextTokens int
 }
 
 type llmUsageMsg struct {
@@ -171,7 +172,7 @@ func (m Model) processLLM() tea.Cmd {
 			}
 
 			start := time.Now()
-			var turnIn, turnOut int
+			var turnIn, turnOut, contextIn int
 			err := llm.ProcessTurn(ctx, llm.ProcessTurnOptions{
 				Provider:   prov,
 				Proxy:      proxy,
@@ -190,6 +191,7 @@ func (m Model) processLLM() tea.Cmd {
 				OnUsage: func(inputTokens, outputTokens int) {
 					turnIn += inputTokens
 					turnOut += outputTokens
+					contextIn = inputTokens
 					ch <- llmUsageMsg{inputTokens: inputTokens, outputTokens: outputTokens}
 				},
 				OnMessage: func(msg provider.Message) {
@@ -222,10 +224,11 @@ func (m Model) processLLM() tea.Cmd {
 				return
 			}
 			ch <- llmDoneMsg{
-				duration:     time.Since(start),
-				timestamp:    start.Format("15:04"),
-				inputTokens:  turnIn,
-				outputTokens: turnOut,
+				duration:      time.Since(start),
+				timestamp:     start.Format("15:04"),
+				inputTokens:   turnIn,
+				outputTokens:  turnOut,
+				contextTokens: contextIn,
 			}
 		}()
 		return nil

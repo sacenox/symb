@@ -119,10 +119,10 @@ func formatTokens(n int) string {
 }
 
 // makeSeparator builds a right-aligned timestamp/token separator line.
-func (m Model) makeSeparator(dur string, ts string, tokIn, tokOut, totalTok int) string {
+func (m Model) makeSeparator(dur string, ts string, tokIn, tokOut, totalTok, ctxTok int) string {
 	var label string
 	if tokIn > 0 || tokOut > 0 {
-		label = fmt.Sprintf("%s %s %sin/%sout (%s)", dur, ts, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok))
+		label = fmt.Sprintf("%s %s ↓%s ↑%s Σ%s ◫%s", dur, ts, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok), formatTokens(ctxTok))
 	} else {
 		label = dur + " " + ts
 	}

@@ -152,6 +152,8 @@ func (m *Model) handleConvMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 func (m *Model) handleConvMotion(x, y, totalLines int) {
 	if m.convDragging && m.convSel != nil && totalLines > 0 {
 		m.convSel.active = m.convPosFromScreen(x, y, totalLines)
+	} else if !m.convDragging && m.convSel != nil {
+		m.convSel = nil
 	}
 	if totalLines > 0 {
 		lineIdx := m.visibleStartLine() + (y - m.layout.conv.Min.Y)
