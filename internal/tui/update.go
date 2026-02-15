@@ -42,6 +42,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return mdl, cmd
 		}
 
+	// -- Frame tick (60fps) — flush deferred highlight/wrap work -------------
+	case tickMsg:
+		m.flushDirty()
+		return m, frameTick()
+
 	// -- LLM batch (multiple messages drained from updateChan) ---------------
 	case llmBatchMsg:
 		return m.handleLLMBatch(msg)
@@ -51,11 +56,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleUserMsg(msg), tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 
 	case LSPDiagnosticsMsg:
-		if msg.FilePath == m.editorFilePath {
-			m.editor.DiagnosticLines = msg.Lines
-		}
-		return m, nil
-
+		return m.handleLSPDiag(msg), nil
 	case UpdateToolsMsg:
 		m.mcpTools = msg.Tools
 		return m, nil
@@ -63,7 +64,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ShellOutputMsg:
 		m.ensureStreaming()
 		m.streamingContent += msg.Content
-		m.rebuildStreamEntries()
+		m.dirty = true
 		return m, nil
 
 	case undoMsg:
@@ -85,6 +86,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// handleLSPDiag applies LSP diagnostic markers when the file matches the editor.
+func (m *Model) handleLSPDiag(msg LSPDiagnosticsMsg) Model {
+	if msg.FilePath == m.editorFilePath {
+		m.editor.DiagnosticLines = msg.Lines
+	}
+	return *m
 }
 
 // handleResize applies a window size change and re-derives layout.
@@ -191,55 +200,49 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 }
 
 // handleLLMBatch processes a batch of messages drained from updateChan.
-// Delta messages are accumulated first, with a single rebuildStreamEntries
-// at the end, avoiding per-token re-wraps.
+// Streaming deltas just mark dirty — the next frame tick does the rebuild.
+// Finalization messages (assistant, tool result) flush immediately since
+// they clear streaming state.
 func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
-	needRebuild := false
-
 	for _, raw := range batch {
 		switch msg := raw.(type) {
 		case llmReasoningDeltaMsg:
 			m.ensureStreaming()
 			m.streamingReasoning += msg.content
-			needRebuild = true
+			m.dirty = true
 
 		case llmContentDeltaMsg:
 			m.ensureStreaming()
 			m.streamingContent += msg.content
-			needRebuild = true
+			m.dirty = true
 
 		case llmHistoryMsg:
 			m.history = append(m.history, msg.msg)
 			m.saveMessage(msg.msg)
 
 		case llmAssistantMsg:
-			needRebuild = m.flushRebuild(needRebuild)
+			m.flushDirty()
 			m.applyAssistantMsg(msg)
 
 		case llmToolResultMsg:
-			needRebuild = m.flushRebuild(needRebuild)
+			m.flushDirty()
 			m.applyToolResultMsg(msg)
 
 		case llmErrorMsg:
-			m.flushRebuild(needRebuild)
+			m.flushDirty()
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
 			return m, nil
 
 		case llmDoneMsg:
-			m.flushRebuild(needRebuild)
-			// Replace previous turn's undo entry with a normal separator.
+			m.flushDirty()
 			m.demoteOldUndo()
 			m.appendText("")
-			// Append undo control instead of a plain separator for the latest turn.
-			// Store the separator text in full so it can be restored on demote.
 			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
 			m.appendConv(m.makeUndoEntry(sep))
+			m.trimOldTurns()
 			return m, nil
 		}
 	}
-
-	// Apply one rebuild for all accumulated deltas.
-	m.flushRebuild(needRebuild)
 
 	// More messages may follow — keep listening.
 	return m, m.waitForLLMUpdate()
@@ -257,12 +260,13 @@ func (m *Model) ensureStreaming() {
 	m.streamingContent = ""
 }
 
-// flushRebuild calls rebuildStreamEntries when needed and returns false.
-func (m *Model) flushRebuild(needed bool) bool {
-	if needed {
+// flushDirty rebuilds stream entries if dirty, then clears the flag.
+// Called before finalization messages that clear streaming state.
+func (m *Model) flushDirty() {
+	if m.dirty && m.streaming {
 		m.rebuildStreamEntries()
 	}
-	return false
+	m.dirty = false
 }
 
 // applyAssistantMsg finalizes streaming state and appends the assistant's
@@ -488,6 +492,36 @@ func (m *Model) demoteOldUndo() {
 			m.convLines = nil // invalidate cache
 			return
 		}
+	}
+}
+
+// trimOldTurns drops the oldest display turns when we exceed maxDisplayTurns.
+// Messages are already persisted in the DB — this only trims in-memory state
+// to bound rendering cost.
+func (m *Model) trimOldTurns() {
+	for len(m.turnBoundaries) > maxDisplayTurns {
+		// The second boundary marks where the oldest visible turn's display ends.
+		cutConv := m.turnBoundaries[1].convIdx
+		cutHist := m.turnBoundaries[1].historyIdx
+
+		// Shift convEntries and adjust all boundary indices.
+		m.convEntries = m.convEntries[cutConv:]
+		m.turnBoundaries = m.turnBoundaries[1:]
+
+		// History: keep the system prompt (index 0) + trim old turn messages.
+		// After: history = [system] + history[cutHist:], so what was at
+		// cutHist is now at index 1 — offset is cutHist-1.
+		histOff := cutHist - 1
+		if cutHist > 1 && cutHist < len(m.history) {
+			m.history = append(m.history[:1], m.history[cutHist:]...)
+		}
+
+		for i := range m.turnBoundaries {
+			m.turnBoundaries[i].convIdx -= cutConv
+			m.turnBoundaries[i].historyIdx -= histOff
+		}
+
+		m.convLines = nil // invalidate wrap cache
 	}
 }
 

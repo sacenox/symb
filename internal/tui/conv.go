@@ -15,21 +15,22 @@ import (
 // convWidth returns the usable width of the conversation pane.
 func (m Model) convWidth() int { return m.layout.conv.Dx() }
 
-// highlightMarkdown highlights markdown text line-by-line via Chroma.
-// Line-by-line keeps each call tiny and cacheable, so streaming stays fast.
-// Fenced code blocks lose inner language highlighting but delimiters are styled.
+// highlightMarkdown highlights a full markdown text block via Chroma.
+// The entire text is tokenised as one unit so multi-line constructs
+// (fenced code blocks, block quotes, etc.) maintain correct state.
+// Rendering cost is bounded by the frame-loop tick (~16ms).
 func highlightMarkdown(text string, fallback lipgloss.Style) []string {
-	raw := strings.Split(text, "\n")
-	out := make([]string, len(raw))
-	for i, line := range raw {
-		hl := highlight.CachedHighlight(line, "markdown", constants.SyntaxTheme, "#000000")
-		if hl == line {
+	hl := highlight.CachedHighlight(text, "markdown", constants.SyntaxTheme, "#000000")
+	if hl == text {
+		// Chroma produced no highlighting; apply fallback per line.
+		raw := strings.Split(text, "\n")
+		out := make([]string, len(raw))
+		for i, line := range raw {
 			out[i] = fallback.Render(line)
-		} else {
-			out[i] = hl
 		}
+		return out
 	}
-	return out
+	return strings.Split(hl, "\n")
 }
 
 // styledLines applies a lipgloss style to each line in a multi-line text.

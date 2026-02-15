@@ -46,6 +46,11 @@ type llmReasoningDeltaMsg struct{ content string }
 // Exported so main.go can send it via program.Send from the shell handler callback.
 type ShellOutputMsg struct{ Content string }
 
+// tickMsg drives the 60fps frame loop (~16ms). Rendering work (highlight,
+// wrap) is deferred to this tick so streaming deltas don't cause per-batch
+// rebuilds.
+type tickMsg time.Time
+
 // undoMsg is sent when the user clicks the undo control.
 type undoMsg struct{}
 
@@ -64,6 +69,13 @@ type LSPDiagnosticsMsg struct {
 // ---------------------------------------------------------------------------
 // ELM commands
 // ---------------------------------------------------------------------------
+
+// frameTick returns a command that fires a tickMsg after ~16ms (~60fps).
+func frameTick() tea.Cmd {
+	return tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
 
 func (m Model) sendToLLM(userInput string) tea.Cmd {
 	return func() tea.Msg { return llmUserMsg{content: userInput} }

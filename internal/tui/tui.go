@@ -38,6 +38,7 @@ const (
 	statusRows      = 2 // Status separator + status bar
 	minPaneWidth    = 20
 	maxPreviewLines = 5 // Max lines shown for tool results before truncation
+	maxDisplayTurns = 5 // Max conversation turns kept in memory; older turns live in DB
 )
 
 // generateLayout computes all regions from terminal size and divider position.
@@ -239,6 +240,9 @@ type Model struct {
 
 	// Hover state: wrapped line index under cursor (-1 = none)
 	hoverConvLine int
+
+	// Frame loop: dirty flag defers highlight/wrap to the next 16ms tick.
+	dirty bool
 }
 
 // New creates a new TUI model.
@@ -316,7 +320,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	}
 }
 
-// Init starts spinner and cursor blink.
+// Init starts spinner, cursor blink, and the 60fps frame loop.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, func() tea.Msg { return editor.Blink() })
+	return tea.Batch(m.spinner.Tick, func() tea.Msg { return editor.Blink() }, frameTick())
 }

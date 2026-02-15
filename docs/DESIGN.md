@@ -153,6 +153,22 @@ File search modal:
  - `ESC` cancels the file search closing the modal.
 
  Selection is opened in the editor.
+ 
+### Code viewer pane -> Becomes Code editor pane
+
+ - Enable the same editting abilities as the agent input box.
+ - <ctrl + s> Saves the file. (Do we just save it, or we send a message to the LLM to apply the edit?)
+
+# TODO (after features)
+
+1. Review prompts, refactor prompt system message composition [x]
+2. Continue to test Edit tool, LLMs make errors with it. [x]
+3. Context token count: input, output, and total tokens
+4. Simple statusbar with more info
+5. Investigate if turn latency has improved
+6. Perf: debounce/skip highlightMarkdown during streaming, audit all rendering hot paths
+7. Perf: make SaveMessageSync async (don't block TUI update loop before LLM call)
+8. Perf: make SSE parser channel buffered (e.g. 64) to let parser get ahead of consumer
 
 ---
 

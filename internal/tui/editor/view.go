@@ -84,6 +84,9 @@ func (m Model) View() string {
 }
 
 // buildVisualRows computes all visible visual rows from the scroll position.
+// All visible buffer lines are highlighted as a single block so Chroma
+// maintains cross-line state (important for markdown fenced blocks, but
+// harmless and slightly fewer calls for other languages too).
 func (m Model) buildVisualRows(tw int) []visualRow {
 	hasSyntax := m.Language != "" && m.SyntaxTheme != ""
 	startBuf, startRuneOff := m.visualToBuffer(m.scroll)
@@ -92,25 +95,54 @@ func (m Model) buildVisualRows(tw int) []visualRow {
 		startSubRow = startRuneOff / tw
 	}
 
-	var rows []visualRow
-	for bufIdx := startBuf; bufIdx < len(m.lines) && len(rows) < m.height; bufIdx++ {
+	// First pass: collect visible buffer lines and their segments.
+	type bufLine struct {
+		idx      int
+		text     string
+		segments []string
+	}
+	var visible []bufLine
+	rowCount := 0
+	for bufIdx := startBuf; bufIdx < len(m.lines) && rowCount < m.height; bufIdx++ {
 		lineStr := expandTabs(string(m.lines[bufIdx]))
 		segments := wrapPlain(lineStr, tw)
+		first := 0
+		if bufIdx == startBuf {
+			first = startSubRow
+		}
+		visible = append(visible, bufLine{idx: bufIdx, text: lineStr, segments: segments})
+		rowCount += len(segments) - first
+	}
 
+	// Highlight all visible lines as one block.
+	var hlLines []string
+	if hasSyntax && len(visible) > 0 {
+		block := make([]string, len(visible))
+		for i, vl := range visible {
+			block[i] = vl.text
+		}
+		joined := strings.Join(block, "\n")
+		hlBlock := highlight.CachedHighlight(joined, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
+		hlLines = strings.Split(hlBlock, "\n")
+	}
+
+	// Second pass: build visual rows with per-line HL from the block result.
+	var rows []visualRow
+	for li, vl := range visible {
 		var fullHL string
-		if hasSyntax {
-			fullHL = highlight.CachedHighlight(lineStr, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
+		if li < len(hlLines) {
+			fullHL = hlLines[li]
 		}
 
 		firstSub := 0
-		if bufIdx == startBuf {
+		if vl.idx == startBuf {
 			firstSub = startSubRow
 		}
 		runeOff := firstSub * tw
-		for subIdx := firstSub; subIdx < len(segments) && len(rows) < m.height; subIdx++ {
-			segLen := len([]rune(segments[subIdx]))
+		for subIdx := firstSub; subIdx < len(vl.segments) && len(rows) < m.height; subIdx++ {
+			segLen := len([]rune(vl.segments[subIdx]))
 			rows = append(rows, visualRow{
-				bufRow: bufIdx, subRow: subIdx, text: segments[subIdx],
+				bufRow: vl.idx, subRow: subIdx, text: vl.segments[subIdx],
 				fullHL: fullHL, segStart: runeOff, segEnd: runeOff + segLen,
 			})
 			runeOff += segLen
