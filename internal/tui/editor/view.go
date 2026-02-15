@@ -279,6 +279,7 @@ func (m Model) renderCursorSegment(segText, fullHL string, segStart, localCol in
 	// Render cursor character
 	m.cursor.SetChar(cursorChar)
 	m.cursor.TextStyle = bg
+	m.cursor.Style = m.CursorStyle
 	cursorView := m.cursor.View()
 
 	return before + cursorView + after

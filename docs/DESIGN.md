@@ -174,6 +174,9 @@ File search modal:
 
 ## Features waiting implementation for current version:
 
+Testing current feature set
+
+
 ### Code viewer pane -> Becomes Code editor pane
 
  - Enable the same editting abilities as the agent input box.
