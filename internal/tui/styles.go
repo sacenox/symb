@@ -1,26 +1,28 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"charm.land/lipgloss/v2"
+	"github.com/xonecas/symb/internal/constants"
+	"github.com/xonecas/symb/internal/highlight"
+)
 
-// Semantic color palette — grayscale "suit and tie" with a single accent.
+// palette is computed once from the Chroma theme at init time.
+var palette = highlight.ThemePalette(constants.SyntaxTheme)
+
+// Semantic color palette — derived from the active Chroma syntax theme.
+// Grayscale ramp is a linear interpolation from theme bg to fg.
+// Accent is the most saturated token color; error is lerped from the theme Error token.
 var (
-	// Accent — used sparingly: cursor, spinner, active indicators.
-	ColorHighlight = lipgloss.Color("#00dfff")
-
-	// Backgrounds
-	ColorBg = lipgloss.Color("#000000") // Pure black — consistent everywhere
-
-	// Foregrounds (grayscale ramp, light to dark)
-	ColorFg      = lipgloss.Color("#c8c8c8") // Primary text
-	ColorMuted   = lipgloss.Color("#6e6e6e") // Secondary / reasoning
-	ColorDim     = lipgloss.Color("#3f3f3f") // Tertiary / timestamps
-	ColorBorder  = lipgloss.Color("#1c1c1c") // Borders and dividers
-	ColorSurface = ColorHighlight            // Selection highlight — reuse accent
-
-	// Semantic aliases
-	ColorError   = lipgloss.Color("#932e2e")
-	ColorWarning = lipgloss.Color("#8a6d2b")
-	ColorLinkBg  = lipgloss.Color("#111111") // Subtle hover background for clickable elements
+	ColorHighlight = lipgloss.Color(palette.Accent)
+	ColorBg        = lipgloss.Color(palette.Bg)
+	ColorFg        = lipgloss.Color(palette.Fg)
+	ColorMuted     = lipgloss.Color(palette.Muted)
+	ColorDim       = lipgloss.Color(palette.Dim)
+	ColorBorder    = lipgloss.Color(palette.Border)
+	ColorSurface   = lipgloss.Color(palette.Accent)
+	ColorError     = lipgloss.Color(palette.Error)
+	ColorWarning   = lipgloss.Color(palette.Error) // same source, context differentiates
+	ColorLinkBg    = lipgloss.Color(palette.LinkBg)
 )
 
 // Styles holds all pre-built lipgloss styles used across the TUI.
@@ -38,7 +40,7 @@ type Styles struct {
 	// Layout
 	Border    lipgloss.Style // Divider, separator lines
 	Selection lipgloss.Style // Mouse text selection highlight
-	BgFill    lipgloss.Style // Pure black background fill for empty areas
+	BgFill    lipgloss.Style // Background fill for empty areas
 
 	// Hover
 	Hover lipgloss.Style // Highlight text on subtle dark bg for clickable hover

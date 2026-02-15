@@ -1,60 +1,31 @@
 package constants
 
-// TODO: Add constants for:
-//   - highlight color for search matches
-
-// SyntaxTheme is the Chroma syntax highlighting theme used in the editor.
+// SyntaxTheme is the Chroma syntax highlighting theme used across the TUI.
+// UI chrome colors (grayscale ramp, accent, error) are derived from the theme
+// via highlight.ThemePalette — theme authors only need to define the Chroma XML.
 //
-// TODO: AFTER MVP -- Add way to toggle theme
+// Only themes with complete token coverage (60+ entries, 10+ Generic tokens)
+// are listed. Incomplete themes will render markdown headings, bold, italic,
+// and diff hunks without differentiation.
 //
-// Available themes:
-//
-// Dark themes (recommended for terminals):
-//   - monokai           - Classic Sublime Text theme (current default)
-//   - dracula           - Popular purple/pink theme
-//   - nord              - Cool bluish theme
-//   - gruvbox           - Warm, retro colors
-//   - onedark           - Atom's One Dark
-//   - github-dark       - GitHub's dark theme
-//   - solarized-dark    - Classic Solarized
-//   - doom-one          - Emacs Doom theme
-//   - doom-one2         - Emacs Doom theme variant
-//   - catppuccin-mocha  - Pastel dark theme
-//   - catppuccin-frappe - Pastel dark theme variant
-//   - catppuccin-macchiato - Pastel dark theme variant
-//   - tokyonight-night  - Popular VSCode theme
-//   - tokyonight-storm  - Tokyo Night variant
-//   - tokyonight-moon   - Tokyo Night variant
-//   - aura-theme-dark   - Aura dark theme
-//   - aura-theme-dark-soft - Softer Aura dark
-//   - rose-pine         - Pine-inspired theme
-//   - rose-pine-moon    - Rose Pine dark variant
-//   - paraiso-dark      - Paraiso dark theme
-//   - native            - Chroma's native dark
-//   - vim               - Classic Vim colors
-//   - vulcan            - Star Trek inspired
-//   - witchhazel        - Purple-ish theme
-//   - xcode-dark        - Xcode dark theme
-//   - hrdark            - High contrast dark
+// Dark themes:
+//   - tokyonight-night      #1a1b26  81 entries
+//   - tokyonight-storm      #1a1b26  81 entries
+//   - tokyonight-moon       #222436  81 entries
+//   - catppuccin-mocha      #1e1e2e  81 entries
+//   - catppuccin-macchiato  #24273a  81 entries
+//   - catppuccin-frappe     #303446  81 entries
+//   - aura-theme-dark       #15141b  84 entries
+//   - aura-theme-dark-soft  #15141b  84 entries
+//   - dracula               #282a36  72 entries
+//   - base16-snazzy         #282a36  72 entries
+//   - vulcan                #282c34  72 entries
+//   - doom-one2             #282c34  62 entries
+//   - github-dark           #0d1117  43 entries
+//   - ashen                 #121212  66 entries
+//   - average               #000000  72 entries
 //
 // Light themes:
-//   - github            - GitHub's light theme
-//   - solarized-light   - Classic Solarized light
-//   - gruvbox-light     - Gruvbox light variant
-//   - catppuccin-latte  - Pastel light theme
-//   - tokyonight-day    - Tokyo Night light
-//   - rose-pine-dawn    - Rose Pine light variant
-//   - paraiso-light     - Paraiso light theme
-//   - modus-operandi    - Emacs light theme
-//   - monokailight      - Monokai light variant
-//   - vs                - Visual Studio light
-//   - xcode             - Xcode light theme
-//
-// Pure black (#000000) background:
-//   - average, modus-vivendi, rrt, swapoff, vim
-//
-// Other themes:
-//   - fruity, autumn, friendly, colorful, tango, algol, arduino
-//   - base16-snazzy, borland, emacs, pygments, rainbow_dash
-//   - and more...
-const SyntaxTheme = "modus-vivendi"
+//   - tokyonight-day        #e1e2e7  81 entries
+//   - catppuccin-latte      #eff1f5  81 entries
+const SyntaxTheme = "aura-theme-dark"

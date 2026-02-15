@@ -125,3 +125,136 @@ func ThemeBg(theme string) string {
 	}
 	return bg.String() // "#rrggbb"
 }
+
+// Palette holds UI chrome colors derived deterministically from a Chroma theme.
+// The grayscale ramp is a linear interpolation from bg to fg; the accent is the
+// most saturated token color in the palette; error comes from the Error token.
+type Palette struct {
+	Bg     string // Theme background
+	Fg     string // Theme foreground (primary text)
+	Border string // 10% bg→fg — borders, dividers
+	LinkBg string // 7% bg→fg — subtle hover background
+	Dim    string // 25% bg→fg — tertiary text, timestamps
+	Muted  string // 45% bg→fg — secondary text, reasoning
+	Accent string // Most saturated token color
+	Error  string // From chroma Error token, lerped 45% toward fg
+}
+
+// ThemePalette derives a full UI color palette from a Chroma theme name.
+// Deterministic: same theme → same output. Falls back to sensible defaults
+// when the theme is missing entries.
+func ThemePalette(theme string) Palette {
+	sty := styles.Get(theme)
+	if sty == nil {
+		return defaultPalette()
+	}
+	entry := sty.Get(chroma.Background)
+	bg := "#000000"
+	fg := "#c8c8c8"
+	if entry.Background.IsSet() {
+		bg = entry.Background.String()
+	}
+	if entry.Colour.IsSet() {
+		fg = entry.Colour.String()
+	}
+
+	p := Palette{
+		Bg:     bg,
+		Fg:     fg,
+		Border: lerpHex(bg, fg, 0.10),
+		LinkBg: lerpHex(bg, fg, 0.07),
+		Dim:    lerpHex(bg, fg, 0.25),
+		Muted:  lerpHex(bg, fg, 0.45),
+		Accent: pickAccent(sty, fg),
+		Error:  pickError(sty, bg, fg),
+	}
+	return p
+}
+
+func defaultPalette() Palette {
+	return Palette{
+		Bg: "#000000", Fg: "#c8c8c8",
+		Border: "#141414", LinkBg: "#0e0e0e",
+		Dim: "#323232", Muted: "#5a5a5a",
+		Accent: "#00dfff", Error: "#932e2e",
+	}
+}
+
+// pickAccent returns the most saturated foreground color across all tokens.
+func pickAccent(sty *chroma.Style, fallback string) string {
+	best := fallback
+	bestSat := 0.0
+	for tt := chroma.TokenType(0); tt < 2000; tt++ {
+		e := sty.Get(tt)
+		if !e.Colour.IsSet() {
+			continue
+		}
+		hex := e.Colour.String()
+		r, g, b := hexToRGBf(hex)
+		mx := maxf(r, maxf(g, b))
+		mn := minf(r, minf(g, b))
+		if mx == 0 {
+			continue
+		}
+		sat := (mx - mn) / mx
+		if sat > bestSat {
+			bestSat = sat
+			best = hex
+		}
+	}
+	return best
+}
+
+// pickError extracts the Error token color and lerps it 45% toward fg
+// so it's visible but not garish against the theme background.
+func pickError(sty *chroma.Style, bg, fg string) string {
+	e := sty.Get(chroma.Error)
+	if !e.Colour.IsSet() {
+		return lerpHex(bg, fg, 0.45) // muted fallback
+	}
+	return lerpHex(bg, e.Colour.String(), 0.45)
+}
+
+// lerpHex linearly interpolates between two hex colors at fraction t.
+func lerpHex(a, b string, t float64) string {
+	ar, ag, ab := hexToRGBf(a)
+	br, bg, bb := hexToRGBf(b)
+	return fmt.Sprintf("#%02x%02x%02x",
+		clampByte(ar+(br-ar)*t),
+		clampByte(ag+(bg-ag)*t),
+		clampByte(ab+(bb-ab)*t),
+	)
+}
+
+func hexToRGBf(hex string) (float64, float64, float64) {
+	if len(hex) != 7 || hex[0] != '#' {
+		return 0, 0, 0
+	}
+	return float64(hexByte(hex[1], hex[2])),
+		float64(hexByte(hex[3], hex[4])),
+		float64(hexByte(hex[5], hex[6]))
+}
+
+func clampByte(v float64) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return int(v + 0.5)
+}
+
+func maxf(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minf(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}

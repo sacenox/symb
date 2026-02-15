@@ -21,7 +21,7 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 - **Dual-pane TUI**: Code viewer on one side, agent conversation on the other
 - **Mouse support**: Click on conversation log to view files, changes, and tool call outputs in the code pane in full.
 - **Syntax highlighting**: Via Chroma for Go and other languages
-- **Clean aesthetic**: Dark grayscale with minimal distractions
+- **Clean aesthetic**: Inherits your syntax highlight colors for minimal distractions
 - **ELM architecture**: Built with BubbleTea for solid state management
 - **LLM integration**: Ollama local + Opencode Zen support
 - **Hashline-assisted edits**: LLM edit operations use line hashes for precise, conflict-free file modifications
@@ -31,6 +31,11 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 - **LSP diagnostics**: Closed-loop edit validation with language server feedback
 - **Deterministic schemas**: KV-cache optimized tool definitions for reproducible LLM behavior
 - **Session storage**: Sessions saved to app data in sqlite file. Session management comming soon (--resume, --list, --session <ID>)
+
+## Syntax Theme
+
+The syntax highlighting theme is configured in `internal/constants/constants.go`. Change the `SyntaxTheme` constant to any of the themes listed in the file comments. Only themes with complete token coverage (60+ entries) are supported.
+
 
 ## Quick Start
 
