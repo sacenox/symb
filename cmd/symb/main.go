@@ -93,7 +93,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName),
+		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
@@ -151,6 +151,7 @@ type services struct {
 	shellHandler *mcptools.ShellHandler
 	fileTracker  *mcptools.FileReadTracker
 	deltaTracker *delta.Tracker
+	scratchpad   *mcptools.Scratchpad
 }
 
 func setupServices(cfg *config.Config, creds *config.Credentials) services {
@@ -192,6 +193,10 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 	shellHandler := mcptools.NewShellHandler(sh)
 	proxy.RegisterTool(mcptools.NewShellTool(), shellHandler.Handle)
 
+	// TodoWrite tool — agent scratchpad for plan/notes recitation.
+	pad := &mcptools.Scratchpad{}
+	proxy.RegisterTool(mcptools.NewTodoWriteTool(), mcptools.MakeTodoWriteHandler(pad))
+
 	return services{
 		proxy:        proxy,
 		lspManager:   lspManager,
@@ -201,6 +206,7 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 		shellHandler: shellHandler,
 		fileTracker:  fileTracker,
 		deltaTracker: dt,
+		scratchpad:   pad,
 	}
 }
 

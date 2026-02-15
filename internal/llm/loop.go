@@ -24,6 +24,11 @@ type ToolCallCallback func()
 // UsageCallback is called with accumulated token usage after each LLM call.
 type UsageCallback func(inputTokens, outputTokens int)
 
+// ScratchpadReader provides read access to the agent's working plan.
+type ScratchpadReader interface {
+	Content() string
+}
+
 // ProcessTurnOptions holds configuration for processing a turn.
 type ProcessTurnOptions struct {
 	Provider      provider.Provider
@@ -34,6 +39,7 @@ type ProcessTurnOptions struct {
 	OnDelta       DeltaCallback    // Optional: called for each stream event
 	OnToolCall    ToolCallCallback // Optional: called before executing tool calls
 	OnUsage       UsageCallback    // Optional: called with token usage after each LLM call
+	Scratchpad    ScratchpadReader // Optional: agent plan injected at context tail
 	MaxToolRounds int
 }
 
@@ -75,7 +81,7 @@ func emitAssistant(opts *ProcessTurnOptions, resp *provider.ChatResponse) {
 // It streams events via OnDelta and emits complete messages via OnMessage.
 func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	if opts.MaxToolRounds == 0 {
-		opts.MaxToolRounds = 20
+		opts.MaxToolRounds = 40
 	}
 
 	// Convert MCP tools to provider format once
@@ -95,6 +101,13 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 		if round > 0 {
 			compactOldToolResults(opts.History)
 		}
+
+		// Inject context recitation at the tail of the history to keep
+		// the model focused. Two sources:
+		// 1. Scratchpad (agent-written plan) — always injected when present.
+		// 2. Goal reminder (user's original request) — injected every
+		//    reminderInterval rounds as a fallback when no scratchpad exists.
+		opts.History = injectRecitation(opts.History, opts.Scratchpad, round)
 
 		resp, err := streamAndCollect(ctx, &opts, providerTools)
 		if err != nil {
@@ -283,6 +296,12 @@ func executeToolCalls(ctx context.Context, proxy *mcp.Proxy, toolCalls []provide
 // compacted once the LLM has already processed it.
 const maxToolResultLen = 200
 
+// reminderInterval is the number of tool-calling rounds between synthetic
+// goal reminders. After this many rounds the loop injects a system message
+// reciting the user's original request so it stays in the model's recent
+// attention window.
+const reminderInterval = 5
+
 // compactOldToolResults replaces verbose tool-result messages that the LLM
 // has already responded to with a short summary. A tool result is considered
 // "processed" when an assistant message appears after it in the history.
@@ -329,6 +348,65 @@ func trimToolResult(content string) string {
 		return content
 	}
 	return content[:firstNL] + "\n[Truncated — already processed by assistant]"
+}
+
+// recitationPrefix marks synthetic recitation messages so stale ones can be
+// removed before injecting a fresh one.
+const recitationPrefix = "[Recitation]"
+
+// injectRecitation manages the tail-of-context recitation that keeps the
+// model focused during long tool-calling loops. It removes any stale
+// recitation message and, when appropriate, appends a fresh one.
+//
+// Priority: if the agent has written a scratchpad (plan/notes), that is
+// injected on every round. Otherwise, on every reminderInterval rounds,
+// the user's original request is echoed as a fallback.
+func injectRecitation(history []provider.Message, pad ScratchpadReader, round int) []provider.Message {
+	// Strip any previous recitation. Use "user" role so recitation stays
+	// in the conversation messages and does not get hoisted into the
+	// Anthropic system blocks (which would invalidate the prompt cache).
+	n := 0
+	for _, m := range history {
+		if m.Role == "user" && strings.HasPrefix(m.Content, recitationPrefix) {
+			continue
+		}
+		history[n] = m
+		n++
+	}
+	history = history[:n]
+
+	// If the agent has a scratchpad, always inject it.
+	if pad != nil {
+		if plan := pad.Content(); plan != "" {
+			return append(history, provider.Message{
+				Role:      "user",
+				Content:   recitationPrefix + " Current plan:\n" + plan,
+				CreatedAt: time.Now(),
+			})
+		}
+	}
+
+	// Fallback: periodic goal reminder using the user's original request.
+	// Search forward to find the first user message (the original request),
+	// not the last one which may be a follow-up or synthetic message.
+	if round > 0 && round%reminderInterval == 0 {
+		var userContent string
+		for _, m := range history {
+			if m.Role == "user" {
+				userContent = m.Content
+				break
+			}
+		}
+		if userContent != "" {
+			return append(history, provider.Message{
+				Role:      "user",
+				Content:   recitationPrefix + " The user's request: " + userContent,
+				CreatedAt: time.Now(),
+			})
+		}
+	}
+
+	return history
 }
 
 // extractTextFromContent extracts text from MCP content blocks.

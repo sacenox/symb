@@ -155,6 +155,7 @@ func (m Model) processLLM() tea.Cmd {
 	ch := m.updateChan
 	ctx := m.turnCtx
 	dt := m.deltaTracker
+	pad := m.scratchpad
 
 	return func() tea.Msg {
 		go func() {
@@ -172,11 +173,12 @@ func (m Model) processLLM() tea.Cmd {
 			start := time.Now()
 			var turnIn, turnOut int
 			err := llm.ProcessTurn(ctx, llm.ProcessTurnOptions{
-				Provider:      prov,
-				Proxy:         proxy,
-				Tools:         tools,
-				History:       history,
-				MaxToolRounds: 20,
+				Provider:   prov,
+				Proxy:      proxy,
+				Tools:      tools,
+				History:    history,
+				Scratchpad: pad,
+				// Uses the default from ProcessTurn.
 				OnDelta: func(evt provider.StreamEvent) {
 					switch evt.Type {
 					case provider.EventContentDelta:

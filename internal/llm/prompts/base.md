@@ -85,6 +85,13 @@ Dangerous commands (network, sudo, package managers) are blocked.
 
 Use for: builds, tests, linters, git, file inspection. Default timeout: 60s.
 
+### `TodoWrite` — Update your working plan
+Write or replace your current plan/scratchpad. The content stays visible at the end of your context window across tool-calling rounds.
+
+- `{"content": "## Plan\n1. [x] Read config.go\n2. [ ] Fix the timeout bug\n3. [ ] Run tests"}`
+
+Use this for multi-step tasks (3+ steps) to track goals and progress. Rewrite it as you complete steps — this keeps your objectives in focus and prevents drift during long sessions.
+
 ### `Edit` — Modify files using hash anchors
 **Prerequisite: Read the file first.** The hashes from Read output are your edit anchors.
 

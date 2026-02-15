@@ -226,6 +226,9 @@ type Model struct {
 	totalInputTokens  int // session-wide total input tokens
 	totalOutputTokens int // session-wide total output tokens
 
+	// Context recitation
+	scratchpad llm.ScratchpadReader // agent plan injected at context tail
+
 	// Undo
 	deltaTracker   *delta.Tracker
 	turnBoundaries []turnBoundary
@@ -270,7 +273,7 @@ type Model struct {
 }
 
 // New creates a new TUI model.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -330,6 +333,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		store:     db,
 		sessionID: sessionID,
 
+		scratchpad:   pad,
 		deltaTracker: dt,
 		fileTracker:  ft,
 		tsIndex:      idx,
