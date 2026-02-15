@@ -71,6 +71,23 @@ type anthropicTool struct {
 
 // Anthropic SSE streaming response types.
 
+// anthropicMessageStart wraps the message_start event payload.
+type anthropicMessageStart struct {
+	Message struct {
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+	} `json:"message"`
+}
+
+// anthropicMessageDelta wraps the message_delta event payload.
+type anthropicMessageDelta struct {
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
 type anthropicContentBlockStart struct {
 	Type         string `json:"type"`
 	Index        int    `json:"index"`
@@ -250,7 +267,11 @@ func parseAnthropicSSEStream(ctx context.Context, reader io.Reader, ch chan<- St
 			if !bt.handleBlockDelta(ctx, ch, data) {
 				return
 			}
-		case "ping", "message_start", "message_delta", "content_block_stop":
+		case "message_start":
+			handleAnthropicMessageStart(ctx, ch, data)
+		case "message_delta":
+			handleAnthropicMessageDelta(ctx, ch, data)
+		case "ping", "content_block_stop":
 			// Ignored
 		}
 
@@ -312,4 +333,33 @@ func (bt *anthropicBlockTracker) handleBlockDelta(ctx context.Context, ch chan<-
 		}
 	}
 	return true
+}
+
+// handleAnthropicMessageStart extracts input token usage from message_start events.
+func handleAnthropicMessageStart(ctx context.Context, ch chan<- StreamEvent, data string) {
+	var ms anthropicMessageStart
+	if err := json.Unmarshal([]byte(data), &ms); err != nil {
+		return
+	}
+	if ms.Message.Usage.InputTokens > 0 || ms.Message.Usage.OutputTokens > 0 {
+		trySend(ctx, ch, StreamEvent{
+			Type:         EventUsage,
+			InputTokens:  ms.Message.Usage.InputTokens,
+			OutputTokens: ms.Message.Usage.OutputTokens,
+		})
+	}
+}
+
+// handleAnthropicMessageDelta extracts output token usage from message_delta events.
+func handleAnthropicMessageDelta(ctx context.Context, ch chan<- StreamEvent, data string) {
+	var md anthropicMessageDelta
+	if err := json.Unmarshal([]byte(data), &md); err != nil {
+		return
+	}
+	if md.Usage.OutputTokens > 0 {
+		trySend(ctx, ch, StreamEvent{
+			Type:         EventUsage,
+			OutputTokens: md.Usage.OutputTokens,
+		})
+	}
 }

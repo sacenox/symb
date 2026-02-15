@@ -13,12 +13,14 @@ var ErrProviderNotFound = errors.New("provider not found")
 
 // Message represents a chat message.
 type Message struct {
-	Role       string
-	Content    string
-	Reasoning  string     // Model reasoning/thinking content (optional)
-	ToolCalls  []ToolCall // For assistant messages with tool calls
-	ToolCallID string     // For tool result messages
-	CreatedAt  time.Time  // Message timestamp
+	Role         string
+	Content      string
+	Reasoning    string     // Model reasoning/thinking content (optional)
+	ToolCalls    []ToolCall // For assistant messages with tool calls
+	ToolCallID   string     // For tool result messages
+	CreatedAt    time.Time  // Message timestamp
+	InputTokens  int        // Token usage for this LLM call (assistant messages only)
+	OutputTokens int        // Token usage for this LLM call (assistant messages only)
 }
 
 // Tool represents a tool/function definition for the LLM.
@@ -37,9 +39,11 @@ type ToolCall struct {
 
 // ChatResponse represents the response from a chat completion.
 type ChatResponse struct {
-	Content   string     // Text content (may be empty if tool calls)
-	ToolCalls []ToolCall // Tool calls (may be empty if text response)
-	Reasoning string     // Model reasoning content (optional)
+	Content      string     // Text content (may be empty if tool calls)
+	ToolCalls    []ToolCall // Tool calls (may be empty if text response)
+	Reasoning    string     // Model reasoning content (optional)
+	InputTokens  int        // Input/prompt token count (0 if unavailable)
+	OutputTokens int        // Output/completion token count (0 if unavailable)
 }
 
 // StreamEventType identifies the kind of streaming event.
@@ -54,6 +58,8 @@ const (
 	EventToolCallBegin
 	// EventToolCallDelta carries a chunk of tool call arguments.
 	EventToolCallDelta
+	// EventUsage carries token usage statistics.
+	EventUsage
 	// EventDone signals the stream is complete.
 	EventDone
 	// EventError signals a stream error.
@@ -72,6 +78,10 @@ type StreamEvent struct {
 	ToolCallID    string // Set on EventToolCallBegin
 	ToolCallName  string // Set on EventToolCallBegin
 	ToolCallArgs  string // Argument fragment on EventToolCallDelta
+
+	// Token usage (for EventUsage).
+	InputTokens  int
+	OutputTokens int
 
 	// Error (for EventError).
 	Err error

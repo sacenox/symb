@@ -17,12 +17,14 @@ type Session struct {
 
 // SessionMessage is a persisted chat message.
 type SessionMessage struct {
-	Role       string
-	Content    string
-	Reasoning  string
-	ToolCalls  json.RawMessage // JSON array
-	ToolCallID string
-	CreatedAt  time.Time
+	Role         string
+	Content      string
+	Reasoning    string
+	ToolCalls    json.RawMessage // JSON array
+	ToolCallID   string
+	CreatedAt    time.Time
+	InputTokens  int
+	OutputTokens int
 }
 
 // CreateSession inserts a new session and returns its ID.
@@ -79,9 +81,10 @@ func (c *Cache) writeMessage(sessionID string, msg SessionMessage) {
 	}
 
 	_, err := c.db.Exec(
-		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID, msg.Role, msg.Content, msg.Reasoning, string(tc), msg.ToolCallID, msg.CreatedAt.Unix(),
+		msg.InputTokens, msg.OutputTokens,
 	)
 	if err != nil {
 		log.Warn().Err(err).Str("session", sessionID).Msg("failed to save message")
@@ -106,9 +109,10 @@ func (c *Cache) SaveMessageSync(sessionID string, msg SessionMessage) (int64, er
 	}
 
 	res, err := c.db.Exec(
-		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID, msg.Role, msg.Content, msg.Reasoning, string(tc), msg.ToolCallID, msg.CreatedAt.Unix(),
+		msg.InputTokens, msg.OutputTokens,
 	)
 	if err != nil {
 		return 0, err
@@ -158,7 +162,7 @@ func (c *Cache) LoadMessages(sessionID string) ([]SessionMessage, error) {
 	defer c.mu.Unlock()
 
 	rows, err := c.db.Query(
-		`SELECT role, content, reasoning, tool_calls, tool_call_id, created
+		`SELECT role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens
 		 FROM messages WHERE session_id = ? ORDER BY id`, sessionID,
 	)
 	if err != nil {
@@ -171,7 +175,7 @@ func (c *Cache) LoadMessages(sessionID string) ([]SessionMessage, error) {
 		var m SessionMessage
 		var tc string
 		var created int64
-		if err := rows.Scan(&m.Role, &m.Content, &m.Reasoning, &tc, &m.ToolCallID, &created); err != nil {
+		if err := rows.Scan(&m.Role, &m.Content, &m.Reasoning, &tc, &m.ToolCallID, &created, &m.InputTokens, &m.OutputTokens); err != nil {
 			continue
 		}
 		m.ToolCalls = json.RawMessage(tc)

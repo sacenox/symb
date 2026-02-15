@@ -167,9 +167,11 @@ type FileReadResetter interface {
 
 // turnBoundary marks the start of a user turn in both history and convEntries.
 type turnBoundary struct {
-	historyIdx int   // index in m.history where the user message is
-	convIdx    int   // index in m.convEntries where this turn's display starts
-	dbMsgID    int64 // messages.id of the user message (for DB cleanup)
+	historyIdx   int   // index in m.history where the user message is
+	convIdx      int   // index in m.convEntries where this turn's display starts
+	dbMsgID      int64 // messages.id of the user message (for DB cleanup)
+	inputTokens  int   // total input tokens at start of this turn
+	outputTokens int   // total output tokens at start of this turn
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +217,12 @@ type Model struct {
 	streamingContent   string // In-progress content text
 	streaming          bool   // Whether we're currently streaming
 	streamEntryStart   int    // Index in convEntries where streaming entries begin (-1 = none)
+
+	// Token usage tracking
+	turnInputTokens   int // accumulated input tokens for current turn
+	turnOutputTokens  int // accumulated output tokens for current turn
+	totalInputTokens  int // session-wide total input tokens
+	totalOutputTokens int // session-wide total output tokens
 
 	// Undo
 	deltaTracker   *delta.Tracker

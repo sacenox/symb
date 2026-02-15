@@ -185,16 +185,20 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 	}
 
 	m.turnBoundaries = append(m.turnBoundaries, turnBoundary{
-		historyIdx: historyIdx,
-		convIdx:    convIdx,
-		dbMsgID:    dbMsgID,
+		historyIdx:   historyIdx,
+		convIdx:      convIdx,
+		dbMsgID:      dbMsgID,
+		inputTokens:  m.totalInputTokens,
+		outputTokens: m.totalOutputTokens,
 	})
 
 	m.appendText(highlightMarkdown(msg.content, m.styles.Text)...)
 	m.appendText("")
-	sep := m.makeSeparator("0s", now.Format("15:04:05"))
+	sep := m.makeSeparator("0s", now.Format("15:04:05"), 0, 0, 0)
 	wasBottom := m.appendText(sep)
 	m.appendText("")
+	m.turnInputTokens = 0
+	m.turnOutputTokens = 0
 	if wasBottom {
 		m.scrollOffset = 0
 	}
@@ -232,11 +236,18 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
 			return m, nil
 
+		case llmUsageMsg:
+			m.turnInputTokens += msg.inputTokens
+			m.turnOutputTokens += msg.outputTokens
+			m.totalInputTokens += msg.inputTokens
+			m.totalOutputTokens += msg.outputTokens
+
 		case llmDoneMsg:
 			m.demoteOldUndo()
 			m.appendText("")
-			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
-			m.appendConv(m.makeUndoEntry(sep))
+			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp,
+				msg.inputTokens, msg.outputTokens, m.totalInputTokens+m.totalOutputTokens)
+			m.appendConv(m.makeUndoEntry(sep)...)
 			m.trimOldTurns()
 			return m, nil
 		}
@@ -474,16 +485,13 @@ func (m *Model) updateComponentSizes() {
 	m.agentInput.SetHeight(inputRows)
 }
 
-// demoteOldUndo finds the existing entryUndo in convEntries and demotes it
-// to an entrySeparator (preserving the original display for potential
-// re-promotion). Called before appending a new undo entry so only the
-// latest turn shows the undo control.
+// demoteOldUndo finds the existing entryUndo in convEntries and removes it.
+// The entrySeparator line above it is already present and stays.
+// Called before appending a new undo entry so only the latest turn shows the undo control.
 func (m *Model) demoteOldUndo() {
 	for i := len(m.convEntries) - 1; i >= 0; i-- {
 		if m.convEntries[i].kind == entryUndo {
-			m.convEntries[i].kind = entrySeparator
-			// full field carries the original separator display text.
-			m.convEntries[i].display = m.convEntries[i].full
+			m.convEntries = append(m.convEntries[:i], m.convEntries[i+1:]...)
 			return
 		}
 	}
@@ -528,6 +536,12 @@ func (m *Model) handleUndo() Model {
 	tb := m.turnBoundaries[len(m.turnBoundaries)-1]
 	m.turnBoundaries = m.turnBoundaries[:len(m.turnBoundaries)-1]
 
+	// Restore token totals to the snapshot at turn start.
+	m.totalInputTokens = tb.inputTokens
+	m.totalOutputTokens = tb.outputTokens
+	m.turnInputTokens = 0
+	m.turnOutputTokens = 0
+
 	// 1. Reverse filesystem changes.
 	var undoErr error
 	var restoredFiles []string
@@ -569,8 +583,11 @@ func (m *Model) handleUndo() Model {
 	if len(m.turnBoundaries) > 0 {
 		for i := len(m.convEntries) - 1; i >= 0; i-- {
 			if m.convEntries[i].kind == entrySeparator {
-				// full carries the original separator display text.
-				m.convEntries[i] = m.makeUndoEntry(m.convEntries[i].full)
+				// Replace separator with separator+undo pair.
+				entries := m.makeUndoEntry(m.convEntries[i].full)
+				// Replace the separator entry in-place and insert undo after it.
+				m.convEntries[i] = entries[0]
+				m.convEntries = append(m.convEntries[:i+1], append([]convEntry{entries[1]}, m.convEntries[i+1:]...)...)
 				break
 			}
 		}

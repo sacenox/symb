@@ -31,8 +31,15 @@ type llmToolResultMsg struct {
 }
 
 type llmDoneMsg struct {
-	duration  time.Duration
-	timestamp string
+	duration     time.Duration
+	timestamp    string
+	inputTokens  int
+	outputTokens int
+}
+
+type llmUsageMsg struct {
+	inputTokens  int
+	outputTokens int
 }
 
 type llmHistoryMsg struct{ msg provider.Message }
@@ -124,6 +131,7 @@ func (m Model) processLLM() tea.Cmd {
 			}
 
 			start := time.Now()
+			var turnIn, turnOut int
 			err := llm.ProcessTurn(ctx, llm.ProcessTurnOptions{
 				Provider:      prov,
 				Proxy:         proxy,
@@ -137,6 +145,11 @@ func (m Model) processLLM() tea.Cmd {
 					case provider.EventReasoningDelta:
 						ch <- llmReasoningDeltaMsg{content: evt.Content}
 					}
+				},
+				OnUsage: func(inputTokens, outputTokens int) {
+					turnIn += inputTokens
+					turnOut += outputTokens
+					ch <- llmUsageMsg{inputTokens: inputTokens, outputTokens: outputTokens}
 				},
 				OnMessage: func(msg provider.Message) {
 					ch <- llmHistoryMsg{msg: msg}
@@ -167,8 +180,10 @@ func (m Model) processLLM() tea.Cmd {
 				return
 			}
 			ch <- llmDoneMsg{
-				duration:  time.Since(start),
-				timestamp: start.Format("15:04"),
+				duration:     time.Since(start),
+				timestamp:    start.Format("15:04"),
+				inputTokens:  turnIn,
+				outputTokens: turnOut,
 			}
 		}()
 		return nil
@@ -182,12 +197,14 @@ func messageToStore(msg provider.Message) store.SessionMessage {
 		tc, _ = json.Marshal(msg.ToolCalls) //nolint:errcheck
 	}
 	return store.SessionMessage{
-		Role:       msg.Role,
-		Content:    msg.Content,
-		Reasoning:  msg.Reasoning,
-		ToolCalls:  tc,
-		ToolCallID: msg.ToolCallID,
-		CreatedAt:  msg.CreatedAt,
+		Role:         msg.Role,
+		Content:      msg.Content,
+		Reasoning:    msg.Reasoning,
+		ToolCalls:    tc,
+		ToolCallID:   msg.ToolCallID,
+		CreatedAt:    msg.CreatedAt,
+		InputTokens:  msg.InputTokens,
+		OutputTokens: msg.OutputTokens,
 	}
 }
 

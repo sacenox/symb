@@ -109,6 +109,12 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
+	// Migrate: add token count columns to messages table.
+	if !hasColumn(db, "messages", "input_tokens") {
+		db.Exec("ALTER TABLE messages ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0")  //nolint:errcheck
+		db.Exec("ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0") //nolint:errcheck
+	}
+
 	c := &Cache{
 		db:     db,
 		ttl:    ttl,

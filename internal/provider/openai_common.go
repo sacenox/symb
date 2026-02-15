@@ -20,6 +20,18 @@ import (
 
 type chatCompletionStreamResponse struct {
 	Choices []chatCompletionStreamChoice `json:"choices"`
+	Usage   *chatCompletionUsage         `json:"usage,omitempty"`
+}
+
+// chatCompletionUsage carries token counts from the final streaming chunk.
+type chatCompletionUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+// chatStreamOptions requests usage info in the streaming response.
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatCompletionStreamChoice struct {
@@ -167,6 +179,13 @@ func parseSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			log.Warn().Err(err).Str("data", data).Msg("Failed to parse SSE chunk")
 			continue
+		}
+		if chunk.Usage != nil {
+			trySend(ctx, ch, StreamEvent{
+				Type:         EventUsage,
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+			})
 		}
 		if len(chunk.Choices) == 0 {
 			continue

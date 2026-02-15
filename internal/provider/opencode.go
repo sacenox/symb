@@ -13,11 +13,12 @@ import (
 // openCodeRequest is a custom request struct to ensure stream:false is serialized
 // The openai.ChatCompletionRequest has omitempty on Stream, which omits false values
 type openCodeRequest struct {
-	Model       string                         `json:"model"`
-	Messages    []openai.ChatCompletionMessage `json:"messages"`
-	Tools       []openai.Tool                  `json:"tools,omitempty"`
-	Temperature float32                        `json:"temperature,omitempty"`
-	Stream      bool                           `json:"stream"` // NO omitempty - always serialize
+	Model         string                         `json:"model"`
+	Messages      []openai.ChatCompletionMessage `json:"messages"`
+	Tools         []openai.Tool                  `json:"tools,omitempty"`
+	Temperature   float32                        `json:"temperature,omitempty"`
+	Stream        bool                           `json:"stream"` // NO omitempty - always serialize
+	StreamOptions *chatStreamOptions             `json:"stream_options,omitempty"`
 }
 
 // OpenCodeProvider implements the Provider interface for OpenCode Zen.
@@ -85,11 +86,12 @@ func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, messages []Mess
 	openaiTools := toOpenAITools(tools)
 
 	customReq := openCodeRequest{
-		Model:       p.model,
-		Messages:    mergeSystemMessagesOpenAI(toOpenAIMessages(messages)),
-		Tools:       openaiTools,
-		Temperature: float32(p.temperature),
-		Stream:      true,
+		Model:         p.model,
+		Messages:      mergeSystemMessagesOpenAI(toOpenAIMessages(messages)),
+		Tools:         openaiTools,
+		Temperature:   float32(p.temperature),
+		Stream:        true,
+		StreamOptions: &chatStreamOptions{IncludeUsage: true},
 	}
 	body, err := json.Marshal(customReq)
 	if err != nil {

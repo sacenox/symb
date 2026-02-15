@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -109,20 +110,45 @@ func (m *Model) wrappedConvLines() []string {
 	return lines
 }
 
-// makeSeparator builds a timestamp separator line.
-func (m Model) makeSeparator(dur string, ts string) string {
-	label := dur + " " + ts + " "
-	fill := m.convWidth() - lipgloss.Width(label)
-	if fill < 0 {
-		fill = 0
+// formatTokens formats a token count for display (e.g. 1234 -> "1.2k").
+func formatTokens(n int) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
 	}
-	return m.styles.Dim.Render(label + strings.Repeat("─", fill))
+	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// makeUndoEntry creates a convEntry for the undo control.
-// sepDisplay is the styled separator text to restore if this entry is demoted.
-func (m Model) makeUndoEntry(sepDisplay string) convEntry {
-	return convEntry{display: m.styles.Dim.Render("undo"), kind: entryUndo, full: sepDisplay}
+// makeSeparator builds a right-aligned timestamp/token separator line.
+func (m Model) makeSeparator(dur string, ts string, tokIn, tokOut, totalTok int) string {
+	var label string
+	if tokIn > 0 || tokOut > 0 {
+		label = fmt.Sprintf("%s %s %sin/%sout (%s)", dur, ts, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok))
+	} else {
+		label = dur + " " + ts
+	}
+	w := m.convWidth()
+	pad := w - lipgloss.Width(label)
+	if pad < 0 {
+		pad = 0
+	}
+	return m.styles.Dim.Render(strings.Repeat(" ", pad) + label)
+}
+
+// makeUndoEntry creates convEntries for the undo control: the separator line
+// plus a right-aligned "undo" line below it.
+// sepDisplay is the styled separator text to restore if the undo entry is demoted.
+func (m Model) makeUndoEntry(sepDisplay string) []convEntry {
+	undoLabel := "undo"
+	w := m.convWidth()
+	pad := w - lipgloss.Width(undoLabel)
+	if pad < 0 {
+		pad = 0
+	}
+	undoLine := m.styles.Dim.Render(strings.Repeat(" ", pad) + undoLabel)
+	return []convEntry{
+		{display: sepDisplay, kind: entrySeparator, full: sepDisplay},
+		{display: undoLine, kind: entryUndo, full: sepDisplay},
+	}
 }
 
 // visibleStartLine returns the index of the first visible wrapped conversation line.

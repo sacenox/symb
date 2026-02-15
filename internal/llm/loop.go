@@ -20,6 +20,9 @@ type DeltaCallback func(evt provider.StreamEvent)
 // ToolCallCallback is called when tool calls are about to be executed.
 type ToolCallCallback func()
 
+// UsageCallback is called with accumulated token usage after each LLM call.
+type UsageCallback func(inputTokens, outputTokens int)
+
 // ProcessTurnOptions holds configuration for processing a turn.
 type ProcessTurnOptions struct {
 	Provider      provider.Provider
@@ -29,7 +32,42 @@ type ProcessTurnOptions struct {
 	OnMessage     MessageCallback
 	OnDelta       DeltaCallback    // Optional: called for each stream event
 	OnToolCall    ToolCallCallback // Optional: called before executing tool calls
+	OnUsage       UsageCallback    // Optional: called with token usage after each LLM call
 	MaxToolRounds int
+}
+
+// streamAndCollect runs one LLM call: streams events, collects the response,
+// reports usage, and returns the ChatResponse.
+func streamAndCollect(ctx context.Context, opts *ProcessTurnOptions, tools []provider.Tool) (*provider.ChatResponse, error) {
+	stream, err := opts.Provider.ChatStream(ctx, opts.History, tools)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := collectWithDeltas(stream, opts.OnDelta)
+	if err != nil {
+		return nil, err
+	}
+	if opts.OnUsage != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
+		opts.OnUsage(resp.InputTokens, resp.OutputTokens)
+	}
+	return resp, nil
+}
+
+// emitAssistant builds an assistant message from a ChatResponse, emits it, and appends to history.
+func emitAssistant(opts *ProcessTurnOptions, resp *provider.ChatResponse) {
+	msg := provider.Message{
+		Role:         "assistant",
+		Content:      resp.Content,
+		Reasoning:    resp.Reasoning,
+		ToolCalls:    resp.ToolCalls,
+		CreatedAt:    time.Now(),
+		InputTokens:  resp.InputTokens,
+		OutputTokens: resp.OutputTokens,
+	}
+	if opts.OnMessage != nil {
+		opts.OnMessage(msg)
+	}
+	opts.History = append(opts.History, msg)
 }
 
 // ProcessTurn handles one conversation turn, which may involve tool calls.
@@ -50,30 +88,12 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	}
 
 	for round := 0; round < opts.MaxToolRounds; round++ {
-		// Start streaming from LLM
-		stream, err := opts.Provider.ChatStream(ctx, opts.History, providerTools)
-		if err != nil {
-			return fmt.Errorf("LLM call failed: %w", err)
-		}
-
-		// Read stream, forwarding deltas and accumulating the full response
-		resp, err := collectWithDeltas(stream, opts.OnDelta)
+		resp, err := streamAndCollect(ctx, &opts, providerTools)
 		if err != nil {
 			return fmt.Errorf("LLM stream failed: %w", err)
 		}
 
-		// Build assistant message from accumulated response
-		assistantMsg := provider.Message{
-			Role:      "assistant",
-			Content:   resp.Content,
-			Reasoning: resp.Reasoning,
-			ToolCalls: resp.ToolCalls,
-			CreatedAt: time.Now(),
-		}
-		if opts.OnMessage != nil {
-			opts.OnMessage(assistantMsg)
-		}
-		opts.History = append(opts.History, assistantMsg)
+		emitAssistant(&opts, resp)
 
 		// If no tool calls, we're done
 		if len(resp.ToolCalls) == 0 {
@@ -108,40 +128,55 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	}
 	opts.History = append(opts.History, limitMsg)
 
-	stream, err := opts.Provider.ChatStream(ctx, opts.History, nil)
-	if err != nil {
-		return fmt.Errorf("final text-only LLM call failed: %w", err)
-	}
-
-	resp, err := collectWithDeltas(stream, opts.OnDelta)
+	resp, err := streamAndCollect(ctx, &opts, nil)
 	if err != nil {
 		return fmt.Errorf("final text-only LLM stream failed: %w", err)
 	}
 
-	assistantMsg := provider.Message{
-		Role:      "assistant",
-		Content:   resp.Content,
-		Reasoning: resp.Reasoning,
-		CreatedAt: time.Now(),
-	}
-	if opts.OnMessage != nil {
-		opts.OnMessage(assistantMsg)
-	}
-
+	emitAssistant(&opts, resp)
 	return nil
+}
+
+// toolCallAccumulator tracks tool calls as they stream in.
+type toolCallAccumulator struct {
+	byIndex     map[int]int
+	calls       []provider.ToolCall
+	argBuilders []string
+}
+
+func newToolCallAccumulator() *toolCallAccumulator {
+	return &toolCallAccumulator{byIndex: make(map[int]int)}
+}
+
+func (a *toolCallAccumulator) begin(evt provider.StreamEvent) {
+	pos := len(a.calls)
+	a.byIndex[evt.ToolCallIndex] = pos
+	a.calls = append(a.calls, provider.ToolCall{ID: evt.ToolCallID, Name: evt.ToolCallName})
+	a.argBuilders = append(a.argBuilders, "")
+}
+
+func (a *toolCallAccumulator) delta(evt provider.StreamEvent) {
+	if pos, ok := a.byIndex[evt.ToolCallIndex]; ok {
+		a.argBuilders[pos] += evt.ToolCallArgs
+	}
+}
+
+func (a *toolCallAccumulator) finalize() []provider.ToolCall {
+	for i := range a.calls {
+		if i < len(a.argBuilders) {
+			a.calls[i].Arguments = json.RawMessage(a.argBuilders[i])
+		}
+	}
+	return a.calls
 }
 
 // collectWithDeltas reads all events from a stream, forwarding each to onDelta,
 // and assembles them into a ChatResponse.
 func collectWithDeltas(ch <-chan provider.StreamEvent, onDelta DeltaCallback) (*provider.ChatResponse, error) {
 	var result provider.ChatResponse
-	// Map from tool call index to position in our slice
-	toolCallsByIndex := make(map[int]int)
-	var toolCalls []provider.ToolCall
-	var toolArgBuilders []string
+	tca := newToolCallAccumulator()
 
 	for evt := range ch {
-		// Forward delta to callback
 		if onDelta != nil {
 			onDelta(evt)
 		}
@@ -152,16 +187,15 @@ func collectWithDeltas(ch <-chan provider.StreamEvent, onDelta DeltaCallback) (*
 		case provider.EventReasoningDelta:
 			result.Reasoning += evt.Content
 		case provider.EventToolCallBegin:
-			pos := len(toolCalls)
-			toolCallsByIndex[evt.ToolCallIndex] = pos
-			toolCalls = append(toolCalls, provider.ToolCall{
-				ID:   evt.ToolCallID,
-				Name: evt.ToolCallName,
-			})
-			toolArgBuilders = append(toolArgBuilders, "")
+			tca.begin(evt)
 		case provider.EventToolCallDelta:
-			if pos, ok := toolCallsByIndex[evt.ToolCallIndex]; ok {
-				toolArgBuilders[pos] += evt.ToolCallArgs
+			tca.delta(evt)
+		case provider.EventUsage:
+			if evt.InputTokens > result.InputTokens {
+				result.InputTokens = evt.InputTokens
+			}
+			if evt.OutputTokens > result.OutputTokens {
+				result.OutputTokens = evt.OutputTokens
 			}
 		case provider.EventError:
 			return nil, evt.Err
@@ -170,16 +204,9 @@ func collectWithDeltas(ch <-chan provider.StreamEvent, onDelta DeltaCallback) (*
 		}
 	}
 
-	// Finalize tool call arguments
-	for i := range toolCalls {
-		if i < len(toolArgBuilders) {
-			toolCalls[i].Arguments = json.RawMessage(toolArgBuilders[i])
-		}
+	if calls := tca.finalize(); len(calls) > 0 {
+		result.ToolCalls = calls
 	}
-	if len(toolCalls) > 0 {
-		result.ToolCalls = toolCalls
-	}
-
 	return &result, nil
 }
 

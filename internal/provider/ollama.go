@@ -44,11 +44,12 @@ func (p *OllamaProvider) Name() string {
 // ChatStream sends messages with optional tools and returns a channel of streaming events.
 func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
 	req := ollamaChatRequest{
-		Model:       p.model,
-		Messages:    mergeConsecutiveSystemMessagesOllama(toOllamaMessages(messages)),
-		Tools:       toOllamaTools(tools),
-		Temperature: float32(p.temperature),
-		Stream:      true,
+		Model:         p.model,
+		Messages:      mergeConsecutiveSystemMessagesOllama(toOllamaMessages(messages)),
+		Tools:         toOllamaTools(tools),
+		Temperature:   float32(p.temperature),
+		Stream:        true,
+		StreamOptions: &chatStreamOptions{IncludeUsage: true},
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -81,11 +82,12 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, too
 // They differ from OpenAI standard in structure and field names.
 
 type ollamaChatRequest struct {
-	Model       string             `json:"model"`
-	Messages    []ollamaReqMessage `json:"messages"`
-	Tools       []ollamaReqTool    `json:"tools,omitempty"`
-	Temperature float32            `json:"temperature,omitempty"`
-	Stream      bool               `json:"stream"`
+	Model         string             `json:"model"`
+	Messages      []ollamaReqMessage `json:"messages"`
+	Tools         []ollamaReqTool    `json:"tools,omitempty"`
+	Temperature   float32            `json:"temperature,omitempty"`
+	Stream        bool               `json:"stream"`
+	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
 }
 
 type ollamaReqMessage struct {
