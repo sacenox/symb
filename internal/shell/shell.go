@@ -18,17 +18,20 @@ import (
 // Shell provides an in-process POSIX shell with persistent cwd/env across calls.
 type Shell struct {
 	mu         sync.Mutex
+	root       string // project root — shell is anchored here
 	cwd        string
 	env        []string
 	blockFuncs []BlockFunc
 }
 
 // New creates a Shell rooted at cwd with the given block functions.
+// The shell is anchored to this directory — cd outside it is clamped back.
 func New(cwd string, blockers []BlockFunc) *Shell {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	return &Shell{
+		root:       cwd,
 		cwd:        cwd,
 		env:        os.Environ(),
 		blockFuncs: blockers,
@@ -67,7 +70,7 @@ func (s *Shell) execCommon(ctx context.Context, command string, stdout, stderr i
 			err = fmt.Errorf("command execution panic: %v", r)
 		}
 		if runner != nil {
-			s.updateFromRunner(runner)
+			s.updateFromRunner(runner, stderr)
 		}
 	}()
 
@@ -111,10 +114,15 @@ func (s *Shell) blockHandler() func(next interp.ExecHandlerFunc) interp.ExecHand
 }
 
 // updateFromRunner persists cwd and exported env vars after execution.
-// Uses runner.Env.Each to preserve all inherited vars, not just those
-// tracked in runner.Vars.
-func (s *Shell) updateFromRunner(runner *interp.Runner) {
-	s.cwd = runner.Dir
+// If the runner's cwd escaped the project root, it is clamped back and a
+// warning is written to stderr so the LLM knows.
+func (s *Shell) updateFromRunner(runner *interp.Runner, stderr io.Writer) {
+	dir := runner.Dir
+	if !isSubdir(dir, s.root) {
+		fmt.Fprintf(stderr, "[cd rejected: you are anchored to %s]\n", s.root)
+		dir = s.root
+	}
+	s.cwd = dir
 	s.env = s.env[:0]
 	runner.Env.Each(func(name string, vr expand.Variable) bool {
 		if vr.Exported {
@@ -122,6 +130,11 @@ func (s *Shell) updateFromRunner(runner *interp.Runner) {
 		}
 		return true
 	})
+}
+
+// isSubdir reports whether dir is equal to or under root.
+func isSubdir(dir, root string) bool {
+	return dir == root || strings.HasPrefix(dir, root+string(os.PathSeparator))
 }
 
 // ExitCode extracts the exit code from an interpreter error.

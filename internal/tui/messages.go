@@ -2,9 +2,11 @@ package tui
 
 import (
 	"encoding/json"
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
@@ -94,9 +96,21 @@ func (m Model) processLLM() tea.Cmd {
 	copy(history, m.history)
 	ch := m.updateChan
 	ctx := m.ctx
+	dt := m.deltaTracker
 
 	return func() tea.Msg {
 		go func() {
+			// Snapshot the project directory before the turn for undo.
+			// Capture cwd once so both pre/post snapshots use the same root.
+			var preSnap map[string]delta.FileSnapshot
+			var snapRoot string
+			if dt != nil && dt.TurnID() > 0 {
+				if cwd, err := os.Getwd(); err == nil {
+					snapRoot = cwd
+					preSnap = delta.SnapshotDir(snapRoot)
+				}
+			}
+
 			start := time.Now()
 			err := llm.ProcessTurn(ctx, llm.ProcessTurnOptions{
 				Provider:      prov,
@@ -129,6 +143,13 @@ func (m Model) processLLM() tea.Cmd {
 					}
 				},
 			})
+
+			// Post-turn snapshot: diff against pre to record deltas for undo.
+			if preSnap != nil {
+				postSnap := delta.SnapshotDir(snapRoot)
+				delta.RecordDeltas(dt, snapRoot, preSnap, postSnap)
+			}
+
 			if err != nil {
 				ch <- llmErrorMsg{err: err}
 				return

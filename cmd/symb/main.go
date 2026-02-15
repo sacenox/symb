@@ -189,7 +189,7 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 
 	// Shell tool — in-process POSIX interpreter with command blocking.
 	sh := shell.New("", shell.DefaultBlockFuncs())
-	shellHandler := mcptools.NewShellHandler(sh, dt)
+	shellHandler := mcptools.NewShellHandler(sh)
 	proxy.RegisterTool(mcptools.NewShellTool(), shellHandler.Handle)
 
 	return services{

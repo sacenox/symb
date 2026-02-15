@@ -107,6 +107,8 @@ var BannedCommands = []string{
 	// Network configuration
 	"firewall-cmd", "ifconfig", "ip", "iptables", "netstat", "pfctl",
 	"route", "ufw",
+	// Directory traversal is handled by cwd clamping in updateFromRunner,
+	// not by command blocking (cd is a shell builtin, invisible to ExecHandlers).
 }
 
 // DefaultBlockFuncs returns the standard set of block functions.

@@ -68,7 +68,8 @@ Search for docs, APIs, libraries, current info. Cached 24h.
 **Search before assuming** — use WebSearch to verify external APIs/libraries rather than guessing.
 
 ### `Shell` — Execute shell commands
-Run commands in an in-process POSIX shell. State (cwd, env) persists across calls.
+Run commands in an in-process POSIX shell. State (env) persists across calls.
+The shell is anchored to the project root — you cannot cd outside it.
 Dangerous commands (network, sudo, package managers) are blocked.
 ```json
 {"command": "go test -v ./...", "description": "Run tests verbosely", "timeout": 120}

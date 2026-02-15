@@ -89,7 +89,8 @@ Search the web for documentation, APIs, libraries, or current information. Resul
 **Search before assuming** — when asked about external libraries, APIs, or current information, use WebSearch to verify rather than relying on potentially outdated knowledge.
 
 ### `Shell` — Execute shell commands
-Run commands in an in-process POSIX shell. State (cwd, env) persists across calls.
+Run commands in an in-process POSIX shell. State (env) persists across calls.
+The shell is anchored to the project root — you cannot cd outside it.
 Dangerous commands (network, sudo, package managers) are blocked.
 
 ```json
