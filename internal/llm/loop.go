@@ -102,12 +102,11 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 			compactOldToolResults(opts.History)
 		}
 
-		// Inject context recitation at the tail of the history to keep
+		// Inject a <system-reminder> into the last tool result to keep
 		// the model focused. Two sources:
-		// 1. Scratchpad (agent-written plan) — always injected when present.
-		// 2. Goal reminder (user's original request) — injected every
-		//    reminderInterval rounds as a fallback when no scratchpad exists.
-		opts.History = injectRecitation(opts.History, opts.Scratchpad, round)
+		// 1. Scratchpad (agent-written plan) — preferred when present.
+		// 2. Goal reminder (user's original request) — fallback.
+		injectRecitation(opts.History, opts.Scratchpad, round)
 
 		resp, err := streamAndCollect(ctx, &opts, providerTools)
 		if err != nil {
@@ -300,7 +299,7 @@ const maxToolResultLen = 200
 // goal reminders. After this many rounds the loop injects a system message
 // reciting the user's original request so it stays in the model's recent
 // attention window.
-const reminderInterval = 5
+const reminderInterval = 10
 
 // compactOldToolResults replaces verbose tool-result messages that the LLM
 // has already responded to with a short summary. A tool result is considered
@@ -350,63 +349,50 @@ func trimToolResult(content string) string {
 	return content[:firstNL] + "\n[Truncated — already processed by assistant]"
 }
 
-// recitationPrefix marks synthetic recitation messages so stale ones can be
-// removed before injecting a fresh one.
-const recitationPrefix = "[Recitation]"
-
-// injectRecitation manages the tail-of-context recitation that keeps the
-// model focused during long tool-calling loops. It removes any stale
-// recitation message and, when appropriate, appends a fresh one.
+// injectRecitation appends a <system-reminder> block to the last tool-result
+// message in history to keep the model focused during long tool-calling loops.
+// By appending to an existing message instead of creating a new one, we avoid
+// shifting message positions and invalidating the Anthropic prompt cache.
 //
 // Priority: if the agent has written a scratchpad (plan/notes), that is
-// injected on every round. Otherwise, on every reminderInterval rounds,
-// the user's original request is echoed as a fallback.
-func injectRecitation(history []provider.Message, pad ScratchpadReader, round int) []provider.Message {
-	// Strip any previous recitation. Use "user" role so recitation stays
-	// in the conversation messages and does not get hoisted into the
-	// Anthropic system blocks (which would invalidate the prompt cache).
-	n := 0
-	for _, m := range history {
-		if m.Role == "user" && strings.HasPrefix(m.Content, recitationPrefix) {
-			continue
-		}
-		history[n] = m
-		n++
+// injected. Otherwise the user's original request is echoed as a fallback.
+func injectRecitation(history []provider.Message, pad ScratchpadReader, round int) {
+	if round == 0 || round%reminderInterval != 0 {
+		return
 	}
-	history = history[:n]
 
-	// If the agent has a scratchpad, always inject it.
+	// Build the reminder text.
+	var reminder string
 	if pad != nil {
 		if plan := pad.Content(); plan != "" {
-			return append(history, provider.Message{
-				Role:      "user",
-				Content:   recitationPrefix + " Current plan:\n" + plan,
-				CreatedAt: time.Now(),
-			})
+			reminder = plan
 		}
 	}
-
-	// Fallback: periodic goal reminder using the user's original request.
-	// Search forward to find the first user message (the original request),
-	// not the last one which may be a follow-up or synthetic message.
-	if round > 0 && round%reminderInterval == 0 {
-		var userContent string
+	if reminder == "" {
+		// Fallback: echo the user's original request.
 		for _, m := range history {
 			if m.Role == "user" {
-				userContent = m.Content
+				reminder = "The user's request: " + m.Content
 				break
 			}
 		}
-		if userContent != "" {
-			return append(history, provider.Message{
-				Role:      "user",
-				Content:   recitationPrefix + " The user's request: " + userContent,
-				CreatedAt: time.Now(),
-			})
-		}
+	}
+	if reminder == "" {
+		return
 	}
 
-	return history
+	// Append to the last tool-result message, stripping any prior
+	// reminder on that same message to avoid token accumulation.
+	tag := "\n\n<system-reminder>\n"
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "tool" {
+			if idx := strings.Index(history[i].Content, tag); idx >= 0 {
+				history[i].Content = history[i].Content[:idx]
+			}
+			history[i].Content += tag + reminder + "\n</system-reminder>"
+			return
+		}
+	}
 }
 
 // extractTextFromContent extracts text from MCP content blocks.
