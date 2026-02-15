@@ -18,6 +18,8 @@ import (
 // ---------------------------------------------------------------------------
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.frameLines = nil // invalidate per-frame wrap cache
+
 	switch msg := msg.(type) {
 
 	// -- Window resize -------------------------------------------------------
@@ -42,9 +44,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return mdl, cmd
 		}
 
-	// -- Frame tick (60fps) — flush deferred highlight/wrap work -------------
+	// -- Frame tick (60fps) — rebuild streaming entries for live updates ------
 	case tickMsg:
-		m.flushDirty()
+		m.tickStreaming()
 		return m, frameTick()
 
 	// -- LLM batch (multiple messages drained from updateChan) ---------------
@@ -64,7 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ShellOutputMsg:
 		m.ensureStreaming()
 		m.streamingContent += msg.Content
-		m.dirty = true
+		m.streamDirty = true
 		return m, nil
 
 	case undoMsg:
@@ -209,32 +211,28 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 		case llmReasoningDeltaMsg:
 			m.ensureStreaming()
 			m.streamingReasoning += msg.content
-			m.dirty = true
+			m.streamDirty = true
 
 		case llmContentDeltaMsg:
 			m.ensureStreaming()
 			m.streamingContent += msg.content
-			m.dirty = true
+			m.streamDirty = true
 
 		case llmHistoryMsg:
 			m.history = append(m.history, msg.msg)
 			m.saveMessage(msg.msg)
 
 		case llmAssistantMsg:
-			m.flushDirty()
 			m.applyAssistantMsg(msg)
 
 		case llmToolResultMsg:
-			m.flushDirty()
 			m.applyToolResultMsg(msg)
 
 		case llmErrorMsg:
-			m.flushDirty()
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
 			return m, nil
 
 		case llmDoneMsg:
-			m.flushDirty()
 			m.demoteOldUndo()
 			m.appendText("")
 			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp)
@@ -248,6 +246,14 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	return m, m.waitForLLMUpdate()
 }
 
+// tickStreaming rebuilds streaming entries when new content has arrived.
+func (m *Model) tickStreaming() {
+	if m.streamDirty {
+		m.rebuildStreamEntries()
+		m.streamDirty = false
+	}
+}
+
 // ensureStreaming initialises stream state on the first delta of a turn.
 func (m *Model) ensureStreaming() {
 	if m.streaming {
@@ -255,18 +261,8 @@ func (m *Model) ensureStreaming() {
 	}
 	m.streaming = true
 	m.streamEntryStart = len(m.convEntries)
-	m.streamWrapStart = len(m.wrappedConvLines())
 	m.streamingReasoning = ""
 	m.streamingContent = ""
-}
-
-// flushDirty rebuilds stream entries if dirty, then clears the flag.
-// Called before finalization messages that clear streaming state.
-func (m *Model) flushDirty() {
-	if m.dirty && m.streaming {
-		m.rebuildStreamEntries()
-	}
-	m.dirty = false
 }
 
 // applyAssistantMsg finalizes streaming state and appends the assistant's
@@ -312,7 +308,6 @@ func (m *Model) clearStreaming() {
 	m.streamEntryStart = -1
 	m.streamingReasoning = ""
 	m.streamingContent = ""
-	m.convLines = nil
 }
 
 // applyToolResultMsg appends tool result display entries.
@@ -489,7 +484,6 @@ func (m *Model) demoteOldUndo() {
 			m.convEntries[i].kind = entrySeparator
 			// full field carries the original separator display text.
 			m.convEntries[i].display = m.convEntries[i].full
-			m.convLines = nil // invalidate cache
 			return
 		}
 	}
@@ -521,7 +515,6 @@ func (m *Model) trimOldTurns() {
 			m.turnBoundaries[i].historyIdx -= histOff
 		}
 
-		m.convLines = nil // invalidate wrap cache
 	}
 }
 
@@ -546,7 +539,6 @@ func (m *Model) handleUndo() Model {
 	// 2. Truncate in-memory history and display.
 	m.history = m.history[:tb.historyIdx]
 	m.convEntries = m.convEntries[:tb.convIdx]
-	m.convLines = nil // invalidate cache
 
 	// 2b. Show error after truncation so it's visible.
 	if undoErr != nil {
@@ -579,7 +571,6 @@ func (m *Model) handleUndo() Model {
 			if m.convEntries[i].kind == entrySeparator {
 				// full carries the original separator display text.
 				m.convEntries[i] = m.makeUndoEntry(m.convEntries[i].full)
-				m.convLines = nil
 				break
 			}
 		}

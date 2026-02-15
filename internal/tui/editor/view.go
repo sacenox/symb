@@ -122,8 +122,8 @@ func (m Model) buildVisualRows(tw int) []visualRow {
 			block[i] = vl.text
 		}
 		joined := strings.Join(block, "\n")
-		hlBlock := highlight.CachedHighlight(joined, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
-		hlLines = strings.Split(hlBlock, "\n")
+		hlBlock := highlight.Highlight(joined, m.Language, m.SyntaxTheme, m.bgHexForHighlight())
+		hlLines = highlight.SplitLines(hlBlock)
 	}
 
 	// Second pass: build visual rows with per-line HL from the block result.

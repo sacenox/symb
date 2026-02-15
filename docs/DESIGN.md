@@ -114,11 +114,19 @@ Needs an undo.
 
 ### Context management?
 
+1. Context token count: input, output, and total tokens. Store them in db. Shown each message with the timestamp:
+
+```
+<time elapsed> <timestamp> <toekns in current count>/<tokens out current count> (<total tokens in context at current count).
+<undo if most recent agent message>
+```
+
+Gather baseline data with no context management. Then study:
+
 https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus
+(Search for more resources like the one above, build a document with concise knowledge base (500 lines max)
 
-### improvements:
-
-- Improve markdown syntax hl overall
+Implement findings?
 
 ### Statusbar implementation
 
@@ -161,14 +169,7 @@ File search modal:
 
 # TODO (after features)
 
-1. Review prompts, refactor prompt system message composition [x]
-2. Continue to test Edit tool, LLMs make errors with it. [x]
-3. Context token count: input, output, and total tokens
-4. Simple statusbar with more info
-5. Investigate if turn latency has improved
-6. Perf: debounce/skip highlightMarkdown during streaming, audit all rendering hot paths
-7. Perf: make SaveMessageSync async (don't block TUI update loop before LLM call)
-8. Perf: make SSE parser channel buffered (e.g. 64) to let parser get ahead of consumer
+2. Investigate if turn latency has improved
 
 ---
 

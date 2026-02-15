@@ -20,7 +20,7 @@ func (m Model) convWidth() int { return m.layout.conv.Dx() }
 // (fenced code blocks, block quotes, etc.) maintain correct state.
 // Rendering cost is bounded by the frame-loop tick (~16ms).
 func highlightMarkdown(text string, fallback lipgloss.Style) []string {
-	hl := highlight.CachedHighlight(text, "markdown", constants.SyntaxTheme, "#000000")
+	hl := highlight.Highlight(text, "markdown", constants.SyntaxTheme, "#000000")
 	if hl == text {
 		// Chroma produced no highlighting; apply fallback per line.
 		raw := strings.Split(text, "\n")
@@ -30,7 +30,7 @@ func highlightMarkdown(text string, fallback lipgloss.Style) []string {
 		}
 		return out
 	}
-	return strings.Split(hl, "\n")
+	return highlight.SplitLines(hl)
 }
 
 // styledLines applies a lipgloss style to each line in a multi-line text.
@@ -54,11 +54,10 @@ func textEntries(lines ...string) []convEntry {
 }
 
 // appendConv appends entries and returns whether we were at bottom
-// (for sticky scroll). Invalidates the wrapped-lines cache.
+// (for sticky scroll).
 func (m *Model) appendConv(entries ...convEntry) bool {
 	atBottom := m.scrollOffset == 0
 	m.convEntries = append(m.convEntries, entries...)
-	m.convLines = nil // invalidate cache
 	return atBottom
 }
 
@@ -69,9 +68,9 @@ func (m *Model) appendText(lines ...string) bool {
 
 // rebuildStreamEntries replaces any existing streaming entries with fresh
 // styled entries from the current streamingReasoning and streamingContent.
-// Only re-wraps the streaming portion — the stable prefix is preserved.
+// Wrapping is deferred to View() — this only updates convEntries.
 func (m *Model) rebuildStreamEntries() {
-	// Remove old streaming entries
+	// Remove old streaming entries.
 	if m.streamEntryStart >= 0 && m.streamEntryStart <= len(m.convEntries) {
 		m.convEntries = m.convEntries[:m.streamEntryStart]
 	}
@@ -82,41 +81,15 @@ func (m *Model) rebuildStreamEntries() {
 	if m.streamingContent != "" {
 		m.convEntries = append(m.convEntries, textEntries(highlightMarkdown(m.streamingContent, m.styles.Text)...)...)
 	}
-
-	// Incrementally re-wrap only the streaming entries.
-	w := m.convWidth()
-	if m.convLines != nil && m.convCachedW == w && m.streamWrapStart <= len(m.convLines) {
-		// Truncate cached lines/source to the stable prefix.
-		m.convLines = m.convLines[:m.streamWrapStart]
-		m.convLineSource = m.convLineSource[:m.streamWrapStart]
-		// Wrap only new streaming entries and append.
-		for i := m.streamEntryStart; i < len(m.convEntries); i++ {
-			entry := m.convEntries[i]
-			if entry.display == "" {
-				m.convLines = append(m.convLines, "")
-				m.convLineSource = append(m.convLineSource, i)
-			} else {
-				wrapped := wrapANSI(entry.display, w)
-				for range wrapped {
-					m.convLineSource = append(m.convLineSource, i)
-				}
-				m.convLines = append(m.convLines, wrapped...)
-			}
-		}
-	} else {
-		// Cache invalid or width changed — full rebuild.
-		m.convLines = nil
-	}
 }
 
-// wrappedConvLines returns the conversation wrapped to the current convWidth.
-// Cached — only recomputed when entries change (nil) or width changes.
+// wrappedConvLines wraps all conversation entries to the current convWidth.
+// Cached for the current frame — cleared at the start of each Update cycle.
 func (m *Model) wrappedConvLines() []string {
-	w := m.convWidth()
-	if m.convLines != nil && m.convCachedW == w {
-		return m.convLines
+	if m.frameLines != nil {
+		return m.frameLines
 	}
-	m.convCachedW = w
+	w := m.convWidth()
 	lines := make([]string, 0, len(m.convEntries))
 	source := make([]int, 0, len(m.convEntries))
 	for i, entry := range m.convEntries {
@@ -131,9 +104,9 @@ func (m *Model) wrappedConvLines() []string {
 			lines = append(lines, wrapped...)
 		}
 	}
-	m.convLines = lines
 	m.convLineSource = source
-	return m.convLines
+	m.frameLines = lines
+	return lines
 }
 
 // makeSeparator builds a timestamp separator line.

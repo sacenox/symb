@@ -207,9 +207,7 @@ type Model struct {
 
 	// Conversation
 	convEntries    []convEntry // Conversation entries (not wrapped)
-	convLines      []string    // Wrapped visual lines (cache, rebuilt on width change)
-	convLineSource []int       // Maps each wrapped line -> index in convEntries
-	convCachedW    int         // Width used for current convLines cache
+	convLineSource []int       // Maps each wrapped line -> index in convEntries (recomputed each frame)
 	scrollOffset   int         // Lines from bottom (0 = pinned)
 
 	// Streaming state: raw text accumulated during streaming, styled at render time
@@ -217,7 +215,6 @@ type Model struct {
 	streamingContent   string // In-progress content text
 	streaming          bool   // Whether we're currently streaming
 	streamEntryStart   int    // Index in convEntries where streaming entries begin (-1 = none)
-	streamWrapStart    int    // Number of cached wrapped lines before streaming entries
 
 	// Undo
 	deltaTracker   *delta.Tracker
@@ -241,8 +238,9 @@ type Model struct {
 	// Hover state: wrapped line index under cursor (-1 = none)
 	hoverConvLine int
 
-	// Frame loop: dirty flag defers highlight/wrap to the next 16ms tick.
-	dirty bool
+	// Frame loop
+	streamDirty bool     // New streaming content arrived since last rebuild
+	frameLines  []string // Per-frame cache of wrapped conv lines (cleared each Update)
 }
 
 // New creates a new TUI model.
