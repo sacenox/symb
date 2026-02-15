@@ -92,7 +92,43 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 		// Continue loop to let LLM process tool results
 	}
 
-	return fmt.Errorf("too many tool call rounds (limit: %d)", opts.MaxToolRounds)
+	// Tool call limit reached — do one final call with no tools so the LLM
+	// must reply with text summarizing progress.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	limitMsg := provider.Message{
+		Role:      "user",
+		Content:   "You have exhausted your tool call limit for this turn. Respond in text only. Summarize what you accomplished and what remains.",
+		CreatedAt: time.Now(),
+	}
+	if opts.OnMessage != nil {
+		opts.OnMessage(limitMsg)
+	}
+	opts.History = append(opts.History, limitMsg)
+
+	stream, err := opts.Provider.ChatStream(ctx, opts.History, nil)
+	if err != nil {
+		return fmt.Errorf("final text-only LLM call failed: %w", err)
+	}
+
+	resp, err := collectWithDeltas(stream, opts.OnDelta)
+	if err != nil {
+		return fmt.Errorf("final text-only LLM stream failed: %w", err)
+	}
+
+	assistantMsg := provider.Message{
+		Role:      "assistant",
+		Content:   resp.Content,
+		Reasoning: resp.Reasoning,
+		CreatedAt: time.Now(),
+	}
+	if opts.OnMessage != nil {
+		opts.OnMessage(assistantMsg)
+	}
+
+	return nil
 }
 
 // collectWithDeltas reads all events from a stream, forwarding each to onDelta,
