@@ -48,6 +48,8 @@ The 2-char hex hash is a content fingerprint for that line. You need both the li
 - `{"file": "main.go"}` — read entire file
 - `{"file": "main.go", "start": 50, "end": 100}` — read line range
 
+Output is capped at 500 lines / 20k characters. For large files, **always use `start`/`end`** to read the section you need. Reading whole large files wastes context.
+
 **You MUST Read a file before editing it.** Edit will reject changes to files you haven't read.
 
 ### `Grep` — Search files or content

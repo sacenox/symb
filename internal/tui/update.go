@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -57,7 +58,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// -- LLM user message (sent before streaming begins) ---------------------
 	case llmUserMsg:
 		m.llmInFlight = true
-		return m.handleUserMsg(msg), tea.Batch(m.processLLM(), m.waitForLLMUpdate())
+		turnCtx, turnCancel := context.WithCancel(m.ctx)
+		m.turnCancel = turnCancel
+		m.turnCtx = turnCtx
+		mdl := m.handleUserMsg(msg)
+		return mdl, tea.Batch(mdl.processLLM(), mdl.waitForLLMUpdate())
 
 	case LSPDiagnosticsMsg:
 		return m.handleLSPDiag(msg), nil
@@ -165,6 +170,10 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	case "ctrl+shift+v":
 		return *m, tea.ReadClipboard, true
 	case "esc":
+		if m.llmInFlight {
+			m.cancelTurn()
+			return *m, m.waitForLLMUpdate(), true
+		}
 		if m.focus == focusInput {
 			m.agentInput.Blur()
 		} else {
@@ -172,7 +181,7 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		}
 		return *m, nil, true
 	case "enter":
-		if m.focus == focusInput && m.agentInput.Value() != "" {
+		if m.focus == focusInput && m.agentInput.Value() != "" && m.turnCancel == nil {
 			userMsg := m.agentInput.Value()
 			m.agentInput.Reset()
 			return *m, m.sendToLLM(userMsg), true
@@ -232,6 +241,19 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 // Finalization messages (assistant, tool result) flush immediately since
 // they clear streaming state.
 func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
+	// Turn was cancelled — drain remaining messages until the goroutine
+	// sends its terminal message (llmDoneMsg or llmErrorMsg), then stop.
+	if !m.llmInFlight {
+		for _, raw := range batch {
+			switch raw.(type) {
+			case llmDoneMsg, llmErrorMsg:
+				m.turnCancel = nil
+				m.turnCtx = nil
+				return m, nil
+			}
+		}
+		return m, m.waitForLLMUpdate()
+	}
 	for _, raw := range batch {
 		switch msg := raw.(type) {
 		case llmReasoningDeltaMsg:
@@ -256,6 +278,11 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 
 		case llmErrorMsg:
 			m.llmInFlight = false
+			if m.turnCancel != nil {
+				m.turnCancel()
+				m.turnCancel = nil
+			}
+			m.turnCtx = nil
 			m.lastNetError = msg.err.Error()
 			m.clearStreaming()
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
@@ -269,6 +296,11 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 
 		case llmDoneMsg:
 			m.llmInFlight = false
+			if m.turnCancel != nil {
+				m.turnCancel()
+				m.turnCancel = nil
+			}
+			m.turnCtx = nil
 			m.lastNetError = ""
 			m.demoteOldUndo()
 			m.appendText("")
@@ -348,6 +380,21 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 			m.scrollOffset = 0
 		}
 	}
+}
+
+// cancelTurn gracefully interrupts the in-flight LLM turn.
+// History, turn boundaries, file changes, and deltas are preserved
+// so the user can undo via the message footer if desired.
+// turnCancel is kept non-nil until the drain loop finishes (see
+// handleLLMBatch) so the enter guard blocks new submissions.
+func (m *Model) cancelTurn() {
+	if m.turnCancel != nil {
+		m.turnCancel()
+	}
+	m.llmInFlight = false
+	m.clearStreaming()
+	m.appendText("", m.styles.Dim.Render("(interrupted)"), "")
+	m.scrollOffset = 0
 }
 
 // clearStreaming resets active streaming state.

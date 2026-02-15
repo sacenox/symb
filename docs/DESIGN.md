@@ -127,6 +127,9 @@ Needs an undo.
 Refactor so it shows two lines as above with text right aligned. Remove existing `---` separator completly
 **DONE**
 
+- Read tool caps output at 500 lines / 20k chars; tells LLM to use line ranges for larger files.
+- Old tool results are compacted to their header line after the assistant responds, preventing resend of full payloads on subsequent rounds.
+
 2. Gather baseline data with no context management. Then study:
 **INPROGRESS**
 

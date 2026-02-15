@@ -153,7 +153,7 @@ func (m Model) processLLM() tea.Cmd {
 	history := make([]provider.Message, len(m.history))
 	copy(history, m.history)
 	ch := m.updateChan
-	ctx := m.ctx
+	ctx := m.turnCtx
 	dt := m.deltaTracker
 
 	return func() tea.Msg {
@@ -209,7 +209,8 @@ func (m Model) processLLM() tea.Cmd {
 			})
 
 			// Post-turn snapshot: diff against pre to record deltas for undo.
-			if preSnap != nil {
+			// Skip on cancellation — partial work has no turnBoundary.
+			if preSnap != nil && err == nil {
 				postSnap := delta.SnapshotDir(snapRoot)
 				delta.RecordDeltas(dt, snapRoot, preSnap, postSnap)
 			}

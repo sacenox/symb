@@ -200,6 +200,8 @@ type Model struct {
 	updateChan chan tea.Msg
 	ctx        context.Context
 	cancel     context.CancelFunc
+	turnCtx    context.Context    // per-turn child context (nil when idle)
+	turnCancel context.CancelFunc // cancels current LLM turn only (nil when idle)
 
 	// Session persistence
 	store     *store.Cache

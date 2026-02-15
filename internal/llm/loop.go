@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/xonecas/symb/internal/mcp"
@@ -88,6 +89,13 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	}
 
 	for round := 0; round < opts.MaxToolRounds; round++ {
+		// After round 0 the history contains tool results that the LLM
+		// has already responded to. Compact them so we don't resend
+		// large payloads on every subsequent call.
+		if round > 0 {
+			compactOldToolResults(opts.History)
+		}
+
 		resp, err := streamAndCollect(ctx, &opts, providerTools)
 		if err != nil {
 			return fmt.Errorf("LLM stream failed: %w", err)
@@ -269,6 +277,58 @@ func executeToolCalls(ctx context.Context, proxy *mcp.Proxy, toolCalls []provide
 	}
 
 	return toolResults
+}
+
+// maxToolResultLen is the character threshold above which a tool result is
+// compacted once the LLM has already processed it.
+const maxToolResultLen = 200
+
+// compactOldToolResults replaces verbose tool-result messages that the LLM
+// has already responded to with a short summary. A tool result is considered
+// "processed" when an assistant message appears after it in the history.
+//
+// This reduces tokens sent to the provider during multi-round tool-calling
+// turns. It operates on the local history copy inside ProcessTurn — the
+// TUI's m.history is unaffected.
+func compactOldToolResults(history []provider.Message) {
+	// Find the index of the last assistant message — everything before it
+	// has been seen by the LLM.
+	lastAssistant := -1
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "assistant" {
+			lastAssistant = i
+			break
+		}
+	}
+	if lastAssistant < 0 {
+		return
+	}
+
+	for i := 0; i < lastAssistant; i++ {
+		if history[i].Role != "tool" {
+			continue
+		}
+		if len(history[i].Content) <= maxToolResultLen {
+			continue
+		}
+		history[i].Content = trimToolResult(history[i].Content)
+	}
+}
+
+// trimToolResult keeps the first line (usually a header like "Read file.go (200 lines):")
+// plus a truncation notice. This preserves enough context for the LLM to know what
+// tool was called and what it returned, without the full payload.
+func trimToolResult(content string) string {
+	firstNL := strings.Index(content, "\n")
+	if firstNL < 0 || firstNL > maxToolResultLen {
+		// No newline or very long first line — hard truncate.
+		r := []rune(content)
+		if len(r) > maxToolResultLen {
+			return string(r[:maxToolResultLen]) + "\n[Truncated — already processed by assistant]"
+		}
+		return content
+	}
+	return content[:firstNL] + "\n[Truncated — already processed by assistant]"
 }
 
 // extractTextFromContent extracts text from MCP content blocks.

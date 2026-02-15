@@ -14,6 +14,11 @@ import (
 	"github.com/xonecas/symb/internal/treesitter"
 )
 
+const (
+	maxReadLines = 500   // Max lines returned by Read before truncation.
+	maxReadChars = 20000 // Max characters returned by Read before truncation.
+)
+
 // ReadArgs represents arguments for the Read tool.
 type ReadArgs struct {
 	File  string `json:"file"`
@@ -88,7 +93,24 @@ func (h *ReadHandler) Handle(_ context.Context, arguments json.RawMessage) (*mcp
 	}
 
 	tagged := hashline.TagLines(selectedContent, startLine)
+
+	// Cap output to avoid blowing up context. When the file is too large,
+	// return only the first maxReadLines and tell the LLM to use line ranges.
+	truncatedRead := false
+	totalLines := len(tagged)
+	if len(tagged) > maxReadLines {
+		tagged = tagged[:maxReadLines]
+		truncatedRead = true
+	}
+
 	taggedOutput := hashline.FormatTagged(tagged)
+
+	// Secondary cap on raw character count (handles very long lines).
+	// Use []rune to avoid splitting multi-byte UTF-8 sequences.
+	if runes := []rune(taggedOutput); len(runes) > maxReadChars {
+		taggedOutput = string(runes[:maxReadChars]) + "\n[Truncated — output exceeded character limit]"
+		truncatedRead = true
+	}
 
 	rangeInfo := ""
 	if args.Start > 0 || args.End > 0 {
@@ -99,8 +121,13 @@ func (h *ReadHandler) Handle(_ context.Context, arguments json.RawMessage) (*mcp
 		rangeInfo = fmt.Sprintf(" (lines %d-%d)", startLine, end)
 	}
 
+	header := fmt.Sprintf("Read %s%s (%d lines):\n\n%s", args.File, rangeInfo, len(tagged), taggedOutput)
+	if truncatedRead {
+		header += fmt.Sprintf("\n\n[Showing %d of %d lines. Use start/end parameters to read specific sections.]", len(tagged), totalLines)
+	}
+
 	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf("Read %s%s (%d lines):\n\n%s", args.File, rangeInfo, len(tagged), taggedOutput)}},
+		Content: []mcp.ContentBlock{{Type: "text", Text: header}},
 	}, nil
 }
 
