@@ -11,7 +11,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/rs/zerolog/log"
+	"github.com/xonecas/symb/internal/filesearch"
 	"github.com/xonecas/symb/internal/provider"
+	"github.com/xonecas/symb/internal/tui/modal"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,6 +23,11 @@ import (
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.frameLines = nil // invalidate per-frame wrap cache
 
+	// File finder modal intercepts all input when open.
+	if mdl, cmd, handled := m.updateFileModal(msg); handled {
+		return mdl, cmd
+	}
+
 	switch msg := msg.(type) {
 
 	// -- Window resize -------------------------------------------------------
@@ -28,12 +35,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleResize(msg)
 
 	// -- Paste (clipboard read or bracketed paste) ---------------------------
-	case tea.ClipboardMsg:
-		m.insertPaste(msg.String())
-		return m, nil
-	case tea.PasteMsg:
-		m.insertPaste(msg.Content)
-		return m, nil
+	case tea.ClipboardMsg, tea.PasteMsg:
+		return m.handlePaste(msg)
 
 	// -- Mouse ---------------------------------------------------------------
 	case tea.MouseMsg:
@@ -57,12 +60,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// -- LLM user message (sent before streaming begins) ---------------------
 	case llmUserMsg:
-		m.llmInFlight = true
-		turnCtx, turnCancel := context.WithCancel(m.ctx)
-		m.turnCancel = turnCancel
-		m.turnCtx = turnCtx
-		mdl := m.handleUserMsg(msg)
-		return mdl, tea.Batch(mdl.processLLM(), mdl.waitForLLMUpdate())
+		return m.handleLLMUser(msg)
 
 	case LSPDiagnosticsMsg:
 		return m.handleLSPDiag(msg), nil
@@ -96,6 +94,30 @@ func (m Model) forwardToSubModels(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.agentInput, cmd = m.agentInput.Update(msg)
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
+}
+
+func (m Model) handlePaste(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var text string
+	switch v := msg.(type) {
+	case tea.ClipboardMsg:
+		text = v.Content
+	case tea.PasteMsg:
+		text = v.Content
+	}
+	if text != "" {
+		m.insertPaste(text)
+	}
+	return m, nil
+}
+
+func (m Model) handleLLMUser(msg llmUserMsg) (tea.Model, tea.Cmd) {
+	m = m.handleUserMsg(msg)
+	if m.provider == nil {
+		return m, nil
+	}
+	m.llmInFlight = true
+	m.turnCtx, m.turnCancel = context.WithCancel(context.Background())
+	return m, tea.Batch(m.processLLM(), m.waitForLLMUpdate())
 }
 
 // handleLSPDiag applies LSP diagnostic markers when the file matches the editor.
@@ -185,6 +207,11 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			userMsg := m.agentInput.Value()
 			m.agentInput.Reset()
 			return *m, m.sendToLLM(userMsg), true
+		}
+	case "ctrl+f":
+		if m.searcher != nil {
+			m.openFileModal()
+			return *m, nil, true
 		}
 	}
 	return Model{}, nil, false
@@ -693,4 +720,52 @@ func (m *Model) handleUndo() Model {
 	m.scrollOffset = 0
 
 	return *m
+}
+
+func (m *Model) openFileModal() {
+	searchFn := func(query string) []modal.Item {
+		if query == "" {
+			return nil
+		}
+		results, err := m.searcher.Search(context.Background(), filesearch.Options{
+			Pattern:       query,
+			ContentSearch: false,
+			MaxResults:    50,
+		})
+		if err != nil {
+			return nil
+		}
+		items := make([]modal.Item, len(results))
+		for i, r := range results {
+			items[i] = modal.Item{Name: r.Path}
+		}
+		return items
+	}
+	md := modal.New(searchFn, "Open: ")
+	m.fileModal = &md
+}
+
+func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
+	if m.fileModal == nil {
+		return *m, nil, false
+	}
+	action, cmd := m.fileModal.HandleMsg(msg)
+	switch a := action.(type) {
+	case modal.ActionClose:
+		m.fileModal = nil
+		return *m, nil, true
+	case modal.ActionSelect:
+		m.fileModal = nil
+		openCmd := m.tryOpenFilePath(a.Item.Name)
+		return *m, openCmd, true
+	}
+	if cmd != nil {
+		return *m, cmd, true
+	}
+	// Modal is open — absorb key/mouse events, pass through others.
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.MouseMsg:
+		return *m, nil, true
+	}
+	return *m, nil, false
 }

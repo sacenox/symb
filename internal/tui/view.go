@@ -14,7 +14,11 @@ import (
 // ---------------------------------------------------------------------------
 
 func (m Model) View() tea.View {
-	v := tea.NewView(m.renderContent())
+	content := m.renderContent()
+	if m.fileModal != nil {
+		content = m.fileModal.View(m.width, m.height)
+	}
+	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	// Keyboard enhancements are automatically enabled in v2 (Kitty protocol).

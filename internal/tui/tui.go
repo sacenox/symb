@@ -10,12 +10,14 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/delta"
+	"github.com/xonecas/symb/internal/filesearch"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/store"
 	"github.com/xonecas/symb/internal/treesitter"
 	"github.com/xonecas/symb/internal/tui/editor"
+	"github.com/xonecas/symb/internal/tui/modal"
 )
 
 // ---------------------------------------------------------------------------
@@ -233,6 +235,9 @@ type Model struct {
 	// Editor state
 	editorFilePath string // absolute path of the file currently shown in the editor
 
+	// File finder modal
+	fileModal *modal.Model
+	searcher  *filesearch.Searcher
 	// Pending tool calls: maps tool call ID → arguments for line extraction
 	pendingToolCalls map[string]provider.ToolCall
 
@@ -329,11 +334,21 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		fileTracker:  ft,
 		tsIndex:      idx,
 
+		searcher: newSearcherOrNil("."),
+
 		streamEntryStart: -1,
 		hoverConvLine:    -1,
 
 		providerConfigName: providerConfigName,
 	}
+}
+
+func newSearcherOrNil(root string) *filesearch.Searcher {
+	s, err := filesearch.NewSearcher(root)
+	if err != nil {
+		return nil
+	}
+	return s
 }
 
 // Init starts cursor blink, the 60fps frame loop, and periodic git branch polling.
