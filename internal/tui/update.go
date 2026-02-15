@@ -763,7 +763,7 @@ func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return *m, nil, true
 	case modal.ActionSelect:
 		m.fileModal = nil
-		openCmd := m.tryOpenFilePath(a.Item.Name)
+		openCmd := m.openFile(a.Item.Name, 0)
 		return *m, openCmd, true
 	}
 	if cmd != nil {

@@ -330,7 +330,11 @@ func (m *Model) tryOpenFilePath(text string) tea.Cmd {
 	if matches[2] != "" {
 		lineNum, _ = strconv.Atoi(matches[2])
 	}
+	return m.openFile(path, lineNum)
+}
 
+// openFile loads a file into the editor. path is relative to cwd.
+func (m *Model) openFile(path string, lineNum int) tea.Cmd {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil
