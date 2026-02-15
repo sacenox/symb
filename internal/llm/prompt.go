@@ -11,22 +11,25 @@ import (
 	"github.com/xonecas/symb/internal/treesitter"
 )
 
-// Embedded prompt files
+// Embedded prompt files — shared base + model-specific overrides.
 //
-//go:embed anthropic.md
+//go:embed prompts/base.md
+var basePrompt string
+
+//go:embed prompts/anthropic.md
 var anthropicPrompt string
 
-//go:embed gemini.md
+//go:embed prompts/gemini.md
 var geminiPrompt string
 
-//go:embed qwen.md
+//go:embed prompts/qwen.md
 var qwenPrompt string
 
-//go:embed gpt.md
+//go:embed prompts/gpt.md
 var gptPrompt string
 
-// SelectPrompt returns the appropriate system prompt for the given model.
-func SelectPrompt(modelID string) string {
+// selectModelPrompt returns the model-specific override for the given model.
+func selectModelPrompt(modelID string) string {
 	modelLower := strings.ToLower(modelID)
 
 	if strings.Contains(modelLower, "claude") {
@@ -42,7 +45,7 @@ func SelectPrompt(modelID string) string {
 		return qwenPrompt
 	}
 
-	// Default fallback
+	// Default fallback — no model-specific additions
 	return anthropicPrompt
 }
 
@@ -95,27 +98,28 @@ func LoadAgentInstructions() string {
 	return strings.Join(instructions, "\n\n")
 }
 
-// BuildSystemPrompt constructs the complete system prompt by combining
-// the model-specific base prompt with any AGENTS.md instructions and
-// optionally a tree-sitter project symbol outline.
+// BuildSystemPrompt constructs the complete system prompt:
+// 1. Base prompt (shared across all models)
+// 2. Model-specific overrides
+// 3. AGENTS.md instructions
+// 4. Tree-sitter project outline
 func BuildSystemPrompt(modelID string, idx *treesitter.Index) string {
-	basePrompt := SelectPrompt(modelID)
-	agentInstructions := LoadAgentInstructions()
+	parts := []string{basePrompt}
 
-	var parts []string
-	if agentInstructions != "" {
+	if modelOverride := selectModelPrompt(modelID); modelOverride != "" {
+		parts = append(parts, modelOverride)
+	}
+
+	if agentInstructions := LoadAgentInstructions(); agentInstructions != "" {
 		parts = append(parts, agentInstructions)
 	}
 
-	// Append tree-sitter project outline if available.
 	if idx != nil {
-		outline := treesitter.FormatOutline(idx.Snapshot())
-		if outline != "" {
+		if outline := treesitter.FormatOutline(idx.Snapshot()); outline != "" {
 			parts = append(parts, outline)
 		}
 	}
 
-	parts = append(parts, basePrompt)
 	return strings.Join(parts, "\n\n---\n\n")
 }
 
