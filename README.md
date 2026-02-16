@@ -22,15 +22,17 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 - **Mouse support**: Click on conversation log to view files, changes, and tool call outputs in the code pane in full.
 - **Syntax highlighting**: Via Chroma for Go and other languages
 - **Clean aesthetic**: Inherits your syntax highlight colors for minimal distractions
-- **ELM architecture**: Built with BubbleTea for solid state management
-- **LLM integration**: Ollama local + Opencode Zen support
 - **Hashline-assisted edits**: LLM edit operations use line hashes for precise, conflict-free file modifications
-- **UNDO!**: You're always able to undo file changes. Best effort undo, tracks working directory changes deltas.
+- **Subagents**: Single minded little minions your agent can manage for tasks.
+- **UNDO!**: You're always able to undo file changes. Best effort undo, tracks working directory changes deltas. (Use git to be extra safe)
 - **Web search**: Exa AI integration with configurable SQLite cache and content-aware redundant search prevention
 - **Git integration**: Diff viewing and change tracking for version control awareness
 - **LSP diagnostics**: Closed-loop edit validation with language server feedback
+- **Tree-sitter**: Tree sitter output once, to sped up filesystem awareness (10% less grepping/searching overall compensates for the initial token cost)
 - **Deterministic schemas**: KV-cache optimized tool definitions for reproducible LLM behavior
-- **Session storage**: Sessions saved to app data in sqlite file. Session management comming soon (--resume, --list, --session <ID>)
+- **Session storage**: Sessions saved to app data in sqlite file. Session management: `-c` continue, `-s <ID>` specific session, `-l` list sessions.
+- **LLM integration**: Ollama local + Opencode Zen support
+- **ELM architecture**: Built with BubbleTea for solid state management
 
 ## Syntax Theme
 
