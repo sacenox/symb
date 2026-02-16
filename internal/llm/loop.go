@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
 )
@@ -46,18 +47,38 @@ type ProcessTurnOptions struct {
 // streamAndCollect runs one LLM call: streams events, collects the response,
 // reports usage, and returns the ChatResponse.
 func streamAndCollect(ctx context.Context, opts *ProcessTurnOptions, tools []provider.Tool) (*provider.ChatResponse, error) {
-	stream, err := opts.Provider.ChatStream(ctx, opts.History, tools)
-	if err != nil {
-		return nil, err
+	const maxEmptyRetries = 1
+
+	for attempt := 0; attempt <= maxEmptyRetries; attempt++ {
+		stream, err := opts.Provider.ChatStream(ctx, opts.History, tools)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := collectWithDeltas(stream, opts.OnDelta)
+		if err != nil {
+			return nil, err
+		}
+		if opts.OnUsage != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
+			opts.OnUsage(resp.InputTokens, resp.OutputTokens)
+		}
+		if !isEmptyResponse(resp) {
+			return resp, nil
+		}
+
+		log.Warn().
+			Str("provider", opts.Provider.Name()).
+			Int("attempt", attempt+1).
+			Msg("Empty response from provider")
 	}
-	resp, err := collectWithDeltas(stream, opts.OnDelta)
-	if err != nil {
-		return nil, err
+
+	return nil, fmt.Errorf("empty response from provider %s", opts.Provider.Name())
+}
+
+func isEmptyResponse(resp *provider.ChatResponse) bool {
+	if resp == nil {
+		return true
 	}
-	if opts.OnUsage != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
-		opts.OnUsage(resp.InputTokens, resp.OutputTokens)
-	}
-	return resp, nil
+	return resp.Content == "" && resp.Reasoning == "" && len(resp.ToolCalls) == 0
 }
 
 // emitAssistant builds an assistant message from a ChatResponse, emits it, and appends to history.
