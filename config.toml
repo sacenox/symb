@@ -1,7 +1,7 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-opus"
+default_provider = "zen-codex"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
@@ -14,21 +14,6 @@ endpoint = "http://localhost:11434"
 model = "qwen3:4b"
 temperature = 0.2
 
-[providers.ollama-llama]
-endpoint = "http://localhost:11434"
-model = "llama3.1:8b"
-temperature = 0.2
-
-[providers.ollama-llama32]
-endpoint = "http://localhost:11434"
-model = "llama3.2"
-temperature = 0.2
-
-[providers.mfd-deepseek]
-endpoint = "http://localhost:11434"
-model = "MFDoom/deepseek-r1-tool-calling:14b"
-temperature = 0.2
-
 # OpenCode Zen providers (cloud)
 [providers.zen-nano]
 endpoint = "https://opencode.ai/zen/v1"
@@ -39,6 +24,12 @@ temperature = 0.2
 [providers.zen-pickle]
 endpoint = "https://opencode.ai/zen/v1"
 model = "big-pickle"
+api_key_name = "opencode_zen"
+temperature = 0.2
+
+[providers.zen-codex]
+endpoint = "https://opencode.ai/zen/v1"
+model = "gpt-5.2-codex"
 api_key_name = "opencode_zen"
 temperature = 0.2
 
@@ -64,4 +55,4 @@ ttl_hours = 24
 
 [git]
 # TODO: When adding worktrees later
-enable_sandbox = false
+# enable_sandbox = false

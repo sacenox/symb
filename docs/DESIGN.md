@@ -119,12 +119,9 @@ Needs an undo.
 <time elapsed> <timestamp> <toekns in current count>/<tokens out current count> (<total tokens in context at current count).
 <undo if most recent agent message>
 ```
-
-Refactor so it shows two lines as above with text right aligned. Remove existing `---` separator completly
 **DONE**
 
 - Read tool caps output at 500 lines / 20k chars; tells LLM to use line ranges for larger files.
-- Old tool results are compacted to their header line after the assistant responds, preventing resend of full payloads on subsequent rounds.
 
 2. Gather baseline data with no context management. Then study:
    **INPROGRESS**
@@ -186,7 +183,11 @@ Testing current feature set
 ### Code viewer pane -> Becomes Code editor pane
 
 - Enable the same editting abilities as the agent input box.
-- <ctrl + s> Saves the file. (Do we just save it, or we send a message to the LLM to apply the edit?)
+- <ctrl + s> Saves the file:
+ - File has no changes aside from the user's changes -> save file. Fast, simple.
+ - File has changes coliding with the user's changes -> send to llm to merge
+ - Need to consider if this makes sense, or if the LLM should also be aware of user changes,
+ and we should always send the diff for the LLM to apply?
 
 # TODO (after features)
 
