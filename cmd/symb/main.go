@@ -235,7 +235,10 @@ func openWebCache(cfg *config.Config) *store.Cache {
 
 func newSessionID() string {
 	b := make([]byte, 16)
-	rand.Read(b) //nolint:errcheck
+	if _, err := rand.Read(b); err != nil {
+		log.Warn().Err(err).Msg("failed to read random bytes for session id")
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(b)
 }
 

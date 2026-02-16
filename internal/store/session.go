@@ -3,10 +3,17 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/provider"
+)
+
+const (
+	SQLiteBusyMaxRetries    = 10
+	SQLiteBusyBackoffStepMs = 50
+	SQLiteBusyMaxBackoff    = time.Second
 )
 
 // Session represents a conversation session.
@@ -50,28 +57,33 @@ func (c *Cache) CreateSession(id string) error {
 
 // SaveMessage persists a message synchronously.
 func (c *Cache) SaveMessage(sessionID string, msg SessionMessage) {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	tc := msg.ToolCalls
-	if tc == nil {
-		tc = json.RawMessage("[]")
-	}
-
-	_, err := c.db.Exec(
-		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sessionID, msg.Role, msg.Content, msg.Reasoning, string(tc), msg.ToolCallID, msg.CreatedAt.Unix(),
-		msg.InputTokens, msg.OutputTokens,
-	)
-	if err != nil {
+	if err := c.SaveMessages(sessionID, []SessionMessage{msg}); err != nil {
 		log.Warn().Err(err).Str("session", sessionID).Msg("failed to save message")
 	}
+}
 
-	c.db.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID) //nolint:errcheck
+// SaveMessages persists a batch of messages atomically.
+func (c *Cache) SaveMessages(sessionID string, msgs []SessionMessage) error {
+	if c == nil || len(msgs) == 0 {
+		return nil
+	}
+
+	var err error
+	for attempt := 0; attempt <= SQLiteBusyMaxRetries; attempt++ {
+		err = c.saveMessagesOnce(sessionID, msgs)
+		if err == nil {
+			return nil
+		}
+		if !IsSQLiteBusy(err) || attempt == SQLiteBusyMaxRetries {
+			return err
+		}
+		backoff := time.Duration((attempt+1)*SQLiteBusyBackoffStepMs) * time.Millisecond
+		if backoff > SQLiteBusyMaxBackoff {
+			backoff = SQLiteBusyMaxBackoff
+		}
+		time.Sleep(backoff)
+	}
+	return err
 }
 
 // SaveMessageSync persists a message synchronously and returns its DB row ID.
@@ -80,27 +92,119 @@ func (c *Cache) SaveMessageSync(sessionID string, msg SessionMessage) (int64, er
 	if c == nil {
 		return 0, nil
 	}
+
+	var err error
+	for attempt := 0; attempt <= SQLiteBusyMaxRetries; attempt++ {
+		id, attemptErr := c.saveMessageSyncOnce(sessionID, msg)
+		if attemptErr == nil {
+			return id, nil
+		}
+		err = attemptErr
+		if !IsSQLiteBusy(err) || attempt == SQLiteBusyMaxRetries {
+			return 0, err
+		}
+		backoff := time.Duration((attempt+1)*SQLiteBusyBackoffStepMs) * time.Millisecond
+		if backoff > SQLiteBusyMaxBackoff {
+			backoff = SQLiteBusyMaxBackoff
+		}
+		time.Sleep(backoff)
+	}
+	return 0, err
+}
+
+func (c *Cache) saveMessagesOnce(sessionID string, msgs []SessionMessage) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	tx, err := c.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	for _, msg := range msgs {
+		tc := msg.ToolCalls
+		if tc == nil {
+			tc = json.RawMessage("[]")
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			sessionID, msg.Role, msg.Content, msg.Reasoning, string(tc), msg.ToolCallID, msg.CreatedAt.Unix(),
+			msg.InputTokens, msg.OutputTokens,
+		); err != nil {
+			if rbErr := tx.Rollback(); rbErr != nil {
+				log.Warn().Err(rbErr).Msg("failed to rollback message save")
+			}
+			return err
+		}
+	}
+
+	if _, err := tx.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Warn().Err(rbErr).Msg("failed to rollback message save")
+		}
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Warn().Err(rbErr).Msg("failed to rollback message save")
+		}
+		return err
+	}
+	return nil
+}
+
+func (c *Cache) saveMessageSyncOnce(sessionID string, msg SessionMessage) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	tx, err := c.db.Begin()
+	if err != nil {
+		return 0, err
+	}
 
 	tc := msg.ToolCalls
 	if tc == nil {
 		tc = json.RawMessage("[]")
 	}
 
-	res, err := c.db.Exec(
+	res, err := tx.Exec(
 		`INSERT INTO messages (session_id, role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID, msg.Role, msg.Content, msg.Reasoning, string(tc), msg.ToolCallID, msg.CreatedAt.Unix(),
 		msg.InputTokens, msg.OutputTokens,
 	)
 	if err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Warn().Err(rbErr).Msg("failed to rollback message save")
+		}
 		return 0, err
 	}
 
-	c.db.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID) //nolint:errcheck
+	if _, err := tx.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Warn().Err(rbErr).Msg("failed to rollback message save")
+		}
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Warn().Err(rbErr).Msg("failed to rollback message save")
+		}
+		return 0, err
+	}
 
 	return res.LastInsertId()
+}
+
+func IsSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")
 }
 
 // DeleteMessagesFrom removes all messages with id >= minID for a session.

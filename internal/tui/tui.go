@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/filesearch"
@@ -206,8 +207,10 @@ type Model struct {
 	turnCancel context.CancelFunc // cancels current LLM turn only (nil when idle)
 
 	// Session persistence
-	store     *store.Cache
-	sessionID string
+	store          *store.Cache
+	storeQueue     chan storeBatch
+	storeQueueDone <-chan struct{}
+	sessionID      string
 
 	// Conversation
 	convEntries    []convEntry // Conversation entries (not wrapped)
@@ -306,6 +309,12 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ai.Focus()
 
 	ch := make(chan tea.Msg, 500)
+	var storeQueue chan storeBatch
+	var storeQueueDone <-chan struct{}
+	if db != nil {
+		storeQueue = make(chan storeBatch, 256)
+		storeQueueDone = startStoreWorker(db, storeQueue)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var entries []convEntry
@@ -315,7 +324,13 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		systemPrompt := llm.BuildSystemPrompt(modelID, idx)
 		systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}
 		if db != nil {
-			db.SaveMessage(sessionID, messageToStore(systemMsg))
+			if storeQueue != nil {
+				storeQueue <- storeBatch{sessionID: sessionID, msgs: []store.SessionMessage{messageToStore(systemMsg)}}
+			} else {
+				if err := db.SaveMessages(sessionID, []store.SessionMessage{messageToStore(systemMsg)}); err != nil {
+					log.Warn().Err(err).Msg("failed to save system message")
+				}
+			}
 		}
 	}
 
@@ -333,8 +348,10 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		ctx:         ctx,
 		cancel:      cancel,
 
-		store:     db,
-		sessionID: sessionID,
+		store:          db,
+		storeQueue:     storeQueue,
+		storeQueueDone: storeQueueDone,
+		sessionID:      sessionID,
 
 		scratchpad:   pad,
 		deltaTracker: dt,

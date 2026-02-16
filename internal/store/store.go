@@ -92,7 +92,9 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 	// Migrate: drop old search_cache with keywords column and recreate.
 	// This is a cache, so losing data is acceptable.
 	if hasColumn(db, "search_cache", "keywords") {
-		db.Exec("DROP TABLE search_cache") //nolint:errcheck // best-effort migration
+		if _, err := db.Exec("DROP TABLE search_cache"); err != nil {
+			log.Warn().Err(err).Msg("failed to drop search_cache for migration")
+		}
 	}
 
 	if _, err := db.Exec(schema); err != nil {
@@ -102,8 +104,14 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 
 	// Migrate: add token count columns to messages table.
 	if !hasColumn(db, "messages", "input_tokens") {
-		db.Exec("ALTER TABLE messages ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0")  //nolint:errcheck
-		db.Exec("ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0") //nolint:errcheck
+		if _, err := db.Exec("ALTER TABLE messages ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("add messages.input_tokens: %w", err)
+		}
+		if _, err := db.Exec("ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("add messages.output_tokens: %w", err)
+		}
 	}
 
 	c := &Cache{

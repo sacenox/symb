@@ -173,12 +173,27 @@ func (m *Model) insertPaste(text string) {
 	}
 }
 
+func (m *Model) flushAndQuit() tea.Cmd {
+	queue := m.storeQueue
+	done := m.storeQueueDone
+	return func() tea.Msg {
+		if queue != nil {
+			close(queue)
+			queue = nil
+		}
+		if done != nil {
+			<-done
+		}
+		return tea.Quit()
+	}
+}
+
 // handleKeyPress processes key events. Returns (model, cmd, true) if handled.
 func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	switch msg.Keystroke() {
 	case "ctrl+c":
 		m.cancel()
-		return *m, tea.Quit, true
+		return *m, m.flushAndQuit(), true
 	case "ctrl+shift+c":
 		if cmd := m.copySelection(); cmd != nil {
 			return *m, cmd, true
@@ -264,6 +279,15 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	if !m.llmInFlight {
 		return m.drainCancelled(batch)
 	}
+	var history []provider.Message
+	for _, raw := range batch {
+		if msg, ok := raw.(llmHistoryMsg); ok {
+			history = append(history, msg.msg)
+		}
+	}
+	if len(history) > 0 {
+		m.saveMessages(history)
+	}
 	for _, raw := range batch {
 		switch msg := raw.(type) {
 		case llmReasoningDeltaMsg:
@@ -277,7 +301,7 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.streamDirty = true
 
 		case llmHistoryMsg:
-			m.saveMessage(msg.msg)
+			// Saved in a single transaction above.
 
 		case llmAssistantMsg:
 			m.applyAssistantMsg(msg)
@@ -319,10 +343,19 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 // drainCancelled handles a batch after the turn was cancelled.
 // It persists history messages and patches invalid API state on termination.
 func (m Model) drainCancelled(batch llmBatchMsg) (tea.Model, tea.Cmd) {
+	var history []provider.Message
 	for _, raw := range batch {
-		switch msg := raw.(type) {
+		if msg, ok := raw.(llmHistoryMsg); ok {
+			history = append(history, msg.msg)
+		}
+	}
+	if len(history) > 0 {
+		m.saveMessages(history)
+	}
+	for _, raw := range batch {
+		switch raw.(type) {
 		case llmHistoryMsg:
-			m.saveMessage(msg.msg)
+			// Saved in a single transaction above.
 		case llmDoneMsg, llmErrorMsg:
 			m.patchInterruptedHistory()
 			m.turnCancel = nil

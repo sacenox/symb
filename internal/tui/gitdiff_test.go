@@ -51,7 +51,11 @@ func setupGitRepo(t *testing.T) (string, func()) {
 		}
 	}
 
-	return dir, func() { os.Chdir(origDir) } //nolint:errcheck
+	return dir, func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore chdir: %v", err)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

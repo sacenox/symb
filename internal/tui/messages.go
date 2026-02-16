@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/llm"
 	"github.com/xonecas/symb/internal/mcp"
@@ -44,6 +45,11 @@ type llmDoneMsg struct {
 type llmUsageMsg struct {
 	inputTokens  int
 	outputTokens int
+}
+
+type storeBatch struct {
+	sessionID string
+	msgs      []store.SessionMessage
 }
 
 type llmHistoryMsg struct{ msg provider.Message }
@@ -246,7 +252,12 @@ func (m Model) processLLM() tea.Cmd {
 func messageToStore(msg provider.Message) store.SessionMessage {
 	var tc json.RawMessage
 	if len(msg.ToolCalls) > 0 {
-		tc, _ = json.Marshal(msg.ToolCalls) //nolint:errcheck
+		encoded, err := json.Marshal(msg.ToolCalls)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to marshal tool calls")
+		} else {
+			tc = encoded
+		}
 	}
 	return store.SessionMessage{
 		Role:         msg.Role,
@@ -265,5 +276,64 @@ func (m *Model) saveMessage(msg provider.Message) {
 	if m.store == nil {
 		return
 	}
-	m.store.SaveMessage(m.sessionID, messageToStore(msg))
+	stored := []store.SessionMessage{messageToStore(msg)}
+	if m.storeQueue != nil {
+		select {
+		case m.storeQueue <- storeBatch{sessionID: m.sessionID, msgs: stored}:
+			return
+		default:
+			log.Warn().Msg("store queue full; falling back to sync save")
+		}
+	}
+	if err := m.store.SaveMessages(m.sessionID, stored); err != nil {
+		log.Warn().Err(err).Msg("failed to save message batch")
+	}
+}
+
+func (m *Model) saveMessages(msgs []provider.Message) {
+	if m.store == nil || len(msgs) == 0 {
+		return
+	}
+	stored := make([]store.SessionMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		stored = append(stored, messageToStore(msg))
+	}
+	if m.storeQueue != nil {
+		select {
+		case m.storeQueue <- storeBatch{sessionID: m.sessionID, msgs: stored}:
+			return
+		default:
+			log.Warn().Msg("store queue full; dropping message batch")
+			return
+		}
+	}
+	if err := m.store.SaveMessages(m.sessionID, stored); err != nil {
+		log.Warn().Err(err).Msg("failed to save message batch")
+	}
+}
+
+func startStoreWorker(db *store.Cache, queue <-chan storeBatch) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for batch := range queue {
+			for attempt := 0; attempt <= store.SQLiteBusyMaxRetries; attempt++ {
+				err := db.SaveMessages(batch.sessionID, batch.msgs)
+				if err == nil {
+					break
+				}
+				if !store.IsSQLiteBusy(err) || attempt == store.SQLiteBusyMaxRetries {
+					log.Warn().Err(err).Msg("failed to save message batch")
+					break
+				}
+				log.Warn().Err(err).Msg("retrying message save after busy")
+				backoff := time.Duration((attempt+1)*store.SQLiteBusyBackoffStepMs) * time.Millisecond
+				if backoff > store.SQLiteBusyMaxBackoff {
+					backoff = store.SQLiteBusyMaxBackoff
+				}
+				time.Sleep(backoff)
+			}
+		}
+	}()
+	return done
 }
