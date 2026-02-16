@@ -82,6 +82,26 @@ func main() {
 		tools = []mcp.Tool{}
 	}
 
+	// Register SubAgent tool after obtaining the tools list.
+	// SubAgent needs access to provider and all tools to spawn isolated sub-agents.
+	subAgentHandler := mcptools.NewSubAgentHandler(
+		prov,
+		svc.lspManager,
+		svc.deltaTracker,
+		svc.shell,
+		svc.webCache,
+		svc.exaKey,
+		tools,
+	)
+	svc.proxy.RegisterTool(mcptools.NewSubAgentTool(), subAgentHandler.Handle)
+
+	// Re-fetch tools list to include SubAgent
+	tools, err = svc.proxy.ListTools(context.Background())
+	if err != nil {
+		fmt.Printf("Warning: Failed to list tools after SubAgent registration: %v\n", err)
+		tools = []mcp.Tool{}
+	}
+
 	sessionID, resumeHistory := resolveSession(*flagSession, *flagContinue, svc.webCache)
 
 	// Build tree-sitter project symbol index.
@@ -160,6 +180,8 @@ type services struct {
 	fileTracker  *mcptools.FileReadTracker
 	deltaTracker *delta.Tracker
 	scratchpad   *mcptools.Scratchpad
+	shell        *shell.Shell
+	exaKey       string
 }
 
 func setupServices(cfg *config.Config, creds *config.Credentials) services {
@@ -215,6 +237,8 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 		fileTracker:  fileTracker,
 		deltaTracker: dt,
 		scratchpad:   pad,
+		shell:        sh,
+		exaKey:       exaKey,
 	}
 }
 

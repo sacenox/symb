@@ -13,6 +13,12 @@ import (
 	"github.com/xonecas/symb/internal/provider"
 )
 
+const (
+	// MaxDepth is the maximum recursion depth for sub-agents.
+	// Matches mcptools.MaxSubAgentDepth to prevent import cycle.
+	MaxDepth = 1
+)
+
 // MessageCallback is called when a complete message should be added to history.
 type MessageCallback func(msg provider.Message)
 
@@ -42,6 +48,7 @@ type ProcessTurnOptions struct {
 	OnUsage       UsageCallback    // Optional: called with token usage after each LLM call
 	Scratchpad    ScratchpadReader // Optional: agent plan injected at context tail
 	MaxToolRounds int
+	Depth         int // Recursion depth (0=root agent, 1=sub-agent)
 }
 
 // streamAndCollect runs one LLM call: streams events, collects the response,
@@ -101,6 +108,11 @@ func emitAssistant(opts *ProcessTurnOptions, resp *provider.ChatResponse) {
 // ProcessTurn handles one conversation turn, which may involve tool calls.
 // It streams events via OnDelta and emits complete messages via OnMessage.
 func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
+	// Enforce max depth to prevent infinite recursion
+	if opts.Depth > MaxDepth {
+		return fmt.Errorf("max sub-agent depth exceeded: %d > %d", opts.Depth, MaxDepth)
+	}
+
 	if opts.MaxToolRounds == 0 {
 		opts.MaxToolRounds = 60
 	}
