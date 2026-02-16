@@ -1,7 +1,7 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-codex"
+default_provider = "vllm-nanbeige"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
@@ -39,6 +39,16 @@ api_key_name = "opencode_zen"
 endpoint = "https://opencode.ai/zen/v1"
 model = "claude-sonnet-4-5"
 api_key_name = "opencode_zen"
+
+# Local vLLM (OpenAI-compatible)
+[providers.vllm-nanbeige]
+endpoint = "http://localhost:8000/v1"
+model = "Nanbeige/Nanbeige4.1-3B"
+type = "openai"
+temperature = 0.6
+top_p = 0.95
+repeat_penalty = 1.0
+max_tokens = 131072
 
 
 [mcp]

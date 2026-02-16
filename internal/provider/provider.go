@@ -103,7 +103,7 @@ type Provider interface {
 
 type Factory interface {
 	Name() string
-	Create(model string, temperature float64) Provider
+	Create(model string, opts Options) Provider
 }
 
 // Registry holds available providers.
@@ -122,12 +122,20 @@ func (r *Registry) RegisterFactory(name string, f Factory) {
 	r.factories[name] = f
 }
 
-func (r *Registry) Create(name, model string, temperature float64) (Provider, error) {
+func (r *Registry) Create(name, model string, opts Options) (Provider, error) {
 	f, ok := r.factories[name]
 	if !ok {
 		return nil, ErrProviderNotFound
 	}
-	return f.Create(model, temperature), nil
+	return f.Create(model, opts), nil
+}
+
+// Options holds provider generation settings.
+type Options struct {
+	Temperature   float64
+	TopP          float64
+	RepeatPenalty float64
+	MaxTokens     int
 }
 
 // List returns all registered provider names.

@@ -14,8 +14,8 @@ func NewOllamaFactory(name string, endpoint string) *OllamaFactory {
 
 func (f *OllamaFactory) Name() string { return f.name }
 
-func (f *OllamaFactory) Create(model string, temperature float64) Provider {
-	return NewOllamaWithTemp(f.name, f.endpoint, model, temperature)
+func (f *OllamaFactory) Create(model string, opts Options) Provider {
+	return NewOllamaWithTemp(f.name, f.endpoint, model, opts.Temperature)
 }
 
 type OpenCodeFactory struct {
@@ -34,6 +34,26 @@ func NewOpenCodeFactory(name string, endpoint, apiKey string) *OpenCodeFactory {
 
 func (f *OpenCodeFactory) Name() string { return f.name }
 
-func (f *OpenCodeFactory) Create(model string, temperature float64) Provider {
-	return NewOpenCodeWithTemp(f.name, f.endpoint, model, f.apiKey, temperature)
+func (f *OpenCodeFactory) Create(model string, opts Options) Provider {
+	return NewOpenCodeWithTemp(f.name, f.endpoint, model, f.apiKey, opts.Temperature)
+}
+
+type VLLMFactory struct {
+	name     string
+	endpoint string
+	apiKey   string
+}
+
+func NewVLLMFactory(name string, endpoint, apiKey string) *VLLMFactory {
+	return &VLLMFactory{
+		name:     name,
+		endpoint: endpoint,
+		apiKey:   apiKey,
+	}
+}
+
+func (f *VLLMFactory) Name() string { return f.name }
+
+func (f *VLLMFactory) Create(model string, opts Options) Provider {
+	return NewVLLMWithTemp(f.name, f.endpoint, model, f.apiKey, opts)
 }

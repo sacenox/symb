@@ -34,10 +34,14 @@ func (c CacheConfig) CacheTTLOrDefault() int {
 
 // ProviderConfig holds LLM provider settings.
 type ProviderConfig struct {
-	Endpoint    string  `toml:"endpoint"`
-	Model       string  `toml:"model"`
-	APIKeyName  string  `toml:"api_key_name"`
-	Temperature float64 `toml:"temperature"`
+	Endpoint      string  `toml:"endpoint"`
+	Model         string  `toml:"model"`
+	APIKeyName    string  `toml:"api_key_name"`
+	Type          string  `toml:"type"`
+	Temperature   float64 `toml:"temperature"`
+	TopP          float64 `toml:"top_p"`
+	RepeatPenalty float64 `toml:"repeat_penalty"`
+	MaxTokens     int     `toml:"max_tokens"`
 }
 
 // MCPConfig holds MCP proxy settings.
@@ -115,8 +119,27 @@ func validateProviderConfig(name string, cfg ProviderConfig) []error {
 		errs = append(errs, fmt.Errorf("providers.%s.model is required", name))
 	}
 
+	switch cfg.Type {
+	case "", "openai", "ollama":
+		// allowed
+	default:
+		errs = append(errs, fmt.Errorf("providers.%s.type=%q is invalid", name, cfg.Type))
+	}
+
 	if cfg.Temperature < 0.0 || cfg.Temperature > 2.0 {
 		errs = append(errs, fmt.Errorf("providers.%s.temperature=%v must be between 0.0 and 2.0", name, cfg.Temperature))
+	}
+
+	if cfg.TopP < 0.0 || cfg.TopP > 1.0 {
+		errs = append(errs, fmt.Errorf("providers.%s.top_p=%v must be between 0.0 and 1.0", name, cfg.TopP))
+	}
+
+	if cfg.RepeatPenalty < 0.0 {
+		errs = append(errs, fmt.Errorf("providers.%s.repeat_penalty=%v must be 0.0 or higher", name, cfg.RepeatPenalty))
+	}
+
+	if cfg.MaxTokens < 0 {
+		errs = append(errs, fmt.Errorf("providers.%s.max_tokens=%v must be 0 or higher", name, cfg.MaxTokens))
 	}
 
 	return errs
