@@ -361,22 +361,5 @@ func loadHistory(sessionID string, db *store.Cache) []provider.Message {
 		fmt.Printf("Warning: failed to load session history: %v\n", err)
 		return nil
 	}
-	msgs := storedToMessages(stored)
-	return trimIncomplete(msgs)
-}
-
-// trimIncomplete removes trailing messages that form an incomplete turn.
-// A valid history ends with an assistant message (finished response) or
-// a system message (empty session). Trailing user/tool messages from a
-// session killed mid-turn are dropped so the next user input doesn't
-// create consecutive user messages which the API rejects.
-func trimIncomplete(msgs []provider.Message) []provider.Message {
-	for len(msgs) > 0 {
-		last := msgs[len(msgs)-1]
-		if last.Role == "assistant" || last.Role == "system" {
-			break
-		}
-		msgs = msgs[:len(msgs)-1]
-	}
-	return msgs
+	return storedToMessages(stored)
 }
