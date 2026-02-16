@@ -1,7 +1,7 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-codex"
+default_provider = "zen-gemini"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
@@ -38,6 +38,21 @@ api_key_name = "opencode_zen"
 [providers.zen-sonnet]
 endpoint = "https://opencode.ai/zen/v1"
 model = "claude-sonnet-4-5"
+api_key_name = "opencode_zen"
+
+[providers.zen-kimi]
+endpoint = "https://opencode.ai/zen/v1"
+model = "kimi-k2.5"
+api_key_name = "opencode_zen"
+
+[providers.zen-glm]
+endpoint = "https://opencode.ai/zen/v1"
+model = "glm-4.7"
+api_key_name = "opencode_zen"
+
+[providers.zen-gemini]
+endpoint = "https://opencode.ai/zen/v1"
+model = "gemini-3-pro"
 api_key_name = "opencode_zen"
 
 # Local vLLM (OpenAI-compatible)

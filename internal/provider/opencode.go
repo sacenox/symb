@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -39,7 +38,10 @@ const (
 
 // opencodeModelEndpoints overrides the prefix-based fallback in opencodeEndpointForModel.
 // Only list models whose endpoint differs from what the prefix logic would choose.
-var opencodeModelEndpoints = map[string]string{}
+var opencodeModelEndpoints = map[string]string{
+	"gemini-3-pro":   "/models/gemini-3-pro",
+	"gemini-3-flash": "/models/gemini-3-flash",
+}
 
 // NewOpenCode creates a new OpenCode Zen provider.
 func NewOpenCode(endpoint, model, apiKey string) *OpenCodeProvider {
@@ -71,17 +73,16 @@ func (p *OpenCodeProvider) ChatStream(ctx context.Context, messages []Message, t
 	switch endpoint {
 	case opencodeMessagesEndpoint:
 		return p.chatStreamAnthropic(ctx, messages, tools)
-	case opencodeChatCompletionsEndpoint:
-		return p.chatStreamOpenAI(ctx, messages, tools)
 	case opencodeResponsesEndpoint:
 		return p.chatStreamResponses(ctx, messages, tools)
 	default:
-		return nil, fmt.Errorf("opencode model %q uses unsupported endpoint %q", p.model, endpoint)
+		// OpenAI-compatible chat completions (also used for Gemini, GLM, Kimi, etc.)
+		return p.chatStreamOpenAI(ctx, endpoint, messages, tools)
 	}
 }
 
 // chatStreamOpenAI streams via the OpenAI-compatible /chat/completions endpoint.
-func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
+func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, endpoint string, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
 	openaiTools := toOpenAITools(tools)
 
 	customReq := openCodeRequest{
@@ -99,7 +100,7 @@ func (p *OpenCodeProvider) chatStreamOpenAI(ctx context.Context, messages []Mess
 
 	reader, err := httpDoSSE(ctx, httpRequestConfig{
 		client:   p.httpClient,
-		url:      p.baseURL + opencodeChatCompletionsEndpoint,
+		url:      p.baseURL + endpoint,
 		body:     body,
 		headers:  p.authHeaders(),
 		provider: p.name,

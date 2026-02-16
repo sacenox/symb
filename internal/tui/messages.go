@@ -161,7 +161,6 @@ func (m Model) sendDiffToLLM() tea.Cmd {
 	}
 }
 
-
 func (m Model) waitForLLMUpdate() tea.Cmd {
 	ch := m.updateChan
 	return func() tea.Msg {

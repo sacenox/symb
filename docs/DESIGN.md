@@ -184,7 +184,28 @@ Make a generic modal with inputbox + list combo for re-use. The use that to make
  - Need to consider if this makes sense, or if the LLM should also be aware of user changes,
  and we should always send the diff for the LLM to apply?
 
+### Sub-Agent Tool
+
+Spawn a child LLM turn scoped to a single task. Useful for parallel work
+or decomposing complex operations.
+
+- Have a short max iteration
+- Customized prompt for single purpose agents
+- TODO: Custom agents from community configs
+
 ## Features waiting implementation for current version:
+
+### Community configs support:
+
+- CLAUDE/AGENTS/CURSOR/ETC.md (or just AGENTS.md at this point?) -- Is there a standard? need to ask an LLM that is not codex, otherwise it just tells me to do it.
+- Custom subagent prompts for opencode/others custom agents
+- Commands and skills implementation to match community expectations
+
+### Agent input interactivity:
+
+Use a special key `@` to spawn an autocomplete.  This can match files, skills, commands or subagents.
+When the user selects a match with `Enter` it replaces the @ with the selected item once the message is sent to the
+LLM
 
 Testing current feature set
 
@@ -205,12 +226,6 @@ Testing current feature set
 Pause before executing tool calls. Show tool name + args in a dialog. User
 approves/rejects. Configurable per-tool permissions in `config.toml` (allow,
 ask, deny). Some tools (Read/Grep) default allow, mutations (Edit) default ask.
-
-### Sub-Agent Tool
-
-Spawn a child LLM turn scoped to a single task. Useful for parallel work
-or decomposing complex operations.
-
 ### Parallel Tool Execution
 
 Execute multiple independent tool calls concurrently within a single LLM

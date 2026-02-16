@@ -37,7 +37,7 @@ type SubAgentArgs struct {
 // NewSubAgentTool creates the SubAgent tool definition.
 func NewSubAgentTool() mcp.Tool {
 	return mcp.Tool{
-		Name: "SubAgent",
+		Name:        "SubAgent",
 		Description: `Spawn a sub-agent to handle a focused task. The sub-agent runs with the same tools but cannot spawn further sub-agents. Use this to decompose complex tasks into smaller, manageable pieces. The sub-agent's work is returned as a summary.`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
