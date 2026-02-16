@@ -795,8 +795,8 @@ func (m *Model) openFileModal() {
 		Fg:     palette.Fg,
 		Bg:     palette.Bg,
 		Dim:    palette.Dim,
-		SelFg:  palette.Fg,
-		SelBg:  palette.Bg,
+		SelFg:  palette.Bg,
+		SelBg:  palette.Fg,
 		Border: palette.Border,
 	})
 	m.fileModal = &md
