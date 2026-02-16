@@ -1,7 +1,7 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-codex"
+default_provider = "zen-sonnet"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
@@ -34,6 +34,12 @@ api_key_name = "opencode_zen"
 endpoint = "https://opencode.ai/zen/v1"
 model = "claude-opus-4-6"
 api_key_name = "opencode_zen"
+
+[providers.zen-sonnet]
+endpoint = "https://opencode.ai/zen/v1"
+model = "claude-sonnet-4-5"
+api_key_name = "opencode_zen"
+
 
 [mcp]
 upstream = ""

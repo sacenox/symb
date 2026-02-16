@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/charmbracelet/x/exp/golden v0.0.0-20260209194814-eeb2896ac759
 	github.com/charmbracelet/x/powernap v0.0.0-20260209132835-6b065b8ba62c
+	github.com/hexops/gotextdiff v1.0.3
 	github.com/rs/zerolog v1.34.0
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82

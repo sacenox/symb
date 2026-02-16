@@ -176,18 +176,17 @@ Make a generic modal with inputbox + list combo for re-use. The use that to make
 - `-l`, `--list`: Lists sessions with id, last user message timestamp, and 50 characters of the last user user message.
 - `-c`, `--continue`: continues last session (most recent user message)
 
-## Features waiting implementation for current version:
-
-Testing current feature set
-
 ### Code viewer pane -> Becomes Code editor pane
 
 - Enable the same editting abilities as the agent input box.
 - <ctrl + s> Saves the file:
- - File has no changes aside from the user's changes -> save file. Fast, simple.
- - File has changes coliding with the user's changes -> send to llm to merge
+ - File has changes -> send to llm to apply diff
  - Need to consider if this makes sense, or if the LLM should also be aware of user changes,
  and we should always send the diff for the LLM to apply?
+
+## Features waiting implementation for current version:
+
+Testing current feature set
 
 # TODO (after features)
 

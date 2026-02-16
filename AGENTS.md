@@ -7,7 +7,7 @@
 - The user will ask when he wants documentation or summaries written.
 - Short answers only, the user will ask for more details if he wants.
 
-**DON'T EDIT DOCS/DESIGN.md**
+**DON'T EDIT DOCS/DESIGN.md UNLESS IT IS THE USERS REQUEST**
 
 ## Project info
 
