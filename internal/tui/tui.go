@@ -274,7 +274,9 @@ type Model struct {
 }
 
 // New creates a new TUI model.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader) Model {
+// If resumeHistory is non-nil, the session is being resumed and messages are
+// loaded from the database instead of creating a fresh system prompt.
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -309,11 +311,18 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ch := make(chan tea.Msg, 500)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	systemPrompt := llm.BuildSystemPrompt(modelID, idx)
-	systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}
-
-	if db != nil {
-		db.SaveMessage(sessionID, messageToStore(systemMsg))
+	var history []provider.Message
+	var entries []convEntry
+	if resumeHistory != nil {
+		history = resumeHistory
+		entries = historyConvEntries(resumeHistory)
+	} else {
+		systemPrompt := llm.BuildSystemPrompt(modelID, idx)
+		systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}
+		if db != nil {
+			db.SaveMessage(sessionID, messageToStore(systemMsg))
+		}
+		history = []provider.Message{systemMsg}
 	}
 
 	return Model{
@@ -325,8 +334,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		provider:    prov,
 		mcpProxy:    proxy,
 		mcpTools:    tools,
-		history:     []provider.Message{systemMsg},
-		convEntries: []convEntry{},
+		history:     history,
+		convEntries: entries,
 		updateChan:  ch,
 		ctx:         ctx,
 		cancel:      cancel,

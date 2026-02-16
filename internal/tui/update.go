@@ -271,10 +271,32 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	// Turn was cancelled — drain remaining messages until the goroutine
 	// sends its terminal message (llmDoneMsg or llmErrorMsg), then stop.
+	// We still persist llmHistoryMsg so the DB stays consistent (an
+	// assistant's tool_use blocks must be present for its tool results).
 	if !m.llmInFlight {
 		for _, raw := range batch {
-			switch raw.(type) {
+			switch msg := raw.(type) {
+			case llmHistoryMsg:
+				m.history = append(m.history, msg.msg)
+				m.saveMessage(msg.msg)
 			case llmDoneMsg, llmErrorMsg:
+				// If the interrupted turn left history in an invalid
+				// API state (trailing tool_use without result, or
+				// trailing tool result with no assistant follow-up),
+				// close it with a synthetic assistant message so
+				// resume won't trigger a 400.
+				if n := len(m.history); n > 0 {
+					last := m.history[n-1]
+					if last.Role != "assistant" || len(last.ToolCalls) > 0 {
+						interruptMsg := provider.Message{
+							Role:      "assistant",
+							Content:   "The user interrupted me.",
+							CreatedAt: time.Now(),
+						}
+						m.history = append(m.history, interruptMsg)
+						m.saveMessage(interruptMsg)
+					}
+				}
 				m.turnCancel = nil
 				m.turnCtx = nil
 				return m, nil

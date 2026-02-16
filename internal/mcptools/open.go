@@ -16,7 +16,7 @@ import (
 
 const (
 	maxReadLines = 500   // Max lines returned by Read before truncation.
-	maxReadChars = 20000 // Max characters returned by Read before truncation.
+	maxReadChars = 30000 // Max characters returned by Read before truncation.
 )
 
 // ReadArgs represents arguments for the Read tool.

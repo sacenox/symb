@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -28,6 +31,15 @@ func main() {
 	if err := setupFileLogging(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to setup logging: %v\n", err)
 	}
+
+	// Parse CLI flags.
+	flagSession := flag.String("s", "", "resume a session by ID")
+	flagList := flag.Bool("l", false, "list sessions")
+	flagContinue := flag.Bool("c", false, "continue most recent session")
+	flag.StringVar(flagSession, "session", "", "resume a session by ID")
+	flag.BoolVar(flagList, "list", false, "list sessions")
+	flag.BoolVar(flagContinue, "continue", false, "continue most recent session")
+	flag.Parse()
 
 	cfg, err := config.Load(filepath.Join(".", "config.toml"))
 	if err != nil {
@@ -59,18 +71,19 @@ func main() {
 		defer svc.webCache.Close()
 	}
 
+	// Handle --list: print sessions and exit.
+	if *flagList {
+		listSessions(svc.webCache)
+		return
+	}
+
 	tools, err := svc.proxy.ListTools(context.Background())
 	if err != nil {
 		fmt.Printf("Warning: Failed to list tools: %v\n", err)
 		tools = []mcp.Tool{}
 	}
 
-	sessionID := newSessionID()
-	if svc.webCache != nil {
-		if err := svc.webCache.CreateSession(sessionID); err != nil {
-			fmt.Printf("Warning: failed to create session: %v\n", err)
-		}
-	}
+	sessionID, resumeHistory := resolveSession(*flagSession, *flagContinue, svc.webCache)
 
 	// Build tree-sitter project symbol index.
 	cwd, err := os.Getwd()
@@ -93,7 +106,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad),
+		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad, resumeHistory),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
@@ -254,4 +267,116 @@ func setupFileLogging() error {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	return nil
+}
+
+func listSessions(db *store.Cache) {
+	if db == nil {
+		fmt.Println("No cache available")
+		return
+	}
+	sessions, err := db.ListSessions()
+	if err != nil {
+		fmt.Printf("Error listing sessions: %v\n", err)
+		return
+	}
+	if len(sessions) == 0 {
+		fmt.Println("No sessions found")
+		return
+	}
+	for _, s := range sessions {
+		ts := s.Timestamp.Format("2006-01-02 15:04")
+		preview := s.Preview
+		preview = strings.ReplaceAll(preview, "\n", " ")
+		if len(preview) > 50 {
+			preview = preview[:50]
+		}
+		fmt.Printf("%s  %s  %s\n", s.ID, ts, preview)
+	}
+}
+
+func storedToMessages(msgs []store.SessionMessage) []provider.Message {
+	out := make([]provider.Message, 0, len(msgs))
+	for _, m := range msgs {
+		pm := provider.Message{
+			Role:       m.Role,
+			Content:    m.Content,
+			Reasoning:  m.Reasoning,
+			ToolCallID: m.ToolCallID,
+			CreatedAt:  m.CreatedAt,
+		}
+		if len(m.ToolCalls) > 0 {
+			var tcs []provider.ToolCall
+			if err := json.Unmarshal(m.ToolCalls, &tcs); err == nil {
+				pm.ToolCalls = tcs
+			}
+		}
+		out = append(out, pm)
+	}
+	return out
+}
+
+func resolveSession(flagSession string, flagContinue bool, db *store.Cache) (string, []provider.Message) {
+	switch {
+	case flagSession != "":
+		if db != nil {
+			ok, err := db.SessionExists(flagSession)
+			if err != nil || !ok {
+				fmt.Printf("Session %q not found\n", flagSession)
+				os.Exit(1)
+			}
+		}
+		msgs := loadHistory(flagSession, db)
+		return flagSession, msgs
+
+	case flagContinue:
+		if db == nil {
+			fmt.Println("No cache available")
+			os.Exit(1)
+		}
+		id, err := db.LatestSessionID()
+		if err != nil {
+			fmt.Printf("No sessions to continue: %v\n", err)
+			os.Exit(1)
+		}
+		msgs := loadHistory(id, db)
+		return id, msgs
+
+	default:
+		sid := newSessionID()
+		if db != nil {
+			if err := db.CreateSession(sid); err != nil {
+				fmt.Printf("Warning: failed to create session: %v\n", err)
+			}
+		}
+		return sid, nil
+	}
+}
+
+func loadHistory(sessionID string, db *store.Cache) []provider.Message {
+	if db == nil {
+		return nil
+	}
+	stored, err := db.LoadMessages(sessionID)
+	if err != nil {
+		fmt.Printf("Warning: failed to load session history: %v\n", err)
+		return nil
+	}
+	msgs := storedToMessages(stored)
+	return trimIncomplete(msgs)
+}
+
+// trimIncomplete removes trailing messages that form an incomplete turn.
+// A valid history ends with an assistant message (finished response) or
+// a system message (empty session). Trailing user/tool messages from a
+// session killed mid-turn are dropped so the next user input doesn't
+// create consecutive user messages which the API rejects.
+func trimIncomplete(msgs []provider.Message) []provider.Message {
+	for len(msgs) > 0 {
+		last := msgs[len(msgs)-1]
+		if last.Role == "assistant" || last.Role == "system" {
+			break
+		}
+		msgs = msgs[:len(msgs)-1]
+	}
+	return msgs
 }

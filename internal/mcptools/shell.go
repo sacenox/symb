@@ -106,7 +106,7 @@ func (h *ShellHandler) Handle(ctx context.Context, arguments json.RawMessage) (*
 	return toolText(output), nil
 }
 
-const maxOutputChars = 30000
+const maxOutputChars = 15000
 const maxTimeoutSec = 600 // 10 minutes
 
 // streamWriter wraps a bytes.Buffer and calls onChunk for each Write.

@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/highlight"
+	"github.com/xonecas/symb/internal/provider"
 )
 
 // ---------------------------------------------------------------------------
@@ -164,4 +165,40 @@ func (m *Model) visibleStartLine() int {
 		return 0
 	}
 	return start
+}
+
+// historyConvEntries rebuilds conversation display entries from loaded history.
+func historyConvEntries(msgs []provider.Message) []convEntry {
+	sty := DefaultStyles()
+	var entries []convEntry
+	for _, msg := range msgs {
+		switch msg.Role {
+		case "system":
+			// not displayed
+		case "user":
+			if msg.Content == "" {
+				continue
+			}
+			entries = append(entries, textEntries(highlightMarkdown(msg.Content, sty.Text)...)...)
+		case "assistant":
+			if msg.Content != "" {
+				entries = append(entries, textEntries(highlightMarkdown(msg.Content, sty.Text)...)...)
+			}
+			for _, tc := range msg.ToolCalls {
+				line := formatToolCall(tc)
+				entries = append(entries, convEntry{display: line, kind: entryToolResult, full: line})
+			}
+		case "tool":
+			// tool results stored as content; show abbreviated
+			if msg.Content != "" {
+				lines := strings.SplitN(msg.Content, "\n", 2)
+				display := lines[0]
+				if len(display) > 200 {
+					display = display[:200] + "…"
+				}
+				entries = append(entries, convEntry{display: display, kind: entryToolResult, full: msg.Content})
+			}
+		}
+	}
+	return entries
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -183,4 +184,87 @@ func (c *Cache) LoadMessages(sessionID string) ([]SessionMessage, error) {
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
+}
+
+// SessionSummary holds info for listing sessions.
+type SessionSummary struct {
+	ID        string
+	Timestamp time.Time
+	Preview   string // first 50 chars of last user message
+}
+
+// ListSessions returns sessions ordered by most recent user message.
+func (c *Cache) ListSessions() ([]SessionSummary, error) {
+	if c == nil {
+		return nil, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	rows, err := c.db.Query(`
+		SELECT s.id, m.created, m.content
+		FROM sessions s
+		JOIN messages m ON m.session_id = s.id
+		WHERE m.role = 'user'
+		  AND m.id = (
+		    SELECT MAX(m2.id) FROM messages m2
+		    WHERE m2.session_id = s.id AND m2.role = 'user'
+		  )
+		ORDER BY m.created DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SessionSummary
+	for rows.Next() {
+		var s SessionSummary
+		var ts int64
+		if err := rows.Scan(&s.ID, &ts, &s.Preview); err != nil {
+			continue
+		}
+		s.Timestamp = time.Unix(ts, 0)
+		if len(s.Preview) > 50 {
+			s.Preview = s.Preview[:50]
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// LatestSessionID returns the session with the most recent user message.
+func (c *Cache) LatestSessionID() (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("no cache")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var id string
+	err := c.db.QueryRow(`
+		SELECT s.id FROM sessions s
+		JOIN messages m ON m.session_id = s.id
+		WHERE m.role = 'user'
+		ORDER BY m.created DESC
+		LIMIT 1`).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("no sessions found")
+	}
+	return id, nil
+}
+
+// SessionExists returns true if a session with the given ID exists.
+func (c *Cache) SessionExists(id string) (bool, error) {
+	if c == nil {
+		return false, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var count int
+	err := c.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", id).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
