@@ -15,7 +15,7 @@ import (
 
 const (
 	// MaxDepth is the maximum recursion depth for sub-agents.
-	// Matches mcptools.MaxSubAgentDepth to prevent import cycle.
+	// Matches subagent.MaxSubAgentDepth to prevent import cycle.
 	MaxDepth = 1
 )
 

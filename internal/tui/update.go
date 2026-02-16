@@ -190,44 +190,74 @@ func (m *Model) flushAndQuit() tea.Cmd {
 
 // handleKeyPress processes key events. Returns (model, cmd, true) if handled.
 func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
-	switch msg.Keystroke() {
-	case "ctrl+c":
-		m.cancel()
-		return *m, m.flushAndQuit(), true
-	case "ctrl+shift+c":
-		if cmd := m.copySelection(); cmd != nil {
-			return *m, cmd, true
-		}
+	handler := m.keyPressHandlers()[msg.Keystroke()]
+	if handler == nil {
+		return Model{}, nil, false
+	}
+	return handler(m)
+}
+
+func (m *Model) keyPressHandlers() map[string]func(*Model) (Model, tea.Cmd, bool) {
+	return map[string]func(*Model) (Model, tea.Cmd, bool){
+		"ctrl+c":       (*Model).handleCtrlC,
+		"ctrl+shift+c": (*Model).handleCtrlShiftC,
+		"ctrl+shift+v": (*Model).handleCtrlShiftV,
+		"ctrl+s":       (*Model).handleCtrlS,
+		"esc":          (*Model).handleEsc,
+		"enter":        (*Model).handleEnter,
+		"ctrl+f":       (*Model).handleCtrlF,
+	}
+}
+
+func (m *Model) handleCtrlC() (Model, tea.Cmd, bool) {
+	m.cancel()
+	return *m, m.flushAndQuit(), true
+}
+
+func (m *Model) handleCtrlShiftC() (Model, tea.Cmd, bool) {
+	if cmd := m.copySelection(); cmd != nil {
+		return *m, cmd, true
+	}
+	return *m, nil, true
+}
+
+func (m *Model) handleCtrlShiftV() (Model, tea.Cmd, bool) {
+	return *m, tea.ReadClipboard, true
+}
+
+func (m *Model) handleCtrlS() (Model, tea.Cmd, bool) {
+	if m.turnCancel == nil {
+		return *m, m.sendDiffToLLM(), true
+	}
+	return *m, nil, true
+}
+
+func (m *Model) handleEsc() (Model, tea.Cmd, bool) {
+	if m.llmInFlight {
+		m.cancelTurn()
+		return *m, m.waitForLLMUpdate(), true
+	}
+	if m.focus == focusInput {
+		m.agentInput.Blur()
+	} else {
+		m.editor.Blur()
+	}
+	return *m, nil, true
+}
+
+func (m *Model) handleEnter() (Model, tea.Cmd, bool) {
+	if m.focus == focusInput && m.agentInput.Value() != "" && m.turnCancel == nil {
+		userMsg := m.agentInput.Value()
+		m.agentInput.Reset()
+		return *m, m.sendToLLM(userMsg), true
+	}
+	return Model{}, nil, false
+}
+
+func (m *Model) handleCtrlF() (Model, tea.Cmd, bool) {
+	if m.searcher != nil {
+		m.openFileModal()
 		return *m, nil, true
-	case "ctrl+shift+v":
-		return *m, tea.ReadClipboard, true
-	case "ctrl+s":
-		if m.turnCancel == nil {
-			return *m, m.sendDiffToLLM(), true
-		}
-		return *m, nil, true
-	case "esc":
-		if m.llmInFlight {
-			m.cancelTurn()
-			return *m, m.waitForLLMUpdate(), true
-		}
-		if m.focus == focusInput {
-			m.agentInput.Blur()
-		} else {
-			m.editor.Blur()
-		}
-		return *m, nil, true
-	case "enter":
-		if m.focus == focusInput && m.agentInput.Value() != "" && m.turnCancel == nil {
-			userMsg := m.agentInput.Value()
-			m.agentInput.Reset()
-			return *m, m.sendToLLM(userMsg), true
-		}
-	case "ctrl+f":
-		if m.searcher != nil {
-			m.openFileModal()
-			return *m, nil, true
-		}
 	}
 	return Model{}, nil, false
 }

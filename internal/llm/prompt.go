@@ -16,6 +16,12 @@ import (
 //go:embed prompts/base.md
 var basePrompt string
 
+//go:embed prompts/subagent_base.md
+var subagentBasePrompt string
+
+//go:embed prompts/subagent.md
+var subagentPrompt string
+
 //go:embed prompts/anthropic.md
 var anthropicPrompt string
 
@@ -96,6 +102,21 @@ func LoadAgentInstructions() string {
 	}
 
 	return strings.Join(instructions, "\n\n")
+}
+
+// BasePrompt returns the shared base prompt content.
+func BasePrompt() string {
+	return basePrompt
+}
+
+// SubAgentBasePrompt returns the base prompt content for sub-agents.
+func SubAgentBasePrompt() string {
+	return subagentBasePrompt
+}
+
+// SubAgentPrompt returns the base sub-agent prompt content.
+func SubAgentPrompt() string {
+	return subagentPrompt
 }
 
 // BuildSystemPrompt constructs the complete system prompt:
