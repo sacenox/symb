@@ -60,18 +60,58 @@ func (m *Model) selectedConvText() string {
 	return sb.String()
 }
 
-// renderConvLine renders a single conversation line with optional hover or selection highlight.
-// Returns the styled line. Padding is handled by the caller.
-func (m Model) renderConvLine(line string, lineIdx, _ int, bgFill lipgloss.Style) string {
-	// Hover highlight (selection takes priority below)
-	if m.hoverConvLine == lineIdx && (m.convSel == nil || m.convSel.empty()) {
-		plain := ansi.Strip(line)
-		return m.styles.Hover.Render(plain)
-	}
-
-	if m.convSel == nil || m.convSel.empty() {
+// applyClickableStyle styles the first line of a clickable entry only.
+func (m Model) applyClickableStyle(line string, lineIdx int, bgFill lipgloss.Style) string {
+	if !m.isClickableLine(lineIdx) {
 		return line
 	}
+	m.wrappedConvLines()
+	src := m.convLineSource
+	if lineIdx < 0 || lineIdx >= len(src) {
+		return line
+	}
+	entryIdx := src[lineIdx]
+	if entryIdx < 0 || entryIdx >= len(m.convEntries) {
+		return line
+	}
+	if lineIdx > 0 && src[lineIdx-1] == entryIdx {
+		return line
+	}
+	entry := m.convEntries[entryIdx]
+	plain := ansi.Strip(line)
+	if entry.kind == entryUndo {
+		return styleUndoLine(plain, bgFill, m.styles.Clickable)
+	}
+	return m.styles.Clickable.Render(plain)
+}
+
+func styleUndoLine(plain string, bgFill, clickable lipgloss.Style) string {
+	const undoLabel = "undo"
+	idx := strings.LastIndex(plain, undoLabel)
+	if idx == -1 {
+		return clickable.Render(plain)
+	}
+	before := plain[:idx]
+	after := plain[idx+len(undoLabel):]
+	var sb strings.Builder
+	if before != "" {
+		sb.WriteString(bgFill.Render(before))
+	}
+	sb.WriteString(clickable.Render(undoLabel))
+	if after != "" {
+		sb.WriteString(bgFill.Render(after))
+	}
+	return sb.String()
+}
+
+// renderConvLine renders a single conversation line with optional selection highlight.
+// Returns the styled line. Padding is handled by the caller.
+func (m Model) renderConvLine(line string, lineIdx, _ int, bgFill lipgloss.Style) string {
+	if m.convSel == nil || m.convSel.empty() {
+		return m.applyClickableStyle(line, lineIdx, bgFill)
+	}
+	line = m.applyClickableStyle(line, lineIdx, bgFill)
+
 	s, e := m.convSel.ordered()
 	if lineIdx < s.line || lineIdx > e.line {
 		return line

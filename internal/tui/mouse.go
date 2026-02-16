@@ -54,11 +54,6 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// --- Focus switching on click -------------------------------------------
 	m.handleFocusClick(msg, x, y)
 
-	// --- Hover: clear when outside conv area --------------------------------
-	if _, isMotion := msg.(tea.MouseMotionMsg); isMotion && !inRect(x, y, m.layout.conv) {
-		m.hoverConvLine = -1
-	}
-
 	// --- Editor: forward with original coords (left pane starts at 0) -------
 	if inRect(x, y, m.layout.editor) {
 		var cmd tea.Cmd
@@ -155,14 +150,7 @@ func (m *Model) handleConvMotion(x, y, totalLines int) {
 	} else if !m.convDragging && m.convSel != nil {
 		m.convSel = nil
 	}
-	if totalLines > 0 {
-		lineIdx := m.visibleStartLine() + (y - m.layout.conv.Min.Y)
-		if lineIdx >= 0 && lineIdx < totalLines && m.isClickableLine(lineIdx) {
-			m.hoverConvLine = lineIdx
-		} else {
-			m.hoverConvLine = -1
-		}
-	}
+
 }
 
 func (m *Model) handleConvRelease(x, y, totalLines int) tea.Cmd {
@@ -251,6 +239,9 @@ func (m *Model) isClickableLine(lineIdx int) bool {
 		}
 		return false
 	}
+	if m.convEntries[entryIdx].kind == entryToolDiag {
+		return false
+	}
 	if m.convEntries[entryIdx].kind == entryUndo {
 		return true
 	}
@@ -276,6 +267,9 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 		return nil
 	}
 	entry := m.convEntries[entryIdx]
+	if entry.kind == entryToolDiag {
+		return nil
+	}
 
 	// Undo control: emit undoMsg
 	if entry.kind == entryUndo {

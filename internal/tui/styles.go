@@ -42,8 +42,8 @@ type Styles struct {
 	Selection lipgloss.Style // Mouse text selection highlight
 	BgFill    lipgloss.Style // Background fill for empty areas
 
-	// Hover
-	Hover lipgloss.Style // Highlight text on subtle dark bg for clickable hover
+	// Clickable
+	Clickable lipgloss.Style // Clickable text background/foreground
 
 	// Status bar
 	StatusText lipgloss.Style // Status bar text
@@ -65,7 +65,7 @@ func DefaultStyles() Styles {
 		Selection: lipgloss.NewStyle().Background(ColorSurface).Foreground(ColorBg),
 		BgFill:    bg,
 
-		Hover: lipgloss.NewStyle().Background(ColorLinkBg).Foreground(ColorHighlight),
+		Clickable: lipgloss.NewStyle().Background(ColorLinkBg).Foreground(ColorHighlight),
 
 		StatusText: bg.Foreground(ColorDim),
 	}

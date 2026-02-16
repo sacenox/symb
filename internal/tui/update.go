@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/filesearch"
+	"github.com/xonecas/symb/internal/hashline"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/tui/modal"
 )
@@ -66,12 +67,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLSPDiag(msg), nil
 	case UpdateToolsMsg:
 		m.mcpTools = msg.Tools
-		return m, nil
-
-	case ShellOutputMsg:
-		m.ensureStreaming()
-		m.streamingContent += msg.Content
-		m.streamDirty = true
 		return m, nil
 
 	case undoMsg:
@@ -467,8 +462,7 @@ func (m *Model) clearStreaming() {
 }
 
 // applyToolResultMsg appends tool result display entries.
-// It also clears any active streaming state (e.g. from ShellOutputMsg)
-// so the next applyAssistantMsg doesn't truncate the tool result entries.
+// It also clears any active streaming state so the next applyAssistantMsg doesn't truncate the tool result entries.
 func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	m.clearStreaming()
 
@@ -485,6 +479,9 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	} else if tc, ok := m.pendingToolCalls[msg.toolCallID]; ok && tc.Name == "Edit" {
 		startLine = toolCallEditLine(tc.Arguments)
 	}
+	if startLine == 0 && filePath != "" {
+		startLine = toolResultHashlineStart(msg.content, filePath)
+	}
 
 	body, diagLines := extractDiagLines(msg.content)
 	if idx := strings.Index(body, "\n"); idx >= 0 {
@@ -495,7 +492,7 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	entry := convEntry{display: arrow + m.styleToolResultLine(body), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine}
 	wasBottom := m.appendConv(entry)
 	for _, dl := range diagLines {
-		m.appendConv(convEntry{display: m.styleToolResultLine(dl), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
+		m.appendConv(convEntry{display: m.styleToolResultLine(dl), kind: entryToolDiag, full: msg.content})
 	}
 	if wasBottom {
 		m.scrollOffset = 0
@@ -516,8 +513,6 @@ func extractDiagLines(content string) (body string, diags []string) {
 	}
 	return content[:idx], diags
 }
-
-
 
 // styleToolResultLine applies semantic styling to a tool result line.
 // Diagnostic lines (ERROR/WARNING) get colored; everything else is dim.
@@ -562,6 +557,38 @@ func toolCallEditLine(args json.RawMessage) int {
 		return parsed.Insert.After.Line
 	case parsed.Delete != nil:
 		return parsed.Delete.Start.Line
+	}
+	return 0
+}
+
+// toolResultHashlineStart scans a tool result body for the first hashline and
+// returns its line number if it matches the provided file path.
+func toolResultHashlineStart(content, filePath string) int {
+	prefix := "Read " + filePath + " "
+	if !strings.HasPrefix(content, prefix) {
+		prefix = "Edited " + filePath + " "
+		if !strings.HasPrefix(content, prefix) {
+			prefix = "Created " + filePath + " "
+			if !strings.HasPrefix(content, prefix) {
+				return 0
+			}
+		}
+	}
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		idx := strings.IndexByte(line, '|')
+		if idx <= 0 {
+			continue
+		}
+		anchor := line[:idx]
+		parsed, err := hashline.ParseAnchor(anchor)
+		if err != nil {
+			continue
+		}
+		return parsed.Num
 	}
 	return 0
 }

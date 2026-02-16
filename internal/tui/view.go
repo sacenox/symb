@@ -86,21 +86,17 @@ func (m Model) renderRightPaneRow(b *strings.Builder, convLines, inputLines []st
 	}
 }
 
-// renderConvRow writes one conversation line with selection/hover highlight.
+// renderConvRow writes one conversation line with selection highlight.
 func (m Model) renderConvRow(b *strings.Builder, convLines []string, lineIdx, rw int, bgFill lipgloss.Style) {
 	if lineIdx >= len(convLines) {
 		b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
 		return
 	}
 	line := m.renderConvLine(convLines[lineIdx], lineIdx, rw, bgFill)
-	padFill := bgFill
-	if m.hoverConvLine == lineIdx && (m.convSel == nil || m.convSel.empty()) {
-		padFill = m.styles.Hover
-	}
 	lw := lipgloss.Width(line)
 	b.WriteString(line)
 	if lw < rw {
-		b.WriteString(padFill.Render(strings.Repeat(" ", rw-lw)))
+		b.WriteString(bgFill.Render(strings.Repeat(" ", rw-lw)))
 	}
 }
 

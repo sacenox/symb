@@ -53,10 +53,6 @@ type llmErrorMsg struct{ err error }
 type llmContentDeltaMsg struct{ content string }
 type llmReasoningDeltaMsg struct{ content string }
 
-// ShellOutputMsg carries incremental shell output for real-time display.
-// Exported so main.go can send it via program.Send from the shell handler callback.
-type ShellOutputMsg struct{ Content string }
-
 // tickMsg drives the 60fps frame loop (~16ms). Rendering work (highlight,
 // wrap) is deferred to this tick so streaming deltas don't cause per-batch
 // rebuilds.

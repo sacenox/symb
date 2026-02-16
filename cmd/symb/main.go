@@ -111,10 +111,6 @@ func main() {
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
 		p.Send(tui.LSPDiagnosticsMsg{FilePath: absPath, Lines: lines})
 	})
-	// Wire shell output streaming to TUI.
-	svc.shellHandler.OnOutput = func(chunk string) {
-		p.Send(tui.ShellOutputMsg{Content: chunk})
-	}
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running symb: %v\n", err)

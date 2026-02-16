@@ -113,6 +113,7 @@ type entryKind int
 const (
 	entryText       entryKind = iota // Plain text (user, assistant, separator)
 	entryToolResult                  // Tool result — clickable to view full content in editor
+	entryToolDiag                    // Tool diagnostics — non-clickable
 	entryUndo                        // Undo control — clickable to undo last turn
 	entrySeparator                   // Demoted undo — a turn-end separator that can be re-promoted
 )
@@ -251,9 +252,6 @@ type Model struct {
 	convSel      *convSelection
 	convDragging bool
 
-	// Hover state: wrapped line index under cursor (-1 = none)
-	hoverConvLine int
-
 	// Frame loop
 	streamDirty bool     // New streaming content arrived since last rebuild
 	frameLines  []string // Per-frame cache of wrapped conv lines (cleared each Update)
@@ -346,7 +344,6 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		searcher: newSearcherOrNil("."),
 
 		streamEntryStart: -1,
-		hoverConvLine:    -1,
 
 		providerConfigName: providerConfigName,
 	}
