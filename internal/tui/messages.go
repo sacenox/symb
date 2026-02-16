@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -151,8 +152,8 @@ func (m Model) processLLM() tea.Cmd {
 	proxy := m.mcpProxy
 	tools := make([]mcp.Tool, len(m.mcpTools))
 	copy(tools, m.mcpTools)
-	history := make([]provider.Message, len(m.history))
-	copy(history, m.history)
+	db := m.store
+	sid := m.sessionID
 	ch := m.updateChan
 	ctx := m.turnCtx
 	dt := m.deltaTracker
@@ -160,6 +161,16 @@ func (m Model) processLLM() tea.Cmd {
 
 	return func() tea.Msg {
 		go func() {
+			// Load history from DB — the single source of truth.
+			var history []provider.Message
+			if db != nil {
+				stored, err := db.LoadMessages(sid)
+				if err != nil {
+					ch <- llmErrorMsg{err: fmt.Errorf("load history: %w", err)}
+					return
+				}
+				history = store.ToProviderMessages(stored)
+			}
 			// Snapshot the project directory before the turn for undo.
 			// Capture cwd once so both pre/post snapshots use the same root.
 			var preSnap map[string]delta.FileSnapshot

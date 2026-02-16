@@ -217,14 +217,12 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	return Model{}, nil, false
 }
 
-// handleUserMsg records a user message in history and conversation display.
+// handleUserMsg records a user message in the DB and conversation display.
 func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 	now := time.Now()
 	userMsg := provider.Message{Role: "user", Content: msg.content, CreatedAt: now}
 
-	historyIdx := len(m.history)
 	convIdx := len(m.convEntries)
-	m.history = append(m.history, userMsg)
 
 	// Save synchronously to get DB row ID for undo tracking.
 	var dbMsgID int64
@@ -243,7 +241,6 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 	}
 
 	m.turnBoundaries = append(m.turnBoundaries, turnBoundary{
-		historyIdx:   historyIdx,
 		convIdx:      convIdx,
 		dbMsgID:      dbMsgID,
 		inputTokens:  m.totalInputTokens,
@@ -285,7 +282,6 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.streamDirty = true
 
 		case llmHistoryMsg:
-			m.history = append(m.history, msg.msg)
 			m.saveMessage(msg.msg)
 
 		case llmAssistantMsg:
@@ -331,7 +327,6 @@ func (m Model) drainCancelled(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 	for _, raw := range batch {
 		switch msg := raw.(type) {
 		case llmHistoryMsg:
-			m.history = append(m.history, msg.msg)
 			m.saveMessage(msg.msg)
 		case llmDoneMsg, llmErrorMsg:
 			m.patchInterruptedHistory()
@@ -357,17 +352,22 @@ func (m *Model) finishTurn() {
 // interrupted turn left history in an invalid API state (trailing tool_use
 // without result, or trailing tool result with no assistant follow-up).
 func (m *Model) patchInterruptedHistory() {
-	if n := len(m.history); n > 0 {
-		last := m.history[n-1]
-		if last.Role != roleAssistant || len(last.ToolCalls) > 0 {
-			interruptMsg := provider.Message{
-				Role:      roleAssistant,
-				Content:   "The user interrupted me.",
-				CreatedAt: time.Now(),
-			}
-			m.history = append(m.history, interruptMsg)
-			m.saveMessage(interruptMsg)
+	if m.store == nil {
+		return
+	}
+	last, err := m.store.LoadLastMessage(m.sessionID)
+	if err != nil || last == nil {
+		return
+	}
+	hasToolCalls := len(last.ToolCalls) > 0 && string(last.ToolCalls) != "[]"
+	needsPatch := last.Role != roleAssistant || hasToolCalls
+	if needsPatch {
+		interruptMsg := provider.Message{
+			Role:      roleAssistant,
+			Content:   "The user interrupted me.",
+			CreatedAt: time.Now(),
 		}
+		m.saveMessage(interruptMsg)
 	}
 }
 
@@ -643,31 +643,17 @@ func (m *Model) demoteOldUndo() {
 }
 
 // trimOldTurns drops the oldest display turns when we exceed maxDisplayTurns.
-// Messages are already persisted in the DB — this only trims in-memory state
-// to bound rendering cost.
+// Messages live in the DB — this only trims display entries to bound rendering cost.
 func (m *Model) trimOldTurns() {
 	for len(m.turnBoundaries) > maxDisplayTurns {
-		// The second boundary marks where the oldest visible turn's display ends.
 		cutConv := m.turnBoundaries[1].convIdx
-		cutHist := m.turnBoundaries[1].historyIdx
 
-		// Shift convEntries and adjust all boundary indices.
 		m.convEntries = m.convEntries[cutConv:]
 		m.turnBoundaries = m.turnBoundaries[1:]
 
-		// History: keep the system prompt (index 0) + trim old turn messages.
-		// After: history = [system] + history[cutHist:], so what was at
-		// cutHist is now at index 1 — offset is cutHist-1.
-		histOff := cutHist - 1
-		if cutHist > 1 && cutHist < len(m.history) {
-			m.history = append(m.history[:1], m.history[cutHist:]...)
-		}
-
 		for i := range m.turnBoundaries {
 			m.turnBoundaries[i].convIdx -= cutConv
-			m.turnBoundaries[i].historyIdx -= histOff
 		}
-
 	}
 }
 
@@ -695,8 +681,7 @@ func (m *Model) handleUndo() Model {
 		m.deltaTracker.DeleteTurn(m.sessionID, tb.dbMsgID)
 	}
 
-	// 2. Truncate in-memory history and display.
-	m.history = m.history[:tb.historyIdx]
+	// 2. Truncate display entries.
 	m.convEntries = m.convEntries[:tb.convIdx]
 
 	// 2b. Show error after truncation so it's visible.
@@ -704,9 +689,8 @@ func (m *Model) handleUndo() Model {
 		m.appendText("", m.styles.Error.Render("undo file restore failed: "+undoErr.Error()), "")
 	}
 
-	// 3. Flush async saves then delete messages from DB.
+	// 3. Delete messages from DB.
 	if m.store != nil && tb.dbMsgID > 0 {
-		m.store.Flush()
 		if err := m.store.DeleteMessagesFrom(m.sessionID, tb.dbMsgID); err != nil {
 			log.Warn().Err(err).Msg("undo: failed to delete messages")
 		}

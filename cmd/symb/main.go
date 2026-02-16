@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -295,24 +294,7 @@ func listSessions(db *store.Cache) {
 }
 
 func storedToMessages(msgs []store.SessionMessage) []provider.Message {
-	out := make([]provider.Message, 0, len(msgs))
-	for _, m := range msgs {
-		pm := provider.Message{
-			Role:       m.Role,
-			Content:    m.Content,
-			Reasoning:  m.Reasoning,
-			ToolCallID: m.ToolCallID,
-			CreatedAt:  m.CreatedAt,
-		}
-		if len(m.ToolCalls) > 0 {
-			var tcs []provider.ToolCall
-			if err := json.Unmarshal(m.ToolCalls, &tcs); err == nil {
-				pm.ToolCalls = tcs
-			}
-		}
-		out = append(out, pm)
-	}
-	return out
+	return store.ToProviderMessages(msgs)
 }
 
 func resolveSession(flagSession string, flagContinue bool, db *store.Cache) (string, []provider.Message) {

@@ -168,9 +168,8 @@ type FileReadResetter interface {
 // Turn tracking (for undo)
 // ---------------------------------------------------------------------------
 
-// turnBoundary marks the start of a user turn in both history and convEntries.
+// turnBoundary marks the start of a user turn in convEntries.
 type turnBoundary struct {
-	historyIdx   int   // index in m.history where the user message is
 	convIdx      int   // index in m.convEntries where this turn's display starts
 	dbMsgID      int64 // messages.id of the user message (for DB cleanup)
 	inputTokens  int   // total input tokens at start of this turn
@@ -200,7 +199,6 @@ type Model struct {
 	provider   provider.Provider
 	mcpProxy   *mcp.Proxy
 	mcpTools   []mcp.Tool
-	history    []provider.Message
 	updateChan chan tea.Msg
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -313,10 +311,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ch := make(chan tea.Msg, 500)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var history []provider.Message
 	var entries []convEntry
 	if resumeHistory != nil {
-		history = resumeHistory
 		entries = historyConvEntries(resumeHistory)
 	} else {
 		systemPrompt := llm.BuildSystemPrompt(modelID, idx)
@@ -324,7 +320,6 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		if db != nil {
 			db.SaveMessage(sessionID, messageToStore(systemMsg))
 		}
-		history = []provider.Message{systemMsg}
 	}
 
 	return Model{
@@ -336,7 +331,6 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		provider:    prov,
 		mcpProxy:    proxy,
 		mcpTools:    tools,
-		history:     history,
 		convEntries: entries,
 		updateChan:  ch,
 		ctx:         ctx,

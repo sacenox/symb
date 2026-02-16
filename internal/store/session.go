@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/xonecas/symb/internal/provider"
 )
 
 // Session represents a conversation session.
@@ -47,32 +48,11 @@ func (c *Cache) CreateSession(id string) error {
 	return err
 }
 
-// SaveMessage queues a message for async persistence. Non-blocking.
+// SaveMessage persists a message synchronously.
 func (c *Cache) SaveMessage(sessionID string, msg SessionMessage) {
 	if c == nil {
 		return
 	}
-	select {
-	case c.saveCh <- saveReq{sessionID: sessionID, msg: msg}:
-	default:
-		log.Warn().Str("session", sessionID).Msg("save channel full, dropping message")
-	}
-}
-
-// saveLoop drains saveCh and writes messages to the DB.
-func (c *Cache) saveLoop() {
-	defer close(c.done)
-	for req := range c.saveCh {
-		if req.flush != nil {
-			close(req.flush)
-			continue
-		}
-		c.writeMessage(req.sessionID, req.msg)
-	}
-}
-
-// writeMessage performs the actual DB insert for a message.
-func (c *Cache) writeMessage(sessionID string, msg SessionMessage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -91,7 +71,6 @@ func (c *Cache) writeMessage(sessionID string, msg SessionMessage) {
 		log.Warn().Err(err).Str("session", sessionID).Msg("failed to save message")
 	}
 
-	// Touch session updated time.
 	c.db.Exec("UPDATE sessions SET updated = ? WHERE id = ?", time.Now().Unix(), sessionID) //nolint:errcheck
 }
 
@@ -124,21 +103,6 @@ func (c *Cache) SaveMessageSync(sessionID string, msg SessionMessage) (int64, er
 	return res.LastInsertId()
 }
 
-// Flush blocks until all queued async saves have been written to the DB.
-// Times out after 5 seconds to avoid deadlocking the caller.
-func (c *Cache) Flush() {
-	if c == nil {
-		return
-	}
-	done := make(chan struct{})
-	select {
-	case c.saveCh <- saveReq{flush: done}:
-		<-done
-	case <-time.After(5 * time.Second):
-		log.Warn().Msg("flush timed out waiting to enqueue")
-	}
-}
-
 // DeleteMessagesFrom removes all messages with id >= minID for a session.
 func (c *Cache) DeleteMessagesFrom(sessionID string, minID int64) error {
 	if c == nil {
@@ -152,6 +116,29 @@ func (c *Cache) DeleteMessagesFrom(sessionID string, minID int64) error {
 		sessionID, minID,
 	)
 	return err
+}
+
+// LoadLastMessage returns the most recent message for a session, or nil if none.
+func (c *Cache) LoadLastMessage(sessionID string) (*SessionMessage, error) {
+	if c == nil {
+		return nil, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var m SessionMessage
+	var tc string
+	var created int64
+	err := c.db.QueryRow(
+		`SELECT role, content, reasoning, tool_calls, tool_call_id, created, input_tokens, output_tokens
+		 FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1`, sessionID,
+	).Scan(&m.Role, &m.Content, &m.Reasoning, &tc, &m.ToolCallID, &created, &m.InputTokens, &m.OutputTokens)
+	if err != nil {
+		return nil, err
+	}
+	m.ToolCalls = json.RawMessage(tc)
+	m.CreatedAt = time.Unix(created, 0)
+	return &m, nil
 }
 
 // LoadMessages returns all messages for a session, ordered by ID.
@@ -251,6 +238,28 @@ func (c *Cache) LatestSessionID() (string, error) {
 		return "", fmt.Errorf("no sessions found")
 	}
 	return id, nil
+}
+
+// ToProviderMessages converts stored messages to provider messages.
+func ToProviderMessages(msgs []SessionMessage) []provider.Message {
+	out := make([]provider.Message, 0, len(msgs))
+	for _, m := range msgs {
+		pm := provider.Message{
+			Role:       m.Role,
+			Content:    m.Content,
+			Reasoning:  m.Reasoning,
+			ToolCallID: m.ToolCallID,
+			CreatedAt:  m.CreatedAt,
+		}
+		if len(m.ToolCalls) > 0 {
+			var tcs []provider.ToolCall
+			if err := json.Unmarshal(m.ToolCalls, &tcs); err == nil {
+				pm.ToolCalls = tcs
+			}
+		}
+		out = append(out, pm)
+	}
+	return out
 }
 
 // SessionExists returns true if a session with the given ID exists.

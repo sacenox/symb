@@ -61,20 +61,11 @@ CREATE TABLE IF NOT EXISTS file_deltas (
 CREATE INDEX IF NOT EXISTS idx_deltas_turn ON file_deltas(session_id, turn_id);
 `
 
-// saveReq is an internal message sent to the background save goroutine.
-type saveReq struct {
-	sessionID string
-	msg       SessionMessage
-	flush     chan struct{} // if non-nil, signal after processing (used by Flush)
-}
-
 // Cache is a SQLite-backed cache for web results and session storage.
 type Cache struct {
-	mu     sync.Mutex
-	db     *sql.DB
-	ttl    time.Duration
-	saveCh chan saveReq  // buffered channel for async message saves
-	done   chan struct{} // closed when background goroutine exits
+	mu  sync.Mutex
+	db  *sql.DB
+	ttl time.Duration
 }
 
 // Open creates or opens a cache database at the given path.
@@ -116,12 +107,9 @@ func Open(dbPath string, ttl time.Duration) (*Cache, error) {
 	}
 
 	c := &Cache{
-		db:     db,
-		ttl:    ttl,
-		saveCh: make(chan saveReq, 256),
-		done:   make(chan struct{}),
+		db:  db,
+		ttl: ttl,
 	}
-	go c.saveLoop()
 	c.purgeStale()
 	return c, nil
 }
@@ -134,13 +122,11 @@ func (c *Cache) DB() *sql.DB {
 	return c.db
 }
 
-// Close drains pending saves and closes the database.
+// Close closes the database.
 func (c *Cache) Close() error {
 	if c == nil {
 		return nil
 	}
-	close(c.saveCh)
-	<-c.done
 	return c.db.Close()
 }
 
