@@ -250,6 +250,319 @@ func trySend(ctx context.Context, ch chan<- StreamEvent, evt StreamEvent) bool {
 	}
 }
 
+// --- OpenAI Responses API types ---
+
+// responsesRequest is the request body for POST /responses.
+type responsesRequest struct {
+	Model       string               `json:"model"`
+	Input       []responsesInputItem `json:"input"`
+	Tools       []responsesToolParam `json:"tools,omitempty"`
+	Temperature *float32             `json:"temperature,omitempty"`
+	Stream      bool                 `json:"stream"`
+}
+
+// responsesInputItem is a polymorphic input item (message or function_call_output).
+type responsesInputItem struct {
+	Type    string `json:"type"`              // "message" or "function_call_output"
+	Role    string `json:"role,omitempty"`    // for messages: "system", "user", "assistant", "developer"
+	Content any    `json:"content,omitempty"` // string or []responsesContentPart
+	// function_call_output fields
+	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
+}
+
+// responsesToolParam defines a function tool for the Responses API.
+type responsesToolParam struct {
+	Type        string          `json:"type"` // "function"
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// SSE event types we care about from the Responses API stream.
+type responsesOutputTextDelta struct {
+	Delta string `json:"delta"`
+}
+
+type responsesOutputItemAdded struct {
+	OutputIndex int                     `json:"output_index"`
+	Item        responsesOutputItemInfo `json:"item"`
+}
+
+type responsesOutputItemInfo struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"` // "message", "function_call", "reasoning"
+	Name   string `json:"name,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+}
+
+type responsesFuncCallArgsDelta struct {
+	OutputIndex int    `json:"output_index"`
+	Delta       string `json:"delta"`
+}
+
+type responsesReasoningDelta struct {
+	Delta string `json:"delta"`
+}
+
+type responsesCompleted struct {
+	Response struct {
+		Usage *struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage,omitempty"`
+	} `json:"response"`
+}
+
+type responsesFailed struct {
+	Response struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	} `json:"response"`
+}
+
+// toResponsesInput converts provider-agnostic messages to Responses API input items.
+func toResponsesInput(messages []Message) []responsesInputItem {
+	var items []responsesInputItem
+	for _, m := range messages {
+		switch m.Role {
+		case "tool":
+			items = append(items, responsesInputItem{
+				Type:   "function_call_output",
+				CallID: m.ToolCallID,
+				Output: m.Content,
+			})
+		case "assistant":
+			if len(m.ToolCalls) > 0 {
+				// Emit assistant text as a message, then each tool call as a function_call item.
+				if m.Content != "" {
+					items = append(items, responsesInputItem{
+						Type:    "message",
+						Role:    "assistant",
+						Content: m.Content,
+					})
+				}
+				for _, tc := range m.ToolCalls {
+					items = append(items, responsesInputItem{
+						Type:   "function_call",
+						CallID: tc.ID,
+						// Encode the name and arguments so the API can match them.
+						Output: string(tc.Arguments),
+					})
+				}
+				continue
+			}
+			items = append(items, responsesInputItem{
+				Type:    "message",
+				Role:    "assistant",
+				Content: m.Content,
+			})
+		case roleSystem:
+			items = append(items, responsesInputItem{
+				Type:    "message",
+				Role:    "developer",
+				Content: m.Content,
+			})
+		default:
+			items = append(items, responsesInputItem{
+				Type:    "message",
+				Role:    m.Role,
+				Content: m.Content,
+			})
+		}
+	}
+	return items
+}
+
+// toResponsesTools converts provider-agnostic tools to Responses API tool format.
+func toResponsesTools(tools []Tool) []responsesToolParam {
+	if tools == nil {
+		return nil
+	}
+	emptyParams := json.RawMessage(`{"type":"object","properties":{}}`)
+	result := make([]responsesToolParam, len(tools))
+	for i, t := range tools {
+		params := t.Parameters
+		if len(params) == 0 {
+			params = emptyParams
+		}
+		result[i] = responsesToolParam{
+			Type:        "function",
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  params,
+		}
+	}
+	return result
+}
+
+// responsesTracker maps Responses API output indices to sequential tool call indices.
+type responsesTracker struct {
+	toolCallCount   int
+	outputToToolIdx map[int]int
+}
+
+func newResponsesTracker() *responsesTracker {
+	return &responsesTracker{outputToToolIdx: make(map[int]int)}
+}
+
+// parseResponsesSSEStream reads Responses API SSE events and emits StreamEvents.
+//
+// The Responses API SSE format uses typed events:
+//
+//	event: response.output_text.delta
+//	data: {"delta":"hello"}
+func parseResponsesSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+
+	rt := newResponsesTracker()
+	var currentEventType string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "event: ") {
+			currentEventType = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+
+		done, stop := rt.handleResponsesEvent(ctx, ch, currentEventType, data)
+		if done || stop {
+			return
+		}
+		currentEventType = ""
+	}
+
+	if err := scanner.Err(); err != nil {
+		trySend(ctx, ch, StreamEvent{Type: EventError, Err: err})
+		return
+	}
+	trySend(ctx, ch, StreamEvent{Type: EventDone})
+}
+
+// handleResponsesEvent dispatches a single Responses API SSE event.
+// Returns (done, stop): done=true means the stream ended normally or with error,
+// stop=true means ctx was cancelled.
+func (rt *responsesTracker) handleResponsesEvent(ctx context.Context, ch chan<- StreamEvent, eventType, data string) (bool, bool) {
+	switch eventType {
+	case "response.output_text.delta":
+		return false, !rt.handleTextDelta(ctx, ch, data)
+	case "response.reasoning_summary_text.delta":
+		return false, !rt.handleReasoningDelta(ctx, ch, data)
+	case "response.output_item.added":
+		return false, !rt.handleOutputItemAdded(ctx, ch, data)
+	case "response.function_call_arguments.delta":
+		return false, !rt.handleFuncCallDelta(ctx, ch, data)
+	case "response.completed":
+		rt.handleCompleted(ctx, ch, data)
+		return true, false
+	case "response.failed":
+		rt.handleFailed(ctx, ch, data)
+		return true, false
+	case "response.incomplete":
+		trySend(ctx, ch, StreamEvent{Type: EventDone})
+		return true, false
+	}
+	return false, false
+}
+
+func (rt *responsesTracker) handleTextDelta(ctx context.Context, ch chan<- StreamEvent, data string) bool {
+	var evt responsesOutputTextDelta
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse responses output_text.delta")
+		return true
+	}
+	if evt.Delta != "" {
+		return trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: evt.Delta})
+	}
+	return true
+}
+
+func (rt *responsesTracker) handleReasoningDelta(ctx context.Context, ch chan<- StreamEvent, data string) bool {
+	var evt responsesReasoningDelta
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse responses reasoning delta")
+		return true
+	}
+	if evt.Delta != "" {
+		return trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: evt.Delta})
+	}
+	return true
+}
+
+func (rt *responsesTracker) handleOutputItemAdded(ctx context.Context, ch chan<- StreamEvent, data string) bool {
+	var evt responsesOutputItemAdded
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse responses output_item.added")
+		return true
+	}
+	if evt.Item.Type == "function_call" {
+		idx := rt.toolCallCount
+		rt.toolCallCount++
+		rt.outputToToolIdx[evt.OutputIndex] = idx
+		return trySend(ctx, ch, StreamEvent{
+			Type:          EventToolCallBegin,
+			ToolCallIndex: idx,
+			ToolCallID:    evt.Item.CallID,
+			ToolCallName:  evt.Item.Name,
+		})
+	}
+	return true
+}
+
+func (rt *responsesTracker) handleFuncCallDelta(ctx context.Context, ch chan<- StreamEvent, data string) bool {
+	var evt responsesFuncCallArgsDelta
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse responses function_call_arguments.delta")
+		return true
+	}
+	if evt.Delta != "" {
+		idx := rt.outputToToolIdx[evt.OutputIndex]
+		return trySend(ctx, ch, StreamEvent{
+			Type:          EventToolCallDelta,
+			ToolCallIndex: idx,
+			ToolCallArgs:  evt.Delta,
+		})
+	}
+	return true
+}
+
+func (rt *responsesTracker) handleCompleted(ctx context.Context, ch chan<- StreamEvent, data string) {
+	var evt responsesCompleted
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		log.Warn().Err(err).Msg("Failed to parse responses completed")
+		trySend(ctx, ch, StreamEvent{Type: EventDone})
+		return
+	}
+	if evt.Response.Usage != nil {
+		trySend(ctx, ch, StreamEvent{
+			Type:         EventUsage,
+			InputTokens:  evt.Response.Usage.InputTokens,
+			OutputTokens: evt.Response.Usage.OutputTokens,
+		})
+	}
+	trySend(ctx, ch, StreamEvent{Type: EventDone})
+}
+
+func (rt *responsesTracker) handleFailed(ctx context.Context, ch chan<- StreamEvent, data string) {
+	var evt responsesFailed
+	if err := json.Unmarshal([]byte(data), &evt); err != nil {
+		trySend(ctx, ch, StreamEvent{Type: EventError, Err: fmt.Errorf("responses stream failed")})
+		return
+	}
+	trySend(ctx, ch, StreamEvent{
+		Type: EventError,
+		Err:  fmt.Errorf("responses API error %s: %s", evt.Response.Error.Code, evt.Response.Error.Message),
+	})
+}
+
 // toOpenAIMessages converts provider-agnostic messages to OpenAI SDK message format.
 func toOpenAIMessages(messages []Message) []openai.ChatCompletionMessage {
 	result := make([]openai.ChatCompletionMessage, len(messages))

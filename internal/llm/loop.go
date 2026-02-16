@@ -81,7 +81,7 @@ func emitAssistant(opts *ProcessTurnOptions, resp *provider.ChatResponse) {
 // It streams events via OnDelta and emits complete messages via OnMessage.
 func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	if opts.MaxToolRounds == 0 {
-		opts.MaxToolRounds = 40
+		opts.MaxToolRounds = 60
 	}
 
 	// Convert MCP tools to provider format once

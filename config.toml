@@ -7,37 +7,33 @@ default_provider = "zen-codex"
 [providers.ollama-qwen]
 endpoint = "http://localhost:11434"
 model = "qwen3:8b"
-temperature = 0.2
+#temperature = 0.2
 
 [providers.ollama-qwen-small]
 endpoint = "http://localhost:11434"
 model = "qwen3:4b"
-temperature = 0.2
+#temperature = 0.2
 
 # OpenCode Zen providers (cloud)
 [providers.zen-nano]
 endpoint = "https://opencode.ai/zen/v1"
 model = "gpt-5-nano"
 api_key_name = "opencode_zen"
-temperature = 0.2
 
 [providers.zen-pickle]
 endpoint = "https://opencode.ai/zen/v1"
 model = "big-pickle"
 api_key_name = "opencode_zen"
-temperature = 0.2
 
 [providers.zen-codex]
 endpoint = "https://opencode.ai/zen/v1"
 model = "gpt-5.2-codex"
 api_key_name = "opencode_zen"
-temperature = 0.2
 
 [providers.zen-opus]
 endpoint = "https://opencode.ai/zen/v1"
 model = "claude-opus-4-6"
 api_key_name = "opencode_zen"
-temperature = 0.2
 
 [mcp]
 upstream = ""

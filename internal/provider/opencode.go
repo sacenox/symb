@@ -39,10 +39,7 @@ const (
 
 // opencodeModelEndpoints overrides the prefix-based fallback in opencodeEndpointForModel.
 // Only list models whose endpoint differs from what the prefix logic would choose.
-var opencodeModelEndpoints = map[string]string{
-	// gpt-5-nano uses /chat/completions despite the gpt- prefix (/responses gives 500 errors)
-	"gpt-5-nano": opencodeChatCompletionsEndpoint,
-}
+var opencodeModelEndpoints = map[string]string{}
 
 // NewOpenCode creates a new OpenCode Zen provider.
 func NewOpenCode(endpoint, model, apiKey string) *OpenCodeProvider {
@@ -76,6 +73,8 @@ func (p *OpenCodeProvider) ChatStream(ctx context.Context, messages []Message, t
 		return p.chatStreamAnthropic(ctx, messages, tools)
 	case opencodeChatCompletionsEndpoint:
 		return p.chatStreamOpenAI(ctx, messages, tools)
+	case opencodeResponsesEndpoint:
+		return p.chatStreamResponses(ctx, messages, tools)
 	default:
 		return nil, fmt.Errorf("opencode model %q uses unsupported endpoint %q", p.model, endpoint)
 	}
@@ -162,6 +161,45 @@ func (p *OpenCodeProvider) chatStreamAnthropic(ctx context.Context, messages []M
 		defer close(ch)
 		defer reader.Close()
 		parseAnthropicSSEStream(ctx, reader, ch)
+	}()
+
+	return ch, nil
+}
+
+// chatStreamResponses streams via the OpenAI Responses API /responses endpoint.
+func (p *OpenCodeProvider) chatStreamResponses(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
+	req := responsesRequest{
+		Model:  p.model,
+		Input:  toResponsesInput(messages),
+		Tools:  toResponsesTools(tools),
+		Stream: true,
+	}
+	if !strings.Contains(p.model, "codex") {
+		t := float32(p.temperature)
+		req.Temperature = &t
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	reader, err := httpDoSSE(ctx, httpRequestConfig{
+		client:   p.httpClient,
+		url:      p.baseURL + opencodeResponsesEndpoint,
+		body:     body,
+		headers:  p.authHeaders(),
+		provider: p.name,
+		model:    p.model,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ch := make(chan StreamEvent)
+	go func() {
+		defer close(ch)
+		defer reader.Close()
+		parseResponsesSSEStream(ctx, reader, ch)
 	}()
 
 	return ch, nil
