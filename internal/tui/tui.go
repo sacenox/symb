@@ -284,7 +284,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 
 	ed := editor.New()
 	ed.ShowLineNumbers = true
-	ed.ReadOnly = true
+	ed.ReadOnly = false
 	ed.Language = "markdown"
 	ed.SyntaxTheme = constants.SyntaxTheme
 	ed.CursorStyle = cursorStyle

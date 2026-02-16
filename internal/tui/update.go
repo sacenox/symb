@@ -17,6 +17,7 @@ import (
 	"github.com/xonecas/symb/internal/tui/modal"
 )
 
+
 // ---------------------------------------------------------------------------
 // Update
 // ---------------------------------------------------------------------------
@@ -201,6 +202,11 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		return *m, nil, true
 	case "ctrl+shift+v":
 		return *m, tea.ReadClipboard, true
+	case "ctrl+s":
+		if m.turnCancel == nil {
+			return *m, m.sendDiffToLLM(), true
+		}
+		return *m, nil, true
 	case "esc":
 		if m.llmInFlight {
 			m.cancelTurn()

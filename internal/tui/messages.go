@@ -9,6 +9,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hexops/gotextdiff"
+	"github.com/hexops/gotextdiff/myers"
+	"github.com/hexops/gotextdiff/span"
 	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/llm"
@@ -130,6 +133,34 @@ func gitBranchTick() tea.Cmd {
 func (m Model) sendToLLM(userInput string) tea.Cmd {
 	return func() tea.Msg { return llmUserMsg{content: userInput} }
 }
+
+func (m Model) sendDiffToLLM() tea.Cmd {
+	return func() tea.Msg {
+		if m.editorFilePath == "" {
+			return nil
+		}
+		onDisk, err := os.ReadFile(m.editorFilePath)
+		if err != nil {
+			return nil
+		}
+		current := m.editor.Value()
+		if current == string(onDisk) {
+			return nil
+		}
+		uri := span.URIFromPath(m.editorFilePath)
+		edits := myers.ComputeEdits(uri, string(onDisk), current)
+		if len(edits) == 0 {
+			return nil
+		}
+		diff := fmt.Sprint(gotextdiff.ToUnified(m.editorFilePath, m.editorFilePath, string(onDisk), edits))
+		if strings.TrimSpace(diff) == "" {
+			return nil
+		}
+		content := "Apply the following diff:\n```diff\n" + diff + "\n```"
+		return llmUserMsg{content: content}
+	}
+}
+
 
 func (m Model) waitForLLMUpdate() tea.Cmd {
 	ch := m.updateChan
