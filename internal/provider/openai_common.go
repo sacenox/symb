@@ -263,9 +263,13 @@ type responsesRequest struct {
 
 // responsesInputItem is a polymorphic input item (message or function_call_output).
 type responsesInputItem struct {
-	Type    string `json:"type"`              // "message" or "function_call_output"
+	Type    string `json:"type"`              // "message", "function_call", or "function_call_output"
 	Role    string `json:"role,omitempty"`    // for messages: "system", "user", "assistant", "developer"
 	Content any    `json:"content,omitempty"` // string or []responsesContentPart
+	ID      string `json:"id,omitempty"`
+	Name    string `json:"name,omitempty"`
+	// function_call fields
+	Arguments string `json:"arguments,omitempty"`
 	// function_call_output fields
 	CallID string `json:"call_id,omitempty"`
 	Output string `json:"output,omitempty"`
@@ -346,10 +350,10 @@ func toResponsesInput(messages []Message) []responsesInputItem {
 				}
 				for _, tc := range m.ToolCalls {
 					items = append(items, responsesInputItem{
-						Type:   "function_call",
-						CallID: tc.ID,
-						// Encode the name and arguments so the API can match them.
-						Output: string(tc.Arguments),
+						Type:      "function_call",
+						CallID:    tc.ID,
+						Name:      tc.Name,
+						Arguments: string(tc.Arguments),
 					})
 				}
 				continue

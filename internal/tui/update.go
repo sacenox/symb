@@ -486,46 +486,16 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		startLine = toolCallEditLine(tc.Arguments)
 	}
 
-	// Determine the tool name for display decisions.
-	var toolName string
-	if tc, ok := m.pendingToolCalls[msg.toolCallID]; ok {
-		toolName = tc.Name
-	}
-
-	// Grep and Shell show all lines (each clickable); others truncate.
-	showFull := toolName == "Grep" || toolName == "Shell"
-
-	// Split diagnostic lines from the main content so they're always shown.
 	body, diagLines := extractDiagLines(msg.content)
-
-	lines := strings.Split(body, "\n")
-	preview := lines
-	truncated := false
-	if !showFull && len(lines) > maxPreviewLines {
-		preview = lines[:maxPreviewLines]
-		truncated = true
+	if idx := strings.Index(body, "\n"); idx >= 0 {
+		body = body[:idx]
 	}
 
 	arrow := m.styles.ToolArrow.Render("←") + "  "
-	entry := func(display string) convEntry {
-		return convEntry{display: display, kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine}
-	}
-	var wasBottom bool
-	for i, line := range preview {
-		display := m.styleToolResultLine(line)
-		if i == 0 {
-			display = arrow + display
-			wasBottom = m.appendConv(entry(display))
-		} else {
-			m.appendConv(entry(display))
-		}
-	}
-	if truncated {
-		hint := fmt.Sprintf("  ... %d more lines (click to view)", len(lines)-maxPreviewLines)
-		m.appendConv(entry(m.styles.Muted.Render(hint)))
-	}
+	entry := convEntry{display: arrow + m.styleToolResultLine(body), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine}
+	wasBottom := m.appendConv(entry)
 	for _, dl := range diagLines {
-		m.appendConv(entry(m.styleToolResultLine(dl)))
+		m.appendConv(convEntry{display: m.styleToolResultLine(dl), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine})
 	}
 	if wasBottom {
 		m.scrollOffset = 0
@@ -546,6 +516,8 @@ func extractDiagLines(content string) (body string, diags []string) {
 	}
 	return content[:idx], diags
 }
+
+
 
 // styleToolResultLine applies semantic styling to a tool result line.
 // Diagnostic lines (ERROR/WARNING) get colored; everything else is dim.

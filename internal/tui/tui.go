@@ -38,7 +38,6 @@ const (
 	inputRows       = 3 // Agent input height
 	statusRows      = 2 // Status separator + status bar
 	minPaneWidth    = 20
-	maxPreviewLines = 5 // Max lines shown for tool results before truncation
 	maxDisplayTurns = 5 // Max conversation turns kept in memory; older turns live in DB
 
 	roleAssistant = "assistant"
