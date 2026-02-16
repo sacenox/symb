@@ -269,40 +269,8 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 // Finalization messages (assistant, tool result) flush immediately since
 // they clear streaming state.
 func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
-	// Turn was cancelled — drain remaining messages until the goroutine
-	// sends its terminal message (llmDoneMsg or llmErrorMsg), then stop.
-	// We still persist llmHistoryMsg so the DB stays consistent (an
-	// assistant's tool_use blocks must be present for its tool results).
 	if !m.llmInFlight {
-		for _, raw := range batch {
-			switch msg := raw.(type) {
-			case llmHistoryMsg:
-				m.history = append(m.history, msg.msg)
-				m.saveMessage(msg.msg)
-			case llmDoneMsg, llmErrorMsg:
-				// If the interrupted turn left history in an invalid
-				// API state (trailing tool_use without result, or
-				// trailing tool result with no assistant follow-up),
-				// close it with a synthetic assistant message so
-				// resume won't trigger a 400.
-				if n := len(m.history); n > 0 {
-					last := m.history[n-1]
-					if last.Role != "assistant" || len(last.ToolCalls) > 0 {
-						interruptMsg := provider.Message{
-							Role:      "assistant",
-							Content:   "The user interrupted me.",
-							CreatedAt: time.Now(),
-						}
-						m.history = append(m.history, interruptMsg)
-						m.saveMessage(interruptMsg)
-					}
-				}
-				m.turnCancel = nil
-				m.turnCtx = nil
-				return m, nil
-			}
-		}
-		return m, m.waitForLLMUpdate()
+		return m.drainCancelled(batch)
 	}
 	for _, raw := range batch {
 		switch msg := raw.(type) {
@@ -327,12 +295,7 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.applyToolResultMsg(msg)
 
 		case llmErrorMsg:
-			m.llmInFlight = false
-			if m.turnCancel != nil {
-				m.turnCancel()
-				m.turnCancel = nil
-			}
-			m.turnCtx = nil
+			m.finishTurn()
 			m.lastNetError = msg.err.Error()
 			m.clearStreaming()
 			m.appendText("", m.styles.Error.Render("Error: "+msg.err.Error()), "")
@@ -345,12 +308,7 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.totalOutputTokens += msg.outputTokens
 
 		case llmDoneMsg:
-			m.llmInFlight = false
-			if m.turnCancel != nil {
-				m.turnCancel()
-				m.turnCancel = nil
-			}
-			m.turnCtx = nil
+			m.finishTurn()
 			m.lastNetError = ""
 			m.demoteOldUndo()
 			m.appendText("")
@@ -365,6 +323,52 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 
 	// More messages may follow — keep listening.
 	return m, m.waitForLLMUpdate()
+}
+
+// drainCancelled handles a batch after the turn was cancelled.
+// It persists history messages and patches invalid API state on termination.
+func (m Model) drainCancelled(batch llmBatchMsg) (tea.Model, tea.Cmd) {
+	for _, raw := range batch {
+		switch msg := raw.(type) {
+		case llmHistoryMsg:
+			m.history = append(m.history, msg.msg)
+			m.saveMessage(msg.msg)
+		case llmDoneMsg, llmErrorMsg:
+			m.patchInterruptedHistory()
+			m.turnCancel = nil
+			m.turnCtx = nil
+			return m, nil
+		}
+	}
+	return m, m.waitForLLMUpdate()
+}
+
+// finishTurn clears in-flight state and cancels the turn context.
+func (m *Model) finishTurn() {
+	m.llmInFlight = false
+	if m.turnCancel != nil {
+		m.turnCancel()
+		m.turnCancel = nil
+	}
+	m.turnCtx = nil
+}
+
+// patchInterruptedHistory appends a synthetic assistant message if the
+// interrupted turn left history in an invalid API state (trailing tool_use
+// without result, or trailing tool result with no assistant follow-up).
+func (m *Model) patchInterruptedHistory() {
+	if n := len(m.history); n > 0 {
+		last := m.history[n-1]
+		if last.Role != roleAssistant || len(last.ToolCalls) > 0 {
+			interruptMsg := provider.Message{
+				Role:      roleAssistant,
+				Content:   "The user interrupted me.",
+				CreatedAt: time.Now(),
+			}
+			m.history = append(m.history, interruptMsg)
+			m.saveMessage(interruptMsg)
+		}
+	}
 }
 
 // brailleFrames is the spinner animation sequence.

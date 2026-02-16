@@ -180,7 +180,7 @@ func historyConvEntries(msgs []provider.Message) []convEntry {
 				continue
 			}
 			entries = append(entries, textEntries(highlightMarkdown(msg.Content, sty.Text)...)...)
-		case "assistant":
+		case roleAssistant:
 			if msg.Content != "" {
 				entries = append(entries, textEntries(highlightMarkdown(msg.Content, sty.Text)...)...)
 			}

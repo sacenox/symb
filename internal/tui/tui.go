@@ -40,6 +40,8 @@ const (
 	minPaneWidth    = 20
 	maxPreviewLines = 5 // Max lines shown for tool results before truncation
 	maxDisplayTurns = 5 // Max conversation turns kept in memory; older turns live in DB
+
+	roleAssistant = "assistant"
 )
 
 // generateLayout computes all regions from terminal size and divider position.

@@ -12,8 +12,9 @@ run:
 test:
 	go test -v -race -coverprofile=coverage.out ./cmd/... ./internal/...
 
-# Run linter
+# Run linter (auto-formats first)
 lint:
+	gofmt -w ./cmd/ ./internal/
 	$$(go env GOPATH)/bin/golangci-lint run ./cmd/... ./internal/...
 
 # Clean build artifacts

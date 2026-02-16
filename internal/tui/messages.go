@@ -197,7 +197,7 @@ func (m Model) processLLM() tea.Cmd {
 				OnMessage: func(msg provider.Message) {
 					ch <- llmHistoryMsg{msg: msg}
 					switch msg.Role {
-					case "assistant":
+					case roleAssistant:
 						ch <- llmAssistantMsg{
 							reasoning: msg.Reasoning,
 							content:   msg.Content,
