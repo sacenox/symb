@@ -192,12 +192,13 @@ or decomposing complex operations.
 - Have a short max iteration
 - Customized prompt for single purpose agents
 - TODO: Custom agents from community configs
+- TODO: Worktress so they don't colide (needs to be an option, not all users use or like gitworktrees)
 
 ## Features waiting implementation for current version:
 
 ### Community configs support:
 
-- CLAUDE/AGENTS/CURSOR/ETC.md (or just AGENTS.md at this point?) -- Is there a standard? need to ask an LLM that is not codex, otherwise it just tells me to do it.
+- CLAUDE/AGENTS/CURSOR/ETC.md (or just AGENTS.md at this point?) -- Is there a standard?
 - Custom subagent prompts for opencode/others custom agents
 - Commands and skills implementation to match community expectations
 
@@ -206,6 +207,10 @@ or decomposing complex operations.
 Use a special key `@` to spawn an autocomplete.  This can match files, skills, commands or subagents.
 When the user selects a match with `Enter` it replaces the @ with the selected item once the message is sent to the
 LLM
+
+### Tool hooks:
+
+Like git hooks, but after a specific tool call (lint after edit, or format when Y, etc).
 
 Testing current feature set
 
