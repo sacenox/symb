@@ -2,7 +2,6 @@
 
 **ALWAYS USE YAGNI**
 
-**DON'T WASTE TOKENS**
 
 - The user will ask when he wants documentation or summaries written.
 - Short answers only, the user will ask for more details if he wants.
