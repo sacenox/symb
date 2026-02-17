@@ -33,6 +33,17 @@ func (m *Model) trimOldTurns() {
 			m.turnBoundaries[i].convIdx -= cutConv
 		}
 	}
+
+	m.frameLines = nil
+	lines := m.wrappedConvLines()
+	convH := m.layout.conv.Dy()
+	maxScroll := len(lines) - convH
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.scrollOffset > maxScroll {
+		m.scrollOffset = maxScroll
+	}
 }
 
 // handleUndo reverts the most recent turn: restores files, truncates history

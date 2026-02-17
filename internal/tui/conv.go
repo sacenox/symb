@@ -59,6 +59,22 @@ func textEntries(lines ...string) []convEntry {
 // (for sticky scroll).
 func (m *Model) appendConv(entries ...convEntry) bool {
 	atBottom := m.scrollOffset == 0
+	if !atBottom {
+		addedLines := 0
+		w := m.convWidth()
+		for _, entry := range entries {
+			if entry.display == "" {
+				addedLines++
+				continue
+			}
+			if w <= 0 {
+				addedLines++
+				continue
+			}
+			addedLines += len(wrapANSI(entry.display, w))
+		}
+		m.scrollOffset += addedLines
+	}
 	m.convEntries = append(m.convEntries, entries...)
 	return atBottom
 }
