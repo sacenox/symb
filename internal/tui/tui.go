@@ -301,7 +301,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ed.DiagWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b"))
 
 	ai := editor.New()
-	ai.Placeholder = "What's our task?"
+	ai.Placeholder = "Ask anything... (CTRL+h for keybinds)"
 	ai.SubmitOnEnter = true
 	ai.Language = "markdown"
 	ai.SyntaxTheme = constants.SyntaxTheme

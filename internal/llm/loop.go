@@ -113,25 +113,11 @@ type recentCall struct {
 }
 
 func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
-	// Enforce max depth to prevent infinite recursion
-	if opts.Depth > MaxDepth {
-		return fmt.Errorf("max sub-agent depth exceeded: %d > %d", opts.Depth, MaxDepth)
+	if err := normalizeTurnOptions(&opts); err != nil {
+		return err
 	}
 
-	if opts.MaxToolRounds == 0 {
-		opts.MaxToolRounds = 60
-	}
-
-	// Convert MCP tools to provider format once
-	providerTools := make([]provider.Tool, len(opts.Tools))
-	for i, t := range opts.Tools {
-		providerTools[i] = provider.Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters:  t.InputSchema,
-		}
-	}
-
+	providerTools := toProviderTools(opts.Tools)
 	var recent []recentCall
 	for round := 0; round < opts.MaxToolRounds; round++ {
 		// Inject a <system-reminder> into the last tool result to keep
@@ -160,30 +146,63 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 		// Execute each tool call and update history
 		toolResults := executeToolCalls(ctx, opts.Proxy, resp.ToolCalls, opts.OnMessage)
 		opts.History = append(opts.History, toolResults...)
-
-		for _, tc := range resp.ToolCalls {
-			recent = append(recent, recentCall{Name: tc.Name, Args: string(tc.Arguments)})
-		}
-		if len(recent) >= 3 {
-			last3 := recent[len(recent)-3:]
-			if last3[0] == last3[1] && last3[1] == last3[2] {
-				if len(toolResults) > 0 {
-					last := &toolResults[len(toolResults)-1]
-					last.Content += "\n\n<system-reminder>WARNING: You are repeating the same tool call with the same arguments. This is wasteful. Stop and either try a different approach, summarize what you know, or ask the user for help.</system-reminder>"
-					opts.History[len(opts.History)-1] = *last
-				}
-			}
-		}
+		appendRecentCalls(&opts, resp.ToolCalls, toolResults, &recent)
 
 		// Continue loop to let LLM process tool results
 	}
 
 	// Tool call limit reached — do one final call with no tools so the LLM
 	// must reply with text summarizing progress.
+	return finalizeToolLimit(ctx, &opts)
+}
+
+func normalizeTurnOptions(opts *ProcessTurnOptions) error {
+	// Enforce max depth to prevent infinite recursion
+	if opts.Depth > MaxDepth {
+		return fmt.Errorf("max sub-agent depth exceeded: %d > %d", opts.Depth, MaxDepth)
+	}
+	if opts.MaxToolRounds == 0 {
+		opts.MaxToolRounds = 60
+	}
+	return nil
+}
+
+func toProviderTools(tools []mcp.Tool) []provider.Tool {
+	if len(tools) == 0 {
+		return nil
+	}
+	providerTools := make([]provider.Tool, len(tools))
+	for i, t := range tools {
+		providerTools[i] = provider.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.InputSchema,
+		}
+	}
+	return providerTools
+}
+
+func appendRecentCalls(opts *ProcessTurnOptions, toolCalls []provider.ToolCall, toolResults []provider.Message, recent *[]recentCall) {
+	for _, tc := range toolCalls {
+		*recent = append(*recent, recentCall{Name: tc.Name, Args: string(tc.Arguments)})
+	}
+	if len(*recent) < 3 {
+		return
+	}
+	last3 := (*recent)[len(*recent)-3:]
+	if last3[0] == last3[1] && last3[1] == last3[2] {
+		if len(toolResults) > 0 && len(opts.History) > 0 {
+			last := &toolResults[len(toolResults)-1]
+			last.Content += "\n\n<system-reminder>WARNING: You are repeating the same tool call with the same arguments. This is wasteful. Stop and either try a different approach, summarize what you know, or ask the user for help.</system-reminder>"
+			opts.History[len(opts.History)-1] = *last
+		}
+	}
+}
+
+func finalizeToolLimit(ctx context.Context, opts *ProcessTurnOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-
 	limitMsg := provider.Message{
 		Role:      "user",
 		Content:   "You have exhausted your tool call limit for this turn. Respond in text only. Summarize what you accomplished and what remains.",
@@ -194,12 +213,12 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	}
 	opts.History = append(opts.History, limitMsg)
 
-	resp, err := streamAndCollect(ctx, &opts, nil)
+	resp, err := streamAndCollect(ctx, opts, nil)
 	if err != nil {
 		return fmt.Errorf("final text-only LLM stream failed: %w", err)
 	}
 
-	emitAssistant(&opts, resp)
+	emitAssistant(opts, resp)
 	return nil
 }
 
