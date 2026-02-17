@@ -162,7 +162,7 @@ func normalizeTurnOptions(opts *ProcessTurnOptions) error {
 		return fmt.Errorf("max sub-agent depth exceeded: %d > %d", opts.Depth, MaxDepth)
 	}
 	if opts.MaxToolRounds == 0 {
-		opts.MaxToolRounds = 60
+		opts.MaxToolRounds = 30
 	}
 	return nil
 }
@@ -360,7 +360,7 @@ func executeToolCalls(ctx context.Context, proxy *mcp.Proxy, toolCalls []provide
 // goal reminders. After this many rounds the loop injects a system message
 // reciting the user's original request so it stays in the model's recent
 // attention window.
-const reminderInterval = 10
+const reminderInterval = 3
 
 // injectRecitation appends a <system-reminder> block to the last tool-result
 // message in history to keep the model focused during long tool-calling loops.
