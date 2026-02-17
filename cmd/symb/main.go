@@ -40,7 +40,14 @@ func main() {
 	flag.BoolVar(flagContinue, "continue", false, "continue most recent session")
 	flag.Parse()
 
-	cfg, err := config.Load(filepath.Join(".", "config.toml"))
+	configPath := filepath.Join(".", "config.toml")
+	if dataDir, err := config.DataDir(); err == nil {
+		dataDirPath := filepath.Join(dataDir, "config.toml")
+		if _, err := os.Stat(dataDirPath); err == nil {
+			configPath = dataDirPath
+		}
+	}
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
