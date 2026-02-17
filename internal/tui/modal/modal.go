@@ -304,11 +304,18 @@ func (m *Model) renderList(innerW, listHeight int) []string {
 		if i == m.selected && m.inList {
 			lines = append(lines, selStyle.Render(padRight(item.Name, innerW)))
 		} else {
-			line := item.Name
+			name := baseStyle.Render(item.Name)
+			visW := lipgloss.Width(item.Name)
+			desc := ""
 			if item.Desc != "" {
-				line += dimStyle.Render("  " + item.Desc)
+				desc = dimStyle.Render("  " + item.Desc)
+				visW += 2 + lipgloss.Width(item.Desc)
 			}
-			lines = append(lines, baseStyle.Render(padRight(line, innerW)))
+			pad := ""
+			if visW < innerW {
+				pad = baseStyle.Render(strings.Repeat(" ", innerW-visW))
+			}
+			lines = append(lines, name+desc+pad)
 		}
 	}
 
@@ -319,8 +326,9 @@ func (m *Model) renderList(innerW, listHeight int) []string {
 }
 
 func padRight(s string, w int) string {
-	if len(s) >= w {
+	vis := lipgloss.Width(s)
+	if vis >= w {
 		return s
 	}
-	return s + strings.Repeat(" ", w-len(s))
+	return s + strings.Repeat(" ", w-vis)
 }

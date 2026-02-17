@@ -174,7 +174,7 @@ func (m *Model) handleEditKey(key string) bool {
 		} else {
 			m.deleteBack()
 		}
-	case "delete", "ctrl+d":
+	case "delete":
 		if m.HasSelection() {
 			m.DeleteSelection()
 		} else {

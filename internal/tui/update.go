@@ -273,7 +273,6 @@ func (m *Model) handleCtrlH() (Model, tea.Cmd, bool) {
 	return *m, nil, true
 }
 
-
 // handleUserMsg records a user message in the DB and conversation display.
 func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 	now := time.Now()
@@ -865,16 +864,16 @@ func (m *Model) openKeybindsModal() {
 	items := []modal.Item{
 		{Name: "ctrl+h", Desc: "keybinds"},
 		{Name: "ctrl+f", Desc: "file search"},
-		{Name: "ctrl+s", Desc: "send diff"},
+		{Name: "ctrl+s", Desc: "save editor (send diff) [experimental]"},
 		{Name: "ctrl+shift+c", Desc: "copy selection"},
 		{Name: "ctrl+shift+v", Desc: "paste"},
 		{Name: "ctrl+c", Desc: "quit"},
 		{Name: "esc", Desc: "cancel/blur"},
-		{Name: "enter", Desc: "send message"},
+		{Name: "enter", Desc: "send message in input, newline on editor"},
 		{Name: "shift+enter", Desc: "newline in input"},
 		{Name: "tab", Desc: "indent"},
-		{Name: "backspace/ctrl+h", Desc: "delete backward"},
-		{Name: "delete/ctrl+d", Desc: "delete forward"},
+		{Name: "backspace", Desc: "delete backward"},
+		{Name: "delete", Desc: "delete forward"},
 		{Name: "up/down/left/right", Desc: "move cursor"},
 		{Name: "shift+arrows", Desc: "extend selection"},
 		{Name: "home/end/ctrl+a/ctrl+e", Desc: "line start/end"},
@@ -930,7 +929,6 @@ func (m *Model) updateKeybindsModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 	}
 	return *m, nil, false
 }
-
 
 func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 	if m.fileModal == nil {
