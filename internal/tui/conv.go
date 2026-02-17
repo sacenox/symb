@@ -124,7 +124,7 @@ func formatTokens(n int) string {
 func makeSeparator(sty Styles, dur, ts string, tokIn, tokOut, totalTok, ctxTok int) string {
 	var label string
 	if tokIn > 0 || tokOut > 0 {
-		label = fmt.Sprintf("%s  %s  ↓%s ↑%s Σ%s ◔%s", ts, dur, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok), formatTokens(ctxTok))
+		label = fmt.Sprintf("%s  %s  ↓ %s ↑ %s Σ %s ◔ %s", ts, dur, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok), formatTokens(ctxTok))
 	} else {
 		label = ts + "  " + dur
 	}
@@ -196,7 +196,7 @@ func historyConvEntries(msgs []provider.Message, sty Styles) []convEntry {
 				entries = append(entries, convEntry{display: "", kind: entryText})
 			}
 			for _, tc := range msg.ToolCalls {
-				display := sty.ToolArrow.Render("→") + "  " + sty.ToolCall.Render(formatToolCall(tc))
+				display := sty.ToolArrow.Render("→ ") + sty.BgFill.Render("  ") + sty.ToolCall.Render(formatToolCall(tc))
 				entries = append(entries, convEntry{display: display, kind: entryToolCall})
 			}
 		case "tool":
@@ -206,8 +206,8 @@ func historyConvEntries(msgs []provider.Message, sty Styles) []convEntry {
 				if len(body) > 200 {
 					body = body[:200] + "…"
 				}
-				arrow := sty.ToolArrow.Render("←") + "  "
-				display := arrow + sty.Dim.Render(body) + "  " + sty.Clickable.Render("view")
+				arrow := sty.ToolArrow.Render("← ") + sty.BgFill.Render("  ")
+				display := arrow + sty.Dim.Render(body) + sty.BgFill.Render("  ") + sty.Clickable.Render("view")
 
 				var filePath string
 				if sm := toolResultFileRe.FindStringSubmatch(msg.Content); sm != nil {

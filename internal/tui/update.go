@@ -490,7 +490,7 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 			m.pendingToolCalls = make(map[string]provider.ToolCall)
 		}
 		m.pendingToolCalls[tc.ID] = tc
-		display := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(formatToolCall(tc))
+		display := m.styles.ToolArrow.Render("→") + m.styles.BgFill.Render("  ") + m.styles.ToolCall.Render(formatToolCall(tc))
 		wasBottom := m.appendConv(convEntry{display: display, kind: entryToolCall})
 		if wasBottom {
 			m.scrollOffset = 0
@@ -561,9 +561,9 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 	}
 
 	// Build display: "← summary  [view]"
-	arrow := m.styles.ToolArrow.Render("←") + "  "
+	arrow := m.styles.ToolArrow.Render("←") + m.styles.BgFill.Render("  ")
 	summary := arrow + m.styleToolResultLine(body)
-	viewBtn := "  " + m.styles.Clickable.Render("view")
+	viewBtn := m.styles.BgFill.Render("  ") + m.styles.Clickable.Render("view")
 	display := summary + viewBtn
 
 	entry := convEntry{

@@ -28,4 +28,4 @@ package constants
 // Light themes:
 //   - tokyonight-day        #e1e2e7  81 entries
 //   - catppuccin-latte      #eff1f5  81 entries
-const SyntaxTheme = "aura-theme-dark"
+const SyntaxTheme = "vulcan"
