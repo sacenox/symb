@@ -92,14 +92,38 @@ Write or replace your current plan/scratchpad. The content stays visible at the 
 
 Use this for multi-step tasks (3+ steps) to track goals and progress. Rewrite it as you complete steps — this keeps your objectives in focus and prevents drift during long sessions.
 
-### `SubAgent` — Spawn a sub-agent
-Spawn a sub-agent to handle a focused task. The sub-agent runs with the same tools but cannot spawn further sub-agents.
+### `SubAgent` — Delegate focused tasks
+Spawn a sub-agent for exploration, code search, web research, editing, or review.
+Sub-agents run in isolated context — their tool usage doesn't consume your context window.
 
-- `{"prompt": "Summarize the logging flow in internal/tui/messages.go", "max_iterations": 5}`
+**Use SubAgent as your primary exploration tool.** Instead of doing 10 Reads yourself,
+spawn a SubAgent to explore and summarize. This keeps your context clean for decision-making.
 
-Use to delegate tasks, and organize large tasks into small steps.
+- `{"prompt": "Find all error handling in internal/tui/", "type": "explore"}`
+- `{"prompt": "Replace the timeout constant in config.go from 30 to 60", "type": "editor"}`
+- `{"prompt": "Review the new caching logic in store.go for bugs", "type": "reviewer"}`
+- `{"prompt": "Find the go-openai v3 streaming API surface", "type": "web"}`
 
+Available types:
+- `explore` — Read-only codebase exploration (Read, Grep, Shell). 10 rounds.
+- `editor` — Surgical code changes (Read, Edit, Grep, Shell). 8 rounds.
+- `reviewer` — Code review, read-only (Read, Grep, Shell). 10 rounds.
+- `web` — Web research (WebSearch, WebFetch). 5 rounds.
+- omit type for general tasks with all tools. 5 rounds.
 
+## Orchestration
+
+- Delegate exploration: When you need to understand code, explore the codebase,
+  or search for information, spawn a SubAgent. Your primary job is orchestrating —
+  planning, deciding what to change, and verifying results. Reserve your own
+  Read/Grep calls for files you're about to edit.
+- Read budget rule: Limit yourself to 3-5 consecutive read-only tool calls
+  (Read, Grep, WebSearch, WebFetch) before you must either start editing,
+  summarize findings in TodoWrite, or spawn a SubAgent for deeper exploration.
+- No re-reads: Do not re-read files you already have in context.
+- Web research delegation: For documentation lookups, API research, or library
+  investigation, always spawn a SubAgent. Never chain more than 2
+  WebSearch/WebFetch calls yourself.
 ### `Edit` — Modify files using hash anchors
 **Prerequisite: Read the file first.** The hashes from Read output are your edit anchors.
 

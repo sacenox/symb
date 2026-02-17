@@ -17,6 +17,7 @@ import (
 // SubAgentArgs represents arguments for the SubAgent tool.
 type SubAgentArgs struct {
 	Prompt        string `json:"prompt"`
+	Type          string `json:"type,omitempty"`
 	MaxIterations int    `json:"max_iterations,omitempty"`
 }
 
@@ -29,6 +30,7 @@ func NewSubAgentTool() mcp.Tool {
 			"type": "object",
 			"properties": {
 				"prompt":         {"type": "string", "description": "Task description for the sub-agent. Be specific about what needs to be accomplished and the expected output format."},
+				"type":           {"type": "string", "enum": ["explore", "editor", "reviewer", "web"], "description": "Subagent type. explore=read-only codebase search, editor=surgical code changes, reviewer=code review, web=documentation/API research. Omit for general tasks."},
 				"max_iterations": {"type": "integer", "description": "Maximum tool rounds for the sub-agent (default: 5)"}
 			},
 			"required": ["prompt"]
@@ -101,7 +103,7 @@ func (h *SubAgentHandler) Handle(ctx context.Context, arguments json.RawMessage)
 
 	// Create proxy with sub-agent tools (filtered - no nested SubAgent)
 	subProxy := mcp.NewProxy(nil)
-	filteredTools := subagent.FilterTools(h.allTools)
+	filteredTools := subagent.FilterToolsForType(h.allTools, args.Type)
 
 	// Register tools with sub-agent proxy
 	for _, tool := range filteredTools {
@@ -130,6 +132,7 @@ func (h *SubAgentHandler) Handle(ctx context.Context, arguments json.RawMessage)
 		Proxy:         subProxy,
 		Tools:         filteredTools,
 		Prompt:        args.Prompt,
+		Type:          args.Type,
 		MaxIterations: args.MaxIterations,
 	})
 	if err != nil {

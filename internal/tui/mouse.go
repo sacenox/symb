@@ -377,7 +377,6 @@ func (m *Model) showRawContent(content, language string) {
 	m.setFocus(focusEditor)
 }
 
-
 // openFile loads a file into the editor. path is relative to cwd.
 func (m *Model) openFile(path string, lineNum int) tea.Cmd {
 	absPath, err := filepath.Abs(path)

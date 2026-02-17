@@ -29,6 +29,7 @@ type Options struct {
 	Proxy         *mcp.Proxy
 	Tools         []mcp.Tool
 	Prompt        string
+	Type          string
 	MaxIterations int
 }
 
@@ -54,7 +55,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("prompt is required")
 	}
 
-	maxIter := MaxSubAgentIterations
+	maxIter := DefaultIterations(opts.Type)
 	if opts.MaxIterations > 0 {
 		if opts.MaxIterations > MaxAllowedIterations {
 			return Result{}, fmt.Errorf("max_iterations too large (max: %d)", MaxAllowedIterations)
@@ -65,7 +66,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	subHistory := []provider.Message{
 		{
 			Role:      "system",
-			Content:   SystemPrompt(),
+			Content:   SystemPrompt(opts.Type),
 			CreatedAt: time.Now(),
 		},
 		{
@@ -127,11 +128,58 @@ func FilterTools(tools []mcp.Tool) []mcp.Tool {
 	return filtered
 }
 
+// FilterToolsForType removes SubAgent and filters by sub-agent type.
+func FilterToolsForType(tools []mcp.Tool, agentType string) []mcp.Tool {
+	base := FilterTools(tools)
+	switch agentType {
+	case "explore":
+		return filterByName(base, "Read", "Grep", "Shell")
+	case "editor":
+		return filterByName(base, "Read", "Edit", "Grep", "Shell")
+	case "reviewer":
+		return filterByName(base, "Read", "Grep", "Shell")
+	case "web":
+		return filterByName(base, "WebSearch", "WebFetch")
+	default:
+		return base
+	}
+}
+
+func filterByName(tools []mcp.Tool, names ...string) []mcp.Tool {
+	allowed := make(map[string]bool, len(names))
+	for _, n := range names {
+		allowed[n] = true
+	}
+	filtered := make([]mcp.Tool, 0, len(names))
+	for _, t := range tools {
+		if allowed[t.Name] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// DefaultIterations returns the default max tool rounds for a sub-agent type.
+func DefaultIterations(agentType string) int {
+	switch agentType {
+	case "explore":
+		return 10
+	case "editor":
+		return 8
+	case "reviewer":
+		return 10
+	case "web":
+		return 5
+	default:
+		return MaxSubAgentIterations
+	}
+}
+
 // SystemPrompt returns the system prompt for sub-agents.
-func SystemPrompt() string {
+func SystemPrompt(agentType string) string {
 	parts := []string{
 		llm.SubAgentBasePrompt(),
-		llm.SubAgentPrompt(),
+		llm.SubAgentTypePrompt(agentType),
 	}
 	if instructions := llm.LoadAgentInstructions(); instructions != "" {
 		parts = append(parts, instructions)

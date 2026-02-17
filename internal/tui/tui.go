@@ -139,7 +139,6 @@ var toolResultLineRe = regexp.MustCompile(`\(lines\s+(\d+)-\d+\)`)
 // toolResultRangeRe extracts both start and end lines from "(lines N-M)".
 var toolResultRangeRe = regexp.MustCompile(`\(lines\s+(\d+)-(\d+)\)`)
 
-
 // ---------------------------------------------------------------------------
 // Conversation selection (character-level)
 // ---------------------------------------------------------------------------

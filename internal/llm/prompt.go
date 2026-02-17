@@ -22,6 +22,18 @@ var subagentBasePrompt string
 //go:embed prompts/subagent.md
 var subagentPrompt string
 
+//go:embed prompts/subagent_explore.md
+var subagentExplorePrompt string
+
+//go:embed prompts/subagent_editor.md
+var subagentEditorPrompt string
+
+//go:embed prompts/subagent_reviewer.md
+var subagentReviewerPrompt string
+
+//go:embed prompts/subagent_web.md
+var subagentWebPrompt string
+
 //go:embed prompts/anthropic.md
 var anthropicPrompt string
 
@@ -117,6 +129,22 @@ func SubAgentBasePrompt() string {
 // SubAgentPrompt returns the base sub-agent prompt content.
 func SubAgentPrompt() string {
 	return subagentPrompt
+}
+
+// SubAgentTypePrompt returns the sub-agent type prompt content.
+func SubAgentTypePrompt(agentType string) string {
+	switch agentType {
+	case "explore":
+		return subagentExplorePrompt
+	case "editor":
+		return subagentEditorPrompt
+	case "reviewer":
+		return subagentReviewerPrompt
+	case "web":
+		return subagentWebPrompt
+	default:
+		return subagentPrompt
+	}
 }
 
 // BuildSystemPrompt constructs the complete system prompt:

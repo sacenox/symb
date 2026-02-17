@@ -107,6 +107,11 @@ func emitAssistant(opts *ProcessTurnOptions, resp *provider.ChatResponse) {
 
 // ProcessTurn handles one conversation turn, which may involve tool calls.
 // It streams events via OnDelta and emits complete messages via OnMessage.
+type recentCall struct {
+	Name string
+	Args string
+}
+
 func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 	// Enforce max depth to prevent infinite recursion
 	if opts.Depth > MaxDepth {
@@ -127,6 +132,7 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 		}
 	}
 
+	var recent []recentCall
 	for round := 0; round < opts.MaxToolRounds; round++ {
 		// Inject a <system-reminder> into the last tool result to keep
 		// the model focused. Two sources:
@@ -154,6 +160,20 @@ func ProcessTurn(ctx context.Context, opts ProcessTurnOptions) error {
 		// Execute each tool call and update history
 		toolResults := executeToolCalls(ctx, opts.Proxy, resp.ToolCalls, opts.OnMessage)
 		opts.History = append(opts.History, toolResults...)
+
+		for _, tc := range resp.ToolCalls {
+			recent = append(recent, recentCall{Name: tc.Name, Args: string(tc.Arguments)})
+		}
+		if len(recent) >= 3 {
+			last3 := recent[len(recent)-3:]
+			if last3[0] == last3[1] && last3[1] == last3[2] {
+				if len(toolResults) > 0 {
+					last := &toolResults[len(toolResults)-1]
+					last.Content += "\n\n<system-reminder>WARNING: You are repeating the same tool call with the same arguments. This is wasteful. Stop and either try a different approach, summarize what you know, or ask the user for help.</system-reminder>"
+					opts.History[len(opts.History)-1] = *last
+				}
+			}
+		}
 
 		// Continue loop to let LLM process tool results
 	}
