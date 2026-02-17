@@ -15,7 +15,10 @@ import (
 
 func (m Model) View() tea.View {
 	content := m.renderContent()
-	if m.fileModal != nil {
+	switch {
+	case m.keybindsModal != nil:
+		content = m.keybindsModal.View(m.width, m.height)
+	case m.fileModal != nil:
 		content = m.fileModal.View(m.width, m.height)
 	}
 	v := tea.NewView(content)

@@ -22,8 +22,13 @@ import (
 // ---------------------------------------------------------------------------
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+
 	m.frameLines = nil // invalidate per-frame wrap cache
 
+	// Keybinds modal intercepts all input when open.
+	if mdl, cmd, handled := m.updateKeybindsModal(msg); handled {
+		return mdl, cmd
+	}
 	// File finder modal intercepts all input when open.
 	if mdl, cmd, handled := m.updateFileModal(msg); handled {
 		return mdl, cmd
@@ -206,6 +211,7 @@ func (m *Model) keyPressHandlers() map[string]func(*Model) (Model, tea.Cmd, bool
 		"esc":          (*Model).handleEsc,
 		"enter":        (*Model).handleEnter,
 		"ctrl+f":       (*Model).handleCtrlF,
+		"ctrl+h":       (*Model).handleCtrlH,
 	}
 }
 
@@ -261,6 +267,12 @@ func (m *Model) handleCtrlF() (Model, tea.Cmd, bool) {
 	}
 	return Model{}, nil, false
 }
+
+func (m *Model) handleCtrlH() (Model, tea.Cmd, bool) {
+	m.openKeybindsModal()
+	return *m, nil, true
+}
+
 
 // handleUserMsg records a user message in the DB and conversation display.
 func (m *Model) handleUserMsg(msg llmUserMsg) Model {
@@ -844,8 +856,81 @@ func (m *Model) openFileModal() {
 		SelBg:  palette.Fg,
 		Border: palette.Border,
 	})
+	md.WidthPct = 80
+
 	m.fileModal = &md
 }
+
+func (m *Model) openKeybindsModal() {
+	items := []modal.Item{
+		{Name: "ctrl+h", Desc: "keybinds"},
+		{Name: "ctrl+f", Desc: "file search"},
+		{Name: "ctrl+s", Desc: "send diff"},
+		{Name: "ctrl+shift+c", Desc: "copy selection"},
+		{Name: "ctrl+shift+v", Desc: "paste"},
+		{Name: "ctrl+c", Desc: "quit"},
+		{Name: "esc", Desc: "cancel/blur"},
+		{Name: "enter", Desc: "send message"},
+		{Name: "shift+enter", Desc: "newline in input"},
+		{Name: "tab", Desc: "indent"},
+		{Name: "backspace/ctrl+h", Desc: "delete backward"},
+		{Name: "delete/ctrl+d", Desc: "delete forward"},
+		{Name: "up/down/left/right", Desc: "move cursor"},
+		{Name: "shift+arrows", Desc: "extend selection"},
+		{Name: "home/end/ctrl+a/ctrl+e", Desc: "line start/end"},
+		{Name: "pgup/pgdown", Desc: "page scroll"},
+		{Name: "shift+pgup/shift+pgdown", Desc: "extend selection by page"},
+		{Name: "ctrl+home/ctrl+end", Desc: "file start/end"},
+	}
+	searchFn := func(query string) []modal.Item {
+		if query == "" {
+			return items
+		}
+		q := strings.ToLower(query)
+		var filtered []modal.Item
+		for _, item := range items {
+			name := strings.ToLower(item.Name)
+			desc := strings.ToLower(item.Desc)
+			if strings.Contains(name, q) || strings.Contains(desc, q) {
+				filtered = append(filtered, item)
+			}
+		}
+		return filtered
+	}
+	md := modal.New(searchFn, "Keys: ", modal.Colors{
+		Fg:     palette.Fg,
+		Bg:     palette.Bg,
+		Dim:    palette.Dim,
+		SelFg:  palette.Bg,
+		SelBg:  palette.Fg,
+		Border: palette.Border,
+	})
+	md.WidthPct = 60
+	m.keybindsModal = &md
+}
+
+func (m *Model) updateKeybindsModal(msg tea.Msg) (Model, tea.Cmd, bool) {
+	if m.keybindsModal == nil {
+		return *m, nil, false
+	}
+	action, cmd := m.keybindsModal.HandleMsg(msg)
+	switch action.(type) {
+	case modal.ActionClose:
+		m.keybindsModal = nil
+		return *m, nil, true
+	case modal.ActionSelect:
+		return *m, nil, true
+	}
+	if cmd != nil {
+		return *m, cmd, true
+	}
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.MouseMsg:
+		return *m, nil, true
+	}
+	return *m, nil, false
+}
+
 
 func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 	if m.fileModal == nil {

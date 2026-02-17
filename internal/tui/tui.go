@@ -246,7 +246,9 @@ type Model struct {
 
 	// File finder modal
 	fileModal *modal.Model
-	searcher  *filesearch.Searcher
+	// Keybinds modal
+	keybindsModal *modal.Model
+	searcher      *filesearch.Searcher
 	// Pending tool calls: maps tool call ID → arguments for line extraction
 	pendingToolCalls map[string]provider.ToolCall
 

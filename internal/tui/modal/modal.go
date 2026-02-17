@@ -61,6 +61,9 @@ type Model struct {
 
 	// Prompt shown before the input text.
 	Prompt string
+
+	// WidthPct controls the modal width as a percent of app width.
+	WidthPct int
 }
 
 // New creates a modal with the given search function.
@@ -212,7 +215,11 @@ func (m *Model) handleCursor(key string) {
 
 // View renders the modal at the given app width and height.
 func (m *Model) View(appWidth, appHeight int) string {
-	w := appWidth * 80 / 100
+	widthPct := m.WidthPct
+	if widthPct <= 0 {
+		widthPct = 80
+	}
+	w := appWidth * widthPct / 100
 	h := appHeight * 80 / 100
 	if w < 30 {
 		w = 30
@@ -283,6 +290,7 @@ func (m *Model) renderList(innerW, listHeight int) []string {
 	}
 
 	bg := lipgloss.Color(m.colors.Bg)
+	baseStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.colors.Fg)).Background(bg)
 	dimStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(m.colors.Dim)).
 		Background(bg)
@@ -300,12 +308,12 @@ func (m *Model) renderList(innerW, listHeight int) []string {
 			if item.Desc != "" {
 				line += dimStyle.Render("  " + item.Desc)
 			}
-			lines = append(lines, padRight(line, innerW))
+			lines = append(lines, baseStyle.Render(padRight(line, innerW)))
 		}
 	}
 
 	for len(lines) < listHeight {
-		lines = append(lines, strings.Repeat(" ", innerW))
+		lines = append(lines, baseStyle.Render(strings.Repeat(" ", innerW)))
 	}
 	return lines
 }
