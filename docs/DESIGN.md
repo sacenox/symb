@@ -119,6 +119,7 @@ Needs an undo.
 <time elapsed> <timestamp> <toekns in current count>/<tokens out current count> (<total tokens in context at current count).
 <undo if most recent agent message>
 ```
+
 **DONE**
 
 - Read tool caps output at 500 lines / 20k chars; tells LLM to use line ranges for larger files.
@@ -180,9 +181,9 @@ Make a generic modal with inputbox + list combo for re-use. The use that to make
 
 - Enable the same editting abilities as the agent input box.
 - <ctrl + s> Saves the file:
- - File has changes -> send to llm to apply diff
- - Need to consider if this makes sense, or if the LLM should also be aware of user changes,
- and we should always send the diff for the LLM to apply?
+- File has changes -> send to llm to apply diff
+- Need to consider if this makes sense, or if the LLM should also be aware of user changes,
+  and we should always send the diff for the LLM to apply?
 
 ### Sub-Agent Tool
 
@@ -194,6 +195,8 @@ or decomposing complex operations.
 - TODO: Custom agents from community configs
 - TODO: Worktress so they don't colide (needs to be an option, not all users use or like gitworktrees)
 
+Testing, cleaning up.
+
 ## Features waiting implementation for current version:
 
 ### Community configs support:
@@ -204,15 +207,13 @@ or decomposing complex operations.
 
 ### Agent input interactivity:
 
-Use a special key `@` to spawn an autocomplete.  This can match files, skills, commands or subagents.
+Use a special key `@` to spawn an autocomplete. This can match files, skills, commands or subagents.
 When the user selects a match with `Enter` it replaces the @ with the selected item once the message is sent to the
 LLM
 
 ### Tool hooks:
 
 Like git hooks, but after a specific tool call (lint after edit, or format when Y, etc).
-
-Testing current feature set
 
 # TODO (after features)
 
@@ -231,6 +232,7 @@ Testing current feature set
 Pause before executing tool calls. Show tool name + args in a dialog. User
 approves/rejects. Configurable per-tool permissions in `config.toml` (allow,
 ask, deny). Some tools (Read/Grep) default allow, mutations (Edit) default ask.
+
 ### Parallel Tool Execution
 
 Execute multiple independent tool calls concurrently within a single LLM

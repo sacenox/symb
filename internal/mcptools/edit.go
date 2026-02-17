@@ -69,6 +69,7 @@ type EditHandler struct {
 	lspManager   *lsp.Manager
 	tsIndex      *treesitter.Index
 	deltaTracker *delta.Tracker
+	rootDir      string
 }
 
 // NewEditHandler creates a handler for the Edit tool.
@@ -78,6 +79,9 @@ func NewEditHandler(tracker *FileReadTracker, lspManager *lsp.Manager, dt *delta
 
 // SetTSIndex sets the tree-sitter index for incremental updates on edit.
 func (h *EditHandler) SetTSIndex(idx *treesitter.Index) { h.tsIndex = idx }
+
+// SetRootDir overrides the base directory for path validation.
+func (h *EditHandler) SetRootDir(root string) { h.rootDir = root }
 
 // Handle implements the mcp.ToolHandler interface.
 func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*mcp.ToolResult, error) {
@@ -92,7 +96,13 @@ func (h *EditHandler) Handle(ctx context.Context, arguments json.RawMessage) (*m
 		return toolError("operation is required (replace, insert, delete, or create)"), nil
 	}
 
-	absPath, err := validatePath(args.File)
+	var absPath string
+	var err error
+	if h.rootDir != "" {
+		absPath, err = validatePathWithRoot(args.File, h.rootDir)
+	} else {
+		absPath, err = validatePath(args.File)
+	}
 	if err != nil {
 		return toolError("%v", err), nil
 	}

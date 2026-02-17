@@ -46,6 +46,11 @@ const (
 // debounceMsg is sent after the debounce timer fires.
 type debounceMsg struct{ seq int }
 
+type searchResultsMsg struct {
+	seq   int
+	items []Item
+}
+
 // Model is a generic input+list modal.
 type Model struct {
 	input    []rune
@@ -94,7 +99,12 @@ func (m *Model) HandleMsg(msg tea.Msg) (Action, tea.Cmd) {
 		return m.handleKey(msg)
 	case debounceMsg:
 		if msg.seq == m.seq {
-			m.items = m.searchFn(string(m.input))
+			return nil, m.searchCmd(string(m.input), msg.seq)
+		}
+		return nil, nil
+	case searchResultsMsg:
+		if msg.seq == m.seq {
+			m.items = msg.items
 			m.selected = 0
 			m.inList = false
 		}
@@ -130,6 +140,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (Action, tea.Cmd) {
 	}
 
 	return nil, nil
+}
+
+func (m *Model) searchCmd(query string, seq int) tea.Cmd {
+	if m.searchFn == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		items := m.searchFn(query)
+		return searchResultsMsg{seq: seq, items: items}
+	}
 }
 
 func (m *Model) handleEnter() (Action, tea.Cmd) {

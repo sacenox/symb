@@ -27,12 +27,8 @@ func setupTestFile(t *testing.T) (string, string) {
 func newTrackedHandler(t *testing.T, dir string) *EditHandler {
 	t.Helper()
 	tracker := NewFileReadTracker()
-	oldDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chdir(oldDir) })
 	h := NewEditHandler(tracker, nil, nil)
+	h.SetRootDir(dir)
 	return h
 }
 

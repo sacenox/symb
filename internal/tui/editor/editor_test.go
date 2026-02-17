@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -32,7 +31,6 @@ func TestLineWidthWithTabs(t *testing.T) {
 		if w != 50 {
 			t.Errorf("line %d: width=%d (want 50)", i, w)
 		}
-		fmt.Printf("line %d: width=%d\n", i, w)
 	}
 }
 
@@ -126,6 +124,5 @@ func TestExpandTabs(t *testing.T) {
 		if w != tc.want {
 			t.Errorf("expandTabs(%q) width=%d, want %d (got %q)", tc.in, w, tc.want, got)
 		}
-		fmt.Printf("expandTabs(%q) -> %q (width %d)\n", tc.in, got, w)
 	}
 }

@@ -358,19 +358,3 @@ func truncate(s string, maxChars int) string {
 	}
 	return string(runes[:maxChars]) + "\n\n[Truncated]"
 }
-
-// toolError returns an error ToolResult.
-func toolError(format string, args ...interface{}) *mcp.ToolResult {
-	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: fmt.Sprintf(format, args...)}},
-		IsError: true,
-	}
-}
-
-// toolText returns a text ToolResult.
-func toolText(text string) *mcp.ToolResult {
-	return &mcp.ToolResult{
-		Content: []mcp.ContentBlock{{Type: "text", Text: text}},
-		IsError: false,
-	}
-}

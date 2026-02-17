@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/filesearch"
@@ -208,10 +207,11 @@ type Model struct {
 	turnCancel context.CancelFunc // cancels current LLM turn only (nil when idle)
 
 	// Session persistence
-	store          *store.Cache
-	storeQueue     chan storeBatch
-	storeQueueDone <-chan struct{}
-	sessionID      string
+	store            *store.Cache
+	storeQueue       chan storeBatch
+	storeQueueDone   <-chan struct{}
+	sessionID        string
+	initialSystemMsg *provider.Message
 
 	// Conversation
 	convEntries    []convEntry // Conversation entries (not wrapped)
@@ -259,8 +259,10 @@ type Model struct {
 	convDragging bool
 
 	// Frame loop
-	streamDirty bool     // New streaming content arrived since last rebuild
-	frameLines  []string // Per-frame cache of wrapped conv lines (cleared each Update)
+	streamDirty  bool     // New streaming content arrived since last rebuild
+	frameLines   []string // Per-frame cache of wrapped conv lines (cleared each Update)
+	turnPending  bool     // True while awaiting user message persistence
+	undoInFlight bool     // True while undo side-effects are running
 
 	// Statusbar state
 	providerConfigName string // TOML config key (e.g. "zen-pickle")
@@ -321,20 +323,13 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var entries []convEntry
+	var initialSystemMsg *provider.Message
 	if resumeHistory != nil {
 		entries = historyConvEntries(resumeHistory, sty)
 	} else {
 		systemPrompt := llm.BuildSystemPrompt(modelID, idx)
 		systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}
-		if db != nil {
-			if storeQueue != nil {
-				storeQueue <- storeBatch{sessionID: sessionID, msgs: []store.SessionMessage{messageToStore(systemMsg)}}
-			} else {
-				if err := db.SaveMessages(sessionID, []store.SessionMessage{messageToStore(systemMsg)}); err != nil {
-					log.Warn().Err(err).Msg("failed to save system message")
-				}
-			}
-		}
+		initialSystemMsg = &systemMsg
 	}
 
 	return Model{
@@ -351,10 +346,11 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		ctx:         ctx,
 		cancel:      cancel,
 
-		store:          db,
-		storeQueue:     storeQueue,
-		storeQueueDone: storeQueueDone,
-		sessionID:      sessionID,
+		store:            db,
+		storeQueue:       storeQueue,
+		storeQueueDone:   storeQueueDone,
+		sessionID:        sessionID,
+		initialSystemMsg: initialSystemMsg,
 
 		scratchpad:   pad,
 		deltaTracker: dt,
@@ -379,5 +375,9 @@ func newSearcherOrNil(root string) *filesearch.Searcher {
 
 // Init starts the 60fps frame loop and periodic git branch polling.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(frameTick(), gitBranchCmd())
+	cmds := []tea.Cmd{frameTick(), gitBranchCmd()}
+	if m.initialSystemMsg != nil {
+		cmds = append(cmds, m.saveMessagesCmd([]provider.Message{*m.initialSystemMsg}))
+	}
+	return tea.Batch(cmds...)
 }

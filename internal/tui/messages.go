@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -57,6 +58,15 @@ type storeBatch struct {
 
 type llmHistoryMsg struct{ msg provider.Message }
 type llmErrorMsg struct{ err error }
+
+type userMsgSavedMsg struct {
+	convIdx int
+	dbMsgID int64
+	userMsg provider.Message
+	err     error
+}
+
+type undoResultMsg struct{ err error }
 
 // Streaming delta messages
 type llmContentDeltaMsg struct{ content string }
@@ -179,102 +189,168 @@ func (m Model) waitForLLMUpdate() tea.Cmd {
 	}
 }
 
-func (m Model) processLLM() tea.Cmd {
-	prov := m.provider
-	proxy := m.mcpProxy
+func (m Model) processLLMWithExtra(extra []provider.Message) tea.Cmd {
+	deps := m.llmTurnDeps()
+	return func() tea.Msg {
+		go m.runLLMTurn(deps, extra)
+		return nil
+	}
+}
+
+type llmTurnDeps struct {
+	provider  provider.Provider
+	proxy     *mcp.Proxy
+	tools     []mcp.Tool
+	store     *store.Cache
+	sessionID string
+	ch        chan tea.Msg
+	ctx       context.Context
+	dt        *delta.Tracker
+	pad       llm.ScratchpadReader
+	systemMsg *provider.Message
+}
+
+type usageTracker struct {
+	turnIn    int
+	turnOut   int
+	contextIn int
+}
+
+func (m Model) llmTurnDeps() llmTurnDeps {
 	tools := make([]mcp.Tool, len(m.mcpTools))
 	copy(tools, m.mcpTools)
-	db := m.store
-	sid := m.sessionID
-	ch := m.updateChan
-	ctx := m.turnCtx
-	dt := m.deltaTracker
-	pad := m.scratchpad
+	return llmTurnDeps{
+		provider:  m.provider,
+		proxy:     m.mcpProxy,
+		tools:     tools,
+		store:     m.store,
+		sessionID: m.sessionID,
+		ch:        m.updateChan,
+		ctx:       m.turnCtx,
+		dt:        m.deltaTracker,
+		pad:       m.scratchpad,
+		systemMsg: m.initialSystemMsg,
+	}
+}
 
-	return func() tea.Msg {
-		go func() {
-			// Load history from DB — the single source of truth.
-			var history []provider.Message
-			if db != nil {
-				stored, err := db.LoadMessages(sid)
-				if err != nil {
-					ch <- llmErrorMsg{err: fmt.Errorf("load history: %w", err)}
-					return
-				}
-				history = store.ToProviderMessages(stored)
-			}
-			// Snapshot the project directory before the turn for undo.
-			// Capture cwd once so both pre/post snapshots use the same root.
-			var preSnap map[string]delta.FileSnapshot
-			var snapRoot string
-			if dt != nil && dt.TurnID() > 0 {
-				if cwd, err := os.Getwd(); err == nil {
-					snapRoot = cwd
-					preSnap = delta.SnapshotDir(snapRoot)
-				}
-			}
+func (m Model) runLLMTurn(deps llmTurnDeps, extra []provider.Message) {
+	history, err := loadHistory(deps.store, deps.sessionID)
+	if err != nil {
+		deps.ch <- llmErrorMsg{err: fmt.Errorf("load history: %w", err)}
+		return
+	}
+	history = ensureSystemMessage(history, deps.systemMsg)
+	if len(extra) > 0 {
+		history = append(history, extra...)
+	}
 
-			start := time.Now()
-			var turnIn, turnOut, contextIn int
-			err := llm.ProcessTurn(ctx, llm.ProcessTurnOptions{
-				Provider:   prov,
-				Proxy:      proxy,
-				Tools:      tools,
-				History:    history,
-				Scratchpad: pad,
-				// Uses the default from ProcessTurn.
-				OnDelta: func(evt provider.StreamEvent) {
-					switch evt.Type {
-					case provider.EventContentDelta:
-						ch <- llmContentDeltaMsg{content: evt.Content}
-					case provider.EventReasoningDelta:
-						ch <- llmReasoningDeltaMsg{content: evt.Content}
-					}
-				},
-				OnUsage: func(inputTokens, outputTokens int) {
-					turnIn += inputTokens
-					turnOut += outputTokens
-					contextIn = inputTokens
-					ch <- llmUsageMsg{inputTokens: inputTokens, outputTokens: outputTokens}
-				},
-				OnMessage: func(msg provider.Message) {
-					ch <- llmHistoryMsg{msg: msg}
-					switch msg.Role {
-					case roleAssistant:
-						ch <- llmAssistantMsg{
-							reasoning: msg.Reasoning,
-							content:   msg.Content,
-							toolCalls: msg.ToolCalls,
-						}
-					case "tool":
-						ch <- llmToolResultMsg{
-							toolCallID: msg.ToolCallID,
-							content:    msg.Content,
-						}
-					}
-				},
-			})
+	preSnap, snapRoot := snapshotBeforeTurn(deps.dt)
 
-			// Post-turn snapshot: diff against pre to record deltas for undo.
-			// Skip on cancellation — partial work has no turnBoundary.
-			if preSnap != nil && err == nil {
-				postSnap := delta.SnapshotDir(snapRoot)
-				delta.RecordDeltas(dt, snapRoot, preSnap, postSnap)
-			}
+	start := time.Now()
+	usage := &usageTracker{}
+	err = llm.ProcessTurn(deps.ctx, llm.ProcessTurnOptions{
+		Provider:   deps.provider,
+		Proxy:      deps.proxy,
+		Tools:      deps.tools,
+		History:    history,
+		Scratchpad: deps.pad,
+		OnDelta: func(evt provider.StreamEvent) {
+			dispatchStreamEvent(deps.ch, evt)
+		},
+		OnUsage: usage.onUsage(deps.ch),
+		OnMessage: func(msg provider.Message) {
+			dispatchHistoryMessage(deps.ch, msg)
+		},
+	})
 
-			if err != nil {
-				ch <- llmErrorMsg{err: err}
-				return
-			}
-			ch <- llmDoneMsg{
-				duration:      time.Since(start),
-				timestamp:     start.Format("15:04"),
-				inputTokens:   turnIn,
-				outputTokens:  turnOut,
-				contextTokens: contextIn,
-			}
-		}()
-		return nil
+	recordTurnDeltas(deps.dt, snapRoot, preSnap, err)
+	if err != nil {
+		deps.ch <- llmErrorMsg{err: err}
+		return
+	}
+	deps.ch <- llmDoneMsg{
+		duration:      time.Since(start),
+		timestamp:     start.Format("15:04"),
+		inputTokens:   usage.turnIn,
+		outputTokens:  usage.turnOut,
+		contextTokens: usage.contextIn,
+	}
+}
+
+func loadHistory(db *store.Cache, sessionID string) ([]provider.Message, error) {
+	if db == nil {
+		return nil, nil
+	}
+	stored, err := db.LoadMessages(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return store.ToProviderMessages(stored), nil
+}
+
+func ensureSystemMessage(history []provider.Message, systemMsg *provider.Message) []provider.Message {
+	if systemMsg == nil {
+		return history
+	}
+	for _, msg := range history {
+		if msg.Role == "system" {
+			return history
+		}
+	}
+	return append([]provider.Message{*systemMsg}, history...)
+}
+
+func snapshotBeforeTurn(dt *delta.Tracker) (map[string]delta.FileSnapshot, string) {
+	if dt == nil || dt.TurnID() == 0 {
+		return nil, ""
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, ""
+	}
+	return delta.SnapshotDir(cwd), cwd
+}
+
+func recordTurnDeltas(dt *delta.Tracker, snapRoot string, preSnap map[string]delta.FileSnapshot, err error) {
+	if preSnap == nil || err != nil {
+		return
+	}
+	postSnap := delta.SnapshotDir(snapRoot)
+	delta.RecordDeltas(dt, snapRoot, preSnap, postSnap)
+}
+
+func dispatchStreamEvent(ch chan tea.Msg, evt provider.StreamEvent) {
+	switch evt.Type {
+	case provider.EventContentDelta:
+		ch <- llmContentDeltaMsg{content: evt.Content}
+	case provider.EventReasoningDelta:
+		ch <- llmReasoningDeltaMsg{content: evt.Content}
+	}
+}
+
+func dispatchHistoryMessage(ch chan tea.Msg, msg provider.Message) {
+	ch <- llmHistoryMsg{msg: msg}
+	switch msg.Role {
+	case roleAssistant:
+		ch <- llmAssistantMsg{
+			reasoning: msg.Reasoning,
+			content:   msg.Content,
+			toolCalls: msg.ToolCalls,
+		}
+	case "tool":
+		ch <- llmToolResultMsg{
+			toolCallID: msg.ToolCallID,
+			content:    msg.Content,
+		}
+	}
+}
+
+func (u *usageTracker) onUsage(ch chan tea.Msg) func(int, int) {
+	return func(inputTokens, outputTokens int) {
+		u.turnIn += inputTokens
+		u.turnOut += outputTokens
+		u.contextIn = inputTokens
+		ch <- llmUsageMsg{inputTokens: inputTokens, outputTokens: outputTokens}
 	}
 }
 
@@ -301,25 +377,6 @@ func messageToStore(msg provider.Message) store.SessionMessage {
 	}
 }
 
-// saveMessage persists a message to the session store (no-op if store is nil).
-func (m *Model) saveMessage(msg provider.Message) {
-	if m.store == nil {
-		return
-	}
-	stored := []store.SessionMessage{messageToStore(msg)}
-	if m.storeQueue != nil {
-		select {
-		case m.storeQueue <- storeBatch{sessionID: m.sessionID, msgs: stored}:
-			return
-		default:
-			log.Warn().Msg("store queue full; falling back to sync save")
-		}
-	}
-	if err := m.store.SaveMessages(m.sessionID, stored); err != nil {
-		log.Warn().Err(err).Msg("failed to save message batch")
-	}
-}
-
 func (m *Model) saveMessages(msgs []provider.Message) {
 	if m.store == nil || len(msgs) == 0 {
 		return
@@ -328,17 +385,39 @@ func (m *Model) saveMessages(msgs []provider.Message) {
 	for _, msg := range msgs {
 		stored = append(stored, messageToStore(msg))
 	}
-	if m.storeQueue != nil {
-		select {
-		case m.storeQueue <- storeBatch{sessionID: m.sessionID, msgs: stored}:
-			return
-		default:
-			log.Warn().Msg("store queue full; dropping message batch")
-			return
-		}
+	if enqueueStoreBatch(m.storeQueue, storeBatch{sessionID: m.sessionID, msgs: stored}) {
+		return
 	}
 	if err := m.store.SaveMessages(m.sessionID, stored); err != nil {
 		log.Warn().Err(err).Msg("failed to save message batch")
+	}
+}
+
+func (m Model) saveMessagesCmd(msgs []provider.Message) tea.Cmd {
+	if m.store == nil || len(msgs) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		m.saveMessages(msgs)
+		return nil
+	}
+}
+
+func enqueueStoreBatch(queue chan storeBatch, batch storeBatch) (ok bool) {
+	if queue == nil {
+		return false
+	}
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	select {
+	case queue <- batch:
+		return true
+	default:
+		log.Warn().Msg("store queue full; dropping message batch")
+		return false
 	}
 }
 

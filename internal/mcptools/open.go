@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/xonecas/symb/internal/hashline"
@@ -129,23 +128,6 @@ func (h *ReadHandler) Handle(_ context.Context, arguments json.RawMessage) (*mcp
 	return &mcp.ToolResult{
 		Content: []mcp.ContentBlock{{Type: "text", Text: header}},
 	}, nil
-}
-
-// validatePath resolves a file path, ensuring it's within the working directory.
-func validatePath(file string) (string, error) {
-	absPath, err := filepath.Abs(file)
-	if err != nil {
-		return "", fmt.Errorf("invalid file path: %w", err)
-	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-	relPath, err := filepath.Rel(workingDir, absPath)
-	if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
-		return "", fmt.Errorf("access denied: path outside working directory")
-	}
-	return absPath, nil
 }
 
 // extractRange returns the selected content and start line number for a line range.
