@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/xonecas/symb/internal/highlight"
 )
@@ -156,9 +157,15 @@ func (m *Model) handleConvMotion(x, y, totalLines int) {
 func (m *Model) handleConvRelease(x, y, totalLines int) tea.Cmd {
 	m.convDragging = false
 	if m.convSel != nil && m.convSel.empty() {
-		clickedLine := m.convPosFromScreen(x, y, totalLines).line
+		cp := m.convPosFromScreen(x, y, totalLines)
 		m.convSel = nil
-		return m.handleConvClick(clickedLine)
+		// Ignore clicks on empty space past the last wrapped line.
+		startLine := m.visibleStartLine()
+		screenLine := startLine + (y - m.layout.conv.Min.Y)
+		if screenLine >= totalLines {
+			return nil
+		}
+		return m.handleConvClick(cp.line, cp.col)
 	}
 	return nil
 }
@@ -216,8 +223,10 @@ func (m Model) translateMouse(msg tea.MouseMsg, offX, offY int) tea.Msg {
 	return msg
 }
 
-// isClickableLine returns true if the wrapped line at lineIdx is clickable
-// (tool result entry or contains a file path reference).
+// isClickableLine returns true if the wrapped line at lineIdx is clickable.
+// Tool result entries (first line only, which has the [view] button) and undo
+// entries are always clickable. Plain text lines are clickable only if they
+// contain a file path reference.
 func (m *Model) isClickableLine(lineIdx int) bool {
 	lines := m.wrappedConvLines() // ensures convLineSource is also fresh
 	src := m.convLineSource
@@ -228,35 +237,31 @@ func (m *Model) isClickableLine(lineIdx int) bool {
 	if entryIdx < 0 || entryIdx >= len(m.convEntries) {
 		return false
 	}
-	if m.convEntries[entryIdx].kind == entryToolResult {
-		// Entries with a file path (Read/Edit/Create) are always clickable.
-		if m.convEntries[entryIdx].filePath != "" {
-			return true
+	entry := m.convEntries[entryIdx]
+	switch entry.kind {
+	case entryToolResult:
+		// Only the first wrapped line (containing [view]) is clickable.
+		if lineIdx > 0 && src[lineIdx-1] == entryIdx {
+			return false
 		}
-		// Others (Grep/Shell) only if the line itself contains a file path.
-		if lineIdx < len(lines) {
-			return filePathRe.MatchString(ansi.Strip(lines[lineIdx]))
-		}
-		return false
-	}
-	if m.convEntries[entryIdx].kind == entryToolDiag {
-		return false
-	}
-	if m.convEntries[entryIdx].kind == entryUndo {
 		return true
-	}
-	if lineIdx >= len(lines) {
+	case entryUndo:
+		return true
+	case entryToolDiag, entryToolCall, entrySeparator:
 		return false
+	default:
+		// Plain text: clickable if it contains a file path.
+		if lineIdx >= len(lines) {
+			return false
+		}
+		return filePathRe.MatchString(ansi.Strip(lines[lineIdx]))
 	}
-	plain := ansi.Strip(lines[lineIdx])
-	return filePathRe.MatchString(plain)
 }
 
 // handleConvClick resolves a click on a wrapped conversation line.
-// If the line belongs to a tool result entry, the full content is opened in
-// the editor. Otherwise, if the line contains a file path reference
-// (path/to/file.go:123), that file is opened in the editor.
-func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
+// Tool result [view] buttons open the relevant content in the editor.
+// Undo buttons trigger an undo. Plain text file paths open the file.
+func (m *Model) handleConvClick(wrappedLine, col int) tea.Cmd {
 	m.wrappedConvLines() // ensure convLineSource is fresh
 	src := m.convLineSource
 	if wrappedLine < 0 || wrappedLine >= len(src) {
@@ -267,50 +272,120 @@ func (m *Model) handleConvClick(wrappedLine int) tea.Cmd {
 		return nil
 	}
 	entry := m.convEntries[entryIdx]
-	if entry.kind == entryToolDiag {
-		return nil
-	}
 
-	// Undo control: emit undoMsg
-	if entry.kind == entryUndo {
-		return func() tea.Msg { return undoMsg{} }
-	}
-
-	// Tool result: open the source file or fall back to raw content
-	if entry.kind == entryToolResult {
-		if entry.filePath != "" {
-			absPath, _ := filepath.Abs(entry.filePath)
-			if content, err := os.ReadFile(entry.filePath); err == nil {
-				m.editor.SetValue(string(content))
-				m.editor.Language = highlight.DetectLanguage(entry.filePath)
-				m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, entry.filePath))
-				m.editor.DiagnosticLines = nil
-				m.editorFilePath = absPath
-				m.lspErrors = 0
-				m.lspWarnings = 0
-				if entry.line > 0 {
-					m.editor.GotoLine(entry.line)
-				}
-				m.setFocus(focusEditor)
-				return nil
-			}
+	switch entry.kind {
+	case entryUndo:
+		if m.isClickOnCenteredLabel(entry.display, col) {
+			return func() tea.Msg { return undoMsg{} }
 		}
-		// No file path on entry (e.g. Grep/Shell): try to extract a
-		// file:line reference from the clicked line itself.
+		return nil
+
+	case entryToolResult:
+		// Only trigger on the [view] label at the end of the line.
+		if m.isClickOnViewLabel(entry.display, col) {
+			return m.handleToolResultView(entry)
+		}
+		return nil
+
+	case entryToolDiag, entryToolCall, entrySeparator:
+		return nil
+
+	default:
+		// Plain text: try to open a file path reference.
 		lines := m.wrappedConvLines()
-		if wrappedLine < len(lines) {
-			plain := ansi.Strip(lines[wrappedLine])
-			return m.tryOpenFilePath(plain)
+		if wrappedLine >= len(lines) {
+			return nil
 		}
+		return m.tryOpenFilePath(ansi.Strip(lines[wrappedLine]))
 	}
+}
 
-	// Try to extract a file path from the clicked line's plain text
-	lines := m.wrappedConvLines()
-	if wrappedLine >= len(lines) {
+// isClickOnCenteredLabel checks whether a column falls within a centered
+// label's visible text area in the conversation pane.
+func (m *Model) isClickOnCenteredLabel(display string, col int) bool {
+	rw := m.convWidth()
+	lw := lipgloss.Width(display)
+	pad := (rw - lw) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	return col >= pad && col < pad+lw
+}
+
+// isClickOnViewLabel checks whether a column falls on the "view" label
+// at the end of a tool result line.
+func (m *Model) isClickOnViewLabel(display string, col int) bool {
+	const viewLabel = "view"
+	lw := lipgloss.Width(display)
+	viewStart := lw - len(viewLabel)
+	if viewStart < 0 {
+		viewStart = 0
+	}
+	return col >= viewStart && col < lw
+}
+
+// handleToolResultView opens the appropriate content in the editor for a
+// tool result [view] click, based on the tool type.
+func (m *Model) handleToolResultView(entry convEntry) tea.Cmd {
+	switch entry.toolName {
+	case "Read":
+		// Open file with cursor in the middle of the read range.
+		if entry.filePath != "" {
+			return m.openFileAtCenter(entry.filePath, entry.line, entry.full)
+		}
+	case "Edit":
+		// Open file with cursor at the end of the changes.
+		if entry.filePath != "" {
+			return m.openFile(entry.filePath, entry.line)
+		}
+	case "Shell":
+		// Show the command output in the editor as plain text.
+		m.showRawContent(entry.full, "text")
+		return nil
+	case "WebFetch", "WebSearch":
+		// Show search/fetch results as markdown.
+		m.showRawContent(entry.full, "markdown")
+		return nil
+	case "SubAgent":
+		// Show the subagent's response as markdown.
+		m.showRawContent(entry.full, "markdown")
+		return nil
+	default:
+		// Fallback: try file path, then show raw content.
+		if entry.filePath != "" {
+			return m.openFile(entry.filePath, entry.line)
+		}
+		m.showRawContent(entry.full, "text")
 		return nil
 	}
-	plain := ansi.Strip(lines[wrappedLine])
-	return m.tryOpenFilePath(plain)
+	// Fallback for tools with no file path.
+	m.showRawContent(entry.full, "text")
+	return nil
+}
+
+// openFileAtCenter opens a file and positions the cursor in the middle of the
+// read range (for Read tool results).
+func (m *Model) openFileAtCenter(path string, startLine int, content string) tea.Cmd {
+	if sm := toolResultRangeRe.FindStringSubmatch(content); sm != nil {
+		start, _ := strconv.Atoi(sm[1])
+		end, _ := strconv.Atoi(sm[2])
+		if start > 0 && end >= start {
+			return m.openFile(path, (start+end)/2)
+		}
+	}
+	return m.openFile(path, startLine)
+}
+
+// showRawContent loads raw text content into the editor for viewing.
+func (m *Model) showRawContent(content, language string) {
+	m.editor.SetValue(content)
+	m.editor.Language = language
+	m.editor.SetGutterMarkers(nil)
+	m.editor.DiagnosticLines = nil
+	m.editorFilePath = ""
+	m.lspErrors = 0
+	m.lspWarnings = 0
+	m.setFocus(focusEditor)
 }
 
 // tryOpenFilePath looks for a file:line reference in text and opens it in the editor.

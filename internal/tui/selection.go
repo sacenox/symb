@@ -60,8 +60,10 @@ func (m *Model) selectedConvText() string {
 	return sb.String()
 }
 
-// applyClickableStyle styles the first line of a clickable entry only.
-func (m Model) applyClickableStyle(line string, lineIdx int, bgFill lipgloss.Style) string {
+// applyClickableStyle returns the line as-is for entries that are already
+// pre-styled (undo, tool results with [view]). For plain text lines
+// containing file path references, it applies the clickable highlight.
+func (m Model) applyClickableStyle(line string, lineIdx int, _ lipgloss.Style) string {
 	if !m.isClickableLine(lineIdx) {
 		return line
 	}
@@ -74,39 +76,21 @@ func (m Model) applyClickableStyle(line string, lineIdx int, bgFill lipgloss.Sty
 	if entryIdx < 0 || entryIdx >= len(m.convEntries) {
 		return line
 	}
+	entry := m.convEntries[entryIdx]
+	// Undo and tool results are pre-styled with clickable elements.
+	if entry.kind == entryUndo || entry.kind == entryToolResult {
+		return line
+	}
+	// Plain text with file path reference — highlight the whole line.
 	if lineIdx > 0 && src[lineIdx-1] == entryIdx {
 		return line
 	}
-	entry := m.convEntries[entryIdx]
-	plain := ansi.Strip(line)
-	if entry.kind == entryUndo {
-		return styleUndoLine(plain, bgFill, m.styles.Clickable)
-	}
-	return m.styles.Clickable.Render(plain)
-}
-
-func styleUndoLine(plain string, bgFill, clickable lipgloss.Style) string {
-	const undoLabel = "undo"
-	idx := strings.LastIndex(plain, undoLabel)
-	if idx == -1 {
-		return clickable.Render(plain)
-	}
-	before := plain[:idx]
-	after := plain[idx+len(undoLabel):]
-	var sb strings.Builder
-	if before != "" {
-		sb.WriteString(bgFill.Render(before))
-	}
-	sb.WriteString(clickable.Render(undoLabel))
-	if after != "" {
-		sb.WriteString(bgFill.Render(after))
-	}
-	return sb.String()
+	return m.styles.Clickable.Render(ansi.Strip(line))
 }
 
 // renderConvLine renders a single conversation line with optional selection highlight.
 // Returns the styled line. Padding is handled by the caller.
-func (m Model) renderConvLine(line string, lineIdx, _ int, bgFill lipgloss.Style) string {
+func (m Model) renderConvLine(line string, lineIdx int, bgFill lipgloss.Style) string {
 	if m.convSel == nil || m.convSel.empty() {
 		return m.applyClickableStyle(line, lineIdx, bgFill)
 	}

@@ -92,8 +92,23 @@ func (m Model) renderConvRow(b *strings.Builder, convLines []string, lineIdx, rw
 		b.WriteString(bgFill.Render(strings.Repeat(" ", rw)))
 		return
 	}
-	line := m.renderConvLine(convLines[lineIdx], lineIdx, rw, bgFill)
+	line := m.renderConvLine(convLines[lineIdx], lineIdx, bgFill)
 	lw := lipgloss.Width(line)
+
+	// Center separator and undo entries.
+	if m.isCentered(lineIdx) {
+		pad := (rw - lw) / 2
+		if pad > 0 {
+			b.WriteString(bgFill.Render(strings.Repeat(" ", pad)))
+			b.WriteString(line)
+			trail := rw - pad - lw
+			if trail > 0 {
+				b.WriteString(bgFill.Render(strings.Repeat(" ", trail)))
+			}
+			return
+		}
+	}
+
 	b.WriteString(line)
 	if lw < rw {
 		b.WriteString(bgFill.Render(strings.Repeat(" ", rw-lw)))

@@ -292,11 +292,9 @@ func (m *Model) handleUserMsg(msg llmUserMsg) Model {
 		outputTokens: m.totalOutputTokens,
 	})
 
+	m.appendText("")
 	m.appendText(highlightMarkdown(msg.content, m.styles.Text)...)
-	m.appendText("")
-	sep := m.makeSeparator("0s", now.Format("15:04:05"), 0, 0, 0, 0)
-	wasBottom := m.appendText(sep)
-	m.appendText("")
+	wasBottom := m.appendText("")
 	m.turnInputTokens = 0
 	m.turnOutputTokens = 0
 	m.turnContextTokens = 0
@@ -363,7 +361,7 @@ func (m Model) handleLLMBatch(batch llmBatchMsg) (tea.Model, tea.Cmd) {
 			m.demoteOldUndo()
 			m.appendText("")
 			m.turnContextTokens = msg.contextTokens
-			sep := m.makeSeparator(msg.duration.Round(time.Second).String(), msg.timestamp,
+			sep := makeSeparator(m.styles, msg.duration.Round(time.Second).String(), msg.timestamp,
 				msg.inputTokens, msg.outputTokens, m.totalInputTokens+m.totalOutputTokens, m.turnContextTokens)
 			m.appendConv(m.makeUndoEntry(sep)...)
 			m.trimOldTurns()
@@ -492,8 +490,8 @@ func (m *Model) applyAssistantMsg(msg llmAssistantMsg) {
 			m.pendingToolCalls = make(map[string]provider.ToolCall)
 		}
 		m.pendingToolCalls[tc.ID] = tc
-		entry := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(formatToolCall(tc))
-		wasBottom := m.appendText(entry)
+		display := m.styles.ToolArrow.Render("→") + "  " + m.styles.ToolCall.Render(formatToolCall(tc))
+		wasBottom := m.appendConv(convEntry{display: display, kind: entryToolCall})
 		if wasBottom {
 			m.scrollOffset = 0
 		}
@@ -539,6 +537,12 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		filePath = sm[1]
 	}
 
+	// Resolve the tool name from the pending call.
+	var toolName string
+	if tc, ok := m.pendingToolCalls[msg.toolCallID]; ok {
+		toolName = tc.Name
+	}
+
 	// Extract target line for cursor positioning.
 	// Read results: from "(lines N-M)". Edit results: from the tool call arguments.
 	var startLine int
@@ -556,8 +560,20 @@ func (m *Model) applyToolResultMsg(msg llmToolResultMsg) {
 		body = body[:idx]
 	}
 
+	// Build display: "← summary  [view]"
 	arrow := m.styles.ToolArrow.Render("←") + "  "
-	entry := convEntry{display: arrow + m.styleToolResultLine(body), kind: entryToolResult, filePath: filePath, full: msg.content, line: startLine}
+	summary := arrow + m.styleToolResultLine(body)
+	viewBtn := "  " + m.styles.Clickable.Render("view")
+	display := summary + viewBtn
+
+	entry := convEntry{
+		display:  display,
+		kind:     entryToolResult,
+		filePath: filePath,
+		full:     msg.content,
+		line:     startLine,
+		toolName: toolName,
+	}
 	wasBottom := m.appendConv(entry)
 	for _, dl := range diagLines {
 		m.appendConv(convEntry{display: m.styleToolResultLine(dl), kind: entryToolDiag, full: msg.content})

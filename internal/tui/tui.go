@@ -112,11 +112,12 @@ func (m *Model) setFocus(f focus) {
 type entryKind int
 
 const (
-	entryText       entryKind = iota // Plain text (user, assistant, separator)
-	entryToolResult                  // Tool result — clickable to view full content in editor
+	entryText       entryKind = iota // Plain text (user, assistant, reasoning)
+	entryToolCall                    // Tool call arrow line (→ ToolName(...))
+	entryToolResult                  // Tool result summary (← summary [view])
 	entryToolDiag                    // Tool diagnostics — non-clickable
-	entryUndo                        // Undo control — clickable to undo last turn
-	entrySeparator                   // Demoted undo — a turn-end separator that can be re-promoted
+	entryUndo                        // Undo button — small clickable label
+	entrySeparator                   // Turn-end separator (timestamp + tokens)
 )
 
 // convEntry is a single logical entry in the conversation pane.
@@ -124,8 +125,9 @@ type convEntry struct {
 	display  string    // Styled text for rendering (may be truncated for tool results)
 	kind     entryKind // Entry type
 	filePath string    // Source file path (for tool results that reference a file)
-	full     string    // Fallback raw content (when no file path, e.g. Grep results)
+	full     string    // Full raw content (for editor viewing or undo separator restore)
 	line     int       // Target line (1-indexed) for cursor positioning on click (0 = none)
+	toolName string    // Tool name for view button context (Read, Edit, Shell, etc.)
 }
 
 // toolResultFileRe extracts the file path from "Read path ..." / "Edited path ..." / "Created path ..." headers.
@@ -133,6 +135,9 @@ var toolResultFileRe = regexp.MustCompile(`^(?:Read|Edited|Created)\s+(\S+)`)
 
 // toolResultLineRe extracts the start line from "(lines N-M)" in tool result headers.
 var toolResultLineRe = regexp.MustCompile(`\(lines\s+(\d+)-\d+\)`)
+
+// toolResultRangeRe extracts both start and end lines from "(lines N-M)".
+var toolResultRangeRe = regexp.MustCompile(`\(lines\s+(\d+)-(\d+)\)`)
 
 // filePathRe matches file references like "path/to/file.go:123" or just "path/to/file.go".
 // Requires a '/' to avoid matching version numbers like "v1.0".
@@ -319,7 +324,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 
 	var entries []convEntry
 	if resumeHistory != nil {
-		entries = historyConvEntries(resumeHistory)
+		entries = historyConvEntries(resumeHistory, sty)
 	} else {
 		systemPrompt := llm.BuildSystemPrompt(modelID, idx)
 		systemMsg := provider.Message{Role: "system", Content: systemPrompt, CreatedAt: time.Now()}

@@ -119,37 +119,42 @@ func formatTokens(n int) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
-// makeSeparator builds a right-aligned timestamp/token separator line.
-func (m Model) makeSeparator(dur string, ts string, tokIn, tokOut, totalTok, ctxTok int) string {
+// makeSeparator builds a timestamp/token separator label.
+// Centering is applied at render time so it adapts to resizes.
+func makeSeparator(sty Styles, dur, ts string, tokIn, tokOut, totalTok, ctxTok int) string {
 	var label string
 	if tokIn > 0 || tokOut > 0 {
-		label = fmt.Sprintf("%s %s ↓ %s ↑ %s Σ %s ◔ %s", dur, ts, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok), formatTokens(ctxTok))
+		label = fmt.Sprintf("%s  %s  ↓%s ↑%s Σ%s ◔%s", ts, dur, formatTokens(tokIn), formatTokens(tokOut), formatTokens(totalTok), formatTokens(ctxTok))
 	} else {
-		label = dur + " " + ts
+		label = ts + "  " + dur
 	}
-	w := m.convWidth()
-	pad := w - lipgloss.Width(label)
-	if pad < 0 {
-		pad = 0
-	}
-	return m.styles.Dim.Render(strings.Repeat(" ", pad) + label)
+	return sty.Dim.Render(label)
 }
 
 // makeUndoEntry creates convEntries for the undo control: the separator line
-// plus a right-aligned "undo" line below it.
+// plus a centered [undo] button below it. Centering is applied at render time.
 // sepDisplay is the styled separator text to restore if the undo entry is demoted.
 func (m Model) makeUndoEntry(sepDisplay string) []convEntry {
-	undoLabel := "undo"
-	w := m.convWidth()
-	pad := w - lipgloss.Width(undoLabel)
-	if pad < 0 {
-		pad = 0
-	}
-	undoLine := m.styles.Dim.Render(strings.Repeat(" ", pad) + undoLabel)
 	return []convEntry{
 		{display: sepDisplay, kind: entrySeparator, full: sepDisplay},
-		{display: undoLine, kind: entryUndo, full: sepDisplay},
+		{display: m.styles.Clickable.Render("undo"), kind: entryUndo, full: sepDisplay},
 	}
+}
+
+// isCentered returns true if the wrapped line at lineIdx belongs to a
+// separator or undo entry that should be centered in the conversation pane.
+// Caller must ensure convLineSource is fresh (call wrappedConvLines first).
+func (m Model) isCentered(lineIdx int) bool {
+	src := m.convLineSource
+	if lineIdx < 0 || lineIdx >= len(src) {
+		return false
+	}
+	entryIdx := src[lineIdx]
+	if entryIdx < 0 || entryIdx >= len(m.convEntries) {
+		return false
+	}
+	k := m.convEntries[entryIdx].kind
+	return k == entrySeparator || k == entryUndo
 }
 
 // visibleStartLine returns the index of the first visible wrapped conversation line.
@@ -168,8 +173,7 @@ func (m *Model) visibleStartLine() int {
 }
 
 // historyConvEntries rebuilds conversation display entries from loaded history.
-func historyConvEntries(msgs []provider.Message) []convEntry {
-	sty := DefaultStyles()
+func historyConvEntries(msgs []provider.Message, sty Styles) []convEntry {
 	var entries []convEntry
 	for _, msg := range msgs {
 		switch msg.Role {
@@ -179,24 +183,42 @@ func historyConvEntries(msgs []provider.Message) []convEntry {
 			if msg.Content == "" {
 				continue
 			}
+			entries = append(entries, convEntry{display: "", kind: entryText})
 			entries = append(entries, textEntries(highlightMarkdown(msg.Content, sty.Text)...)...)
+			entries = append(entries, convEntry{display: "", kind: entryText})
 		case roleAssistant:
+			if msg.Reasoning != "" {
+				entries = append(entries, textEntries(styledLines(msg.Reasoning, sty.Muted)...)...)
+				entries = append(entries, convEntry{display: "", kind: entryText})
+			}
 			if msg.Content != "" {
 				entries = append(entries, textEntries(highlightMarkdown(msg.Content, sty.Text)...)...)
+				entries = append(entries, convEntry{display: "", kind: entryText})
 			}
 			for _, tc := range msg.ToolCalls {
-				line := formatToolCall(tc)
-				entries = append(entries, convEntry{display: line, kind: entryToolResult, full: line})
+				display := sty.ToolArrow.Render("→") + "  " + sty.ToolCall.Render(formatToolCall(tc))
+				entries = append(entries, convEntry{display: display, kind: entryToolCall})
 			}
 		case "tool":
-			// tool results stored as content; show abbreviated
 			if msg.Content != "" {
 				lines := strings.SplitN(msg.Content, "\n", 2)
-				display := lines[0]
-				if len(display) > 200 {
-					display = display[:200] + "…"
+				body := lines[0]
+				if len(body) > 200 {
+					body = body[:200] + "…"
 				}
-				entries = append(entries, convEntry{display: display, kind: entryToolResult, full: msg.Content})
+				arrow := sty.ToolArrow.Render("←") + "  "
+				display := arrow + sty.Dim.Render(body) + "  " + sty.Clickable.Render("view")
+
+				var filePath string
+				if sm := toolResultFileRe.FindStringSubmatch(msg.Content); sm != nil {
+					filePath = sm[1]
+				}
+				entries = append(entries, convEntry{
+					display:  display,
+					kind:     entryToolResult,
+					filePath: filePath,
+					full:     msg.Content,
+				})
 			}
 		}
 	}
