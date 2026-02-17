@@ -139,9 +139,6 @@ var toolResultLineRe = regexp.MustCompile(`\(lines\s+(\d+)-\d+\)`)
 // toolResultRangeRe extracts both start and end lines from "(lines N-M)".
 var toolResultRangeRe = regexp.MustCompile(`\(lines\s+(\d+)-(\d+)\)`)
 
-// filePathRe matches file references like "path/to/file.go:123" or just "path/to/file.go".
-// Requires a '/' to avoid matching version numbers like "v1.0".
-var filePathRe = regexp.MustCompile(`(?:^|[\s(])([a-zA-Z0-9_./-]*[/][a-zA-Z0-9_.-]+\.[a-zA-Z]\w*)(?::(\d+))?`)
 
 // ---------------------------------------------------------------------------
 // Conversation selection (character-level)

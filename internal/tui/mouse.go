@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/xonecas/symb/internal/highlight"
 )
 
@@ -225,10 +224,9 @@ func (m Model) translateMouse(msg tea.MouseMsg, offX, offY int) tea.Msg {
 
 // isClickableLine returns true if the wrapped line at lineIdx is clickable.
 // Tool result entries (first line only, which has the [view] button) and undo
-// entries are always clickable. Plain text lines are clickable only if they
-// contain a file path reference.
+// entries are always clickable.
 func (m *Model) isClickableLine(lineIdx int) bool {
-	lines := m.wrappedConvLines() // ensures convLineSource is also fresh
+	m.wrappedConvLines() // ensures convLineSource is also fresh
 	src := m.convLineSource
 	if lineIdx < 0 || lineIdx >= len(src) {
 		return false
@@ -250,17 +248,13 @@ func (m *Model) isClickableLine(lineIdx int) bool {
 	case entryToolDiag, entryToolCall, entrySeparator:
 		return false
 	default:
-		// Plain text: clickable if it contains a file path.
-		if lineIdx >= len(lines) {
-			return false
-		}
-		return filePathRe.MatchString(ansi.Strip(lines[lineIdx]))
+		return false
 	}
 }
 
 // handleConvClick resolves a click on a wrapped conversation line.
 // Tool result [view] buttons open the relevant content in the editor.
-// Undo buttons trigger an undo. Plain text file paths open the file.
+// Undo buttons trigger an undo.
 func (m *Model) handleConvClick(wrappedLine, col int) tea.Cmd {
 	m.wrappedConvLines() // ensure convLineSource is fresh
 	src := m.convLineSource
@@ -291,12 +285,7 @@ func (m *Model) handleConvClick(wrappedLine, col int) tea.Cmd {
 		return nil
 
 	default:
-		// Plain text: try to open a file path reference.
-		lines := m.wrappedConvLines()
-		if wrappedLine >= len(lines) {
-			return nil
-		}
-		return m.tryOpenFilePath(ansi.Strip(lines[wrappedLine]))
+		return nil
 	}
 }
 
@@ -388,19 +377,6 @@ func (m *Model) showRawContent(content, language string) {
 	m.setFocus(focusEditor)
 }
 
-// tryOpenFilePath looks for a file:line reference in text and opens it in the editor.
-func (m *Model) tryOpenFilePath(text string) tea.Cmd {
-	matches := filePathRe.FindStringSubmatch(text)
-	if matches == nil {
-		return nil
-	}
-	path := matches[1]
-	lineNum := 0
-	if matches[2] != "" {
-		lineNum, _ = strconv.Atoi(matches[2])
-	}
-	return m.openFile(path, lineNum)
-}
 
 // openFile loads a file into the editor. path is relative to cwd.
 func (m *Model) openFile(path string, lineNum int) tea.Cmd {

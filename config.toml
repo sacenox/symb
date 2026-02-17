@@ -1,7 +1,7 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-opus"
+default_provider = "zen-codex"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
