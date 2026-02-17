@@ -175,6 +175,9 @@ func (p *OpenCodeProvider) chatStreamResponses(ctx context.Context, messages []M
 		Tools:  toResponsesTools(tools),
 		Stream: true,
 	}
+	if strings.HasPrefix(p.model, "gpt-5") {
+		req.Reasoning = &responsesReasoning{Summary: "auto"}
+	}
 	if !strings.Contains(p.model, "codex") {
 		t := float32(p.temperature)
 		req.Temperature = &t

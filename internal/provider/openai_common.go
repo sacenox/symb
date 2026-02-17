@@ -257,8 +257,13 @@ type responsesRequest struct {
 	Model       string               `json:"model"`
 	Input       []responsesInputItem `json:"input"`
 	Tools       []responsesToolParam `json:"tools,omitempty"`
+	Reasoning   *responsesReasoning  `json:"reasoning,omitempty"`
 	Temperature *float32             `json:"temperature,omitempty"`
 	Stream      bool                 `json:"stream"`
+}
+
+type responsesReasoning struct {
+	Summary string `json:"summary,omitempty"`
 }
 
 // responsesInputItem is a polymorphic input item (message or function_call_output).
@@ -458,7 +463,11 @@ func (rt *responsesTracker) handleResponsesEvent(ctx context.Context, ch chan<- 
 	switch eventType {
 	case "response.output_text.delta":
 		return false, !rt.handleTextDelta(ctx, ch, data)
+	case "response.reasoning_text.delta":
+		return false, !rt.handleReasoningDelta(ctx, ch, data)
 	case "response.reasoning_summary_text.delta":
+		return false, !rt.handleReasoningDelta(ctx, ch, data)
+	case "response.reasoning_summary.delta":
 		return false, !rt.handleReasoningDelta(ctx, ch, data)
 	case "response.output_item.added":
 		return false, !rt.handleOutputItemAdded(ctx, ch, data)
