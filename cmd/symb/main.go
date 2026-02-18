@@ -64,10 +64,7 @@ func main() {
 	providerName, providerCfg := resolveProvider(cfg, registry)
 
 	prov, err := registry.Create(providerName, providerCfg.Model, provider.Options{
-		Temperature:   providerCfg.Temperature,
-		TopP:          providerCfg.TopP,
-		RepeatPenalty: providerCfg.RepeatPenalty,
-		MaxTokens:     providerCfg.MaxTokens,
+		Temperature: providerCfg.Temperature,
 	})
 	if err != nil {
 		fmt.Printf("Error creating provider: %v\n", err)
@@ -150,23 +147,10 @@ func main() {
 	}
 }
 
-func buildRegistry(cfg *config.Config, creds *config.Credentials) *provider.Registry {
+func buildRegistry(cfg *config.Config, _ *config.Credentials) *provider.Registry {
 	registry := provider.NewRegistry()
 	for name, providerCfg := range cfg.Providers {
-		var factory provider.Factory
-		switch providerCfg.Type {
-		case "openai":
-			factory = provider.NewVLLMFactory(name, providerCfg.Endpoint, creds.GetAPIKey(providerCfg.APIKeyName))
-		case "ollama":
-			factory = provider.NewOllamaFactory(name, providerCfg.Endpoint)
-		default:
-			if providerCfg.APIKeyName != "" {
-				factory = provider.NewOpenCodeFactory(name, providerCfg.Endpoint, creds.GetAPIKey(providerCfg.APIKeyName))
-			} else {
-				factory = provider.NewOllamaFactory(name, providerCfg.Endpoint)
-			}
-		}
-		registry.RegisterFactory(name, factory)
+		registry.RegisterFactory(name, provider.NewOllamaFactory(name, providerCfg.Endpoint))
 	}
 	return registry
 }

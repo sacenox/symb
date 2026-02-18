@@ -5,7 +5,7 @@
 The standard approaches to LLM-driven file editing all share the same fundamental
 weakness: they require the model to reproduce file content it already saw.
 
-- **str_replace** (Claude Code, OpenCode, most agents) makes the model reproduce
+- **str_replace** (Claude Code, most agents) makes the model reproduce
   the exact old text including whitespace. Multiple matches or slight misrecall
   cause failures. The "string not found" error is one of the most common complaints.
 
@@ -199,4 +199,4 @@ insert, delete, create, create-fails-if-exists, hash mismatch rejection, no
 operation, multiple operations, path traversal rejection, read-before-edit
 enforcement, and create bypassing the read check.
 
-References: https://blog.can.ac/2026/02/12/the-harness-problem/ and the opencode source code.
+References: https://blog.can.ac/2026/02/12/the-harness-problem/

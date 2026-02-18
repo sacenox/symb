@@ -46,8 +46,7 @@ prepends to system prompt. Checks `~/.config/symb/AGENTS.md` too.
 
 - **Ollama** — local, OpenAI-compatible `/v1` endpoint. Extracts reasoning from
   `reasoning`/`reasoning_content` fields.
-- **OpenCode** — remote, API key auth. Model-specific endpoint routing.
-- Both use SSE streaming with retry on initial connection (3 retries, 429/5xx).
+- SSE streaming with retry on initial connection (3 retries, 429/5xx).
 - Single `ChatStream()` interface method replaces `Chat`/`ChatWithTools`/`Stream`.
 - Deterministic JSON tool schemas, provider kv cache support
 
@@ -202,7 +201,7 @@ Testing, cleaning up.
 ### Community configs support:
 
 - CLAUDE/AGENTS/CURSOR/ETC.md (or just AGENTS.md at this point?) -- Is there a standard?
-- Custom subagent prompts for opencode/others custom agents
+- Custom subagent prompts for custom agents
 - Commands and skills implementation to match community expectations
 
 ### Agent input interactivity:

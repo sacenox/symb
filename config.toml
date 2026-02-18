@@ -1,87 +1,15 @@
 # Symb Configuration File
 
 # Default provider (optional - if not set, first provider in map is used)
-default_provider = "zen-codex"
+default_provider = "ollama-qwen"
 
 # Ollama providers (local)
 [providers.ollama-qwen]
 endpoint = "http://localhost:11434"
 model = "qwen3:8b"
-#temperature = 0.2
-
-[providers.ollama-qwen-small]
-endpoint = "http://localhost:11434"
-model = "qwen3:4b"
-#temperature = 0.2
-
-# OpenCode Zen providers (cloud)
-[providers.zen-nano]
-endpoint = "https://opencode.ai/zen/v1"
-model = "gpt-5-nano"
-api_key_name = "opencode_zen"
-
-[providers.zen-pickle]
-endpoint = "https://opencode.ai/zen/v1"
-model = "big-pickle"
-api_key_name = "opencode_zen"
-
-[providers.zen-codex]
-endpoint = "https://opencode.ai/zen/v1"
-model = "gpt-5.2-codex"
-api_key_name = "opencode_zen"
-
-[providers.zen-opus]
-endpoint = "https://opencode.ai/zen/v1"
-model = "claude-opus-4-6"
-api_key_name = "opencode_zen"
-
-[providers.zen-sonnet]
-endpoint = "https://opencode.ai/zen/v1"
-model = "claude-sonnet-4-5"
-api_key_name = "opencode_zen"
-
-[providers.zen-kimi]
-endpoint = "https://opencode.ai/zen/v1"
-model = "kimi-k2.5"
-api_key_name = "opencode_zen"
-
-[providers.zen-glm]
-endpoint = "https://opencode.ai/zen/v1"
-model = "glm-4.7"
-api_key_name = "opencode_zen"
-
-# Error: LLM stream failed: stream request status 401: {"type":"error","error":{"type":"AuthError","message":"Missing API key."}}
-# Well fuck.
-[providers.zen-gemini]
-endpoint = "https://opencode.ai/zen/v1"
-model = "gemini-3-pro"
-api_key_name = "opencode_zen"
-
-# Local vLLM (OpenAI-compatible)
-[providers.vllm-nanbeige]
-endpoint = "http://localhost:8000/v1"
-model = "Nanbeige/Nanbeige4.1-3B"
-type = "openai"
-temperature = 0.6
-top_p = 0.95
-repeat_penalty = 1.0
-max_tokens = 131072
-
-
-[mcp]
-upstream = ""
 
 [ui]
-# TODO: Code needs to pull these constants.
-# TODO: highlight color
-#       selection background
-#       link background
-#       grayscale used
-#       syntax theme
+# TODO
 
 [cache]
 ttl_hours = 24
-
-[git]
-# TODO: When adding worktrees later
-# enable_sandbox = false

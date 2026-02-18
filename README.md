@@ -32,7 +32,7 @@ Symb pairs you with an LLM, providing an agentic UI with tools the LLM can use t
 - **Tree-sitter**: Tree sitter output once, to sped up filesystem awareness (10% less grepping/searching overall compensates for the initial token cost)
 - **Deterministic schemas**: KV-cache optimized tool definitions for reproducible LLM behavior
 - **Session storage**: Sessions saved to app data in sqlite file. Session management: `-c` continue, `-s <ID>` specific session, `-l` list sessions.
-- **LLM integration**: Ollama local + Opencode Zen support
+- **LLM integration**: Ollama local support
 - **ELM architecture**: Built with BubbleTea for solid state management
 
 ## Syntax Theme
@@ -68,7 +68,6 @@ API keys are stored separately in `~/.config/symb/credentials.json`:
 ```json
 {
   "providers": {
-    "opencode_zen": { "api_key": "your-key" },
     "exa_ai": { "api_key": "your-exa-key" }
   }
 }

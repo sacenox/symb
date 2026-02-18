@@ -132,10 +132,7 @@ func (r *Registry) Create(name, model string, opts Options) (Provider, error) {
 
 // Options holds provider generation settings.
 type Options struct {
-	Temperature   float64
-	TopP          float64
-	RepeatPenalty float64
-	MaxTokens     int
+	Temperature float64
 }
 
 // List returns all registered provider names.

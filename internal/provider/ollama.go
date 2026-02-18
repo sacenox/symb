@@ -1,15 +1,22 @@
 package provider
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
-// OllamaProvider implements the Provider interface for Ollama.
+const roleSystem = "system"
+
 type OllamaProvider struct {
 	name        string
 	baseURL     string
@@ -18,8 +25,6 @@ type OllamaProvider struct {
 	temperature float64
 }
 
-// NewOllama creates a new Ollama provider.
-// Ollama exposes an OpenAI-compatible API at /v1.
 func NewOllama(endpoint, model string) *OllamaProvider {
 	return NewOllamaWithTemp("ollama", endpoint, model, 0.7)
 }
@@ -36,16 +41,14 @@ func NewOllamaWithTemp(name string, endpoint, model string, temperature float64)
 	}
 }
 
-// Name returns the provider identifier.
 func (p *OllamaProvider) Name() string {
 	return p.name
 }
 
-// ChatStream sends messages with optional tools and returns a channel of streaming events.
 func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
 	req := ollamaChatRequest{
 		Model:         p.model,
-		Messages:      mergeConsecutiveSystemMessagesOllama(toOllamaMessages(messages)),
+		Messages:      mergeConsecutiveSystemMessages(toOllamaMessages(messages)),
 		Tools:         toOllamaTools(tools),
 		Temperature:   float32(p.temperature),
 		Stream:        true,
@@ -60,7 +63,7 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, too
 		client:   p.httpClient,
 		url:      p.baseURL + "/chat/completions",
 		body:     body,
-		provider: "ollama",
+		provider: p.name,
 		model:    p.model,
 	})
 	if err != nil {
@@ -77,9 +80,12 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, too
 	return ch, nil
 }
 
-// OLLAMA-SPECIFIC TYPES
-// These types are custom to Ollama and should NOT be used by other providers.
-// They differ from OpenAI standard in structure and field names.
+func (p *OllamaProvider) Close() error {
+	if p.httpClient != nil {
+		p.httpClient.CloseIdleConnections()
+	}
+	return nil
+}
 
 type ollamaChatRequest struct {
 	Model         string             `json:"model"`
@@ -119,10 +125,6 @@ type ollamaReqFuncCall struct {
 	Arguments string `json:"arguments"`
 }
 
-// toOllamaMessages converts provider messages to Ollama's custom request format.
-//
-// OLLAMA-SPECIFIC: Uses custom ollamaReqMessage type instead of OpenAI SDK types.
-// Ollama has its own message format and tool call structure.
 func toOllamaMessages(messages []Message) []ollamaReqMessage {
 	result := make([]ollamaReqMessage, len(messages))
 	for i, m := range messages {
@@ -154,9 +156,6 @@ func toOllamaMessages(messages []Message) []ollamaReqMessage {
 	return result
 }
 
-// toOllamaTools converts provider-agnostic tools to Ollama tool format.
-// Parameters is passed through as json.RawMessage to preserve deterministic
-// serialization order (important for KV-cache hit rate).
 func toOllamaTools(tools []Tool) []ollamaReqTool {
 	emptyParams := json.RawMessage(`{"type":"object","properties":{}}`)
 	result := make([]ollamaReqTool, len(tools))
@@ -178,15 +177,7 @@ func toOllamaTools(tools []Tool) []ollamaReqTool {
 	return result
 }
 
-// mergeConsecutiveSystemMessagesOllama merges consecutive system messages into a single message.
-//
-// OLLAMA-SPECIFIC BEHAVIOR:
-// Unlike OpenAI, Ollama allows system messages anywhere in the conversation.
-// This function merges consecutive system messages IN PLACE without moving them to the start.
-// This preserves Ollama's flexible system message handling.
-//
-// DO NOT use this function for OpenAI-compatible providers - use mergeSystemMessagesOpenAI instead.
-func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaReqMessage {
+func mergeConsecutiveSystemMessages(messages []ollamaReqMessage) []ollamaReqMessage {
 	if len(messages) == 0 {
 		return messages
 	}
@@ -197,7 +188,6 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 
 	for i, msg := range messages {
 		if msg.Role == roleSystem {
-			// Start or continue system message accumulation
 			if inSystemRun {
 				systemBuffer.WriteString("\n\n")
 			} else {
@@ -205,7 +195,6 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 			}
 			systemBuffer.WriteString(msg.Content)
 		} else {
-			// Flush accumulated system messages if any
 			if inSystemRun {
 				result = append(result, ollamaReqMessage{
 					Role:    roleSystem,
@@ -214,11 +203,9 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 				systemBuffer.Reset()
 				inSystemRun = false
 			}
-			// Add non-system message
 			result = append(result, msg)
 		}
 
-		// Flush at end of array
 		if i == len(messages)-1 && inSystemRun {
 			result = append(result, ollamaReqMessage{
 				Role:    roleSystem,
@@ -230,15 +217,223 @@ func mergeConsecutiveSystemMessagesOllama(messages []ollamaReqMessage) []ollamaR
 	log.Debug().
 		Int("original_count", len(messages)).
 		Int("merged_count", len(result)).
-		Msg("Ollama: Merged consecutive system messages")
+		Msg("Merged consecutive system messages")
 
 	return result
 }
 
-// Close closes idle HTTP connections
-func (p *OllamaProvider) Close() error {
-	if p.httpClient != nil {
-		p.httpClient.CloseIdleConnections()
+type chatCompletionStreamResponse struct {
+	Choices []chatCompletionStreamChoice `json:"choices"`
+	Usage   *chatCompletionUsage         `json:"usage,omitempty"`
+}
+
+type chatCompletionUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+type chatCompletionStreamChoice struct {
+	Delta        chatCompletionStreamDelta `json:"delta"`
+	FinishReason *string                   `json:"finish_reason"`
+}
+
+type chatCompletionStreamDelta struct {
+	Role             string                   `json:"role,omitempty"`
+	Content          string                   `json:"content,omitempty"`
+	Reasoning        string                   `json:"reasoning,omitempty"`
+	ReasoningContent string                   `json:"reasoning_content,omitempty"`
+	ToolCalls        []chatCompletionToolCall `json:"tool_calls,omitempty"`
+}
+
+type chatCompletionToolCall struct {
+	Index    int                    `json:"index"`
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function chatCompletionFunction `json:"function"`
+}
+
+type chatCompletionFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type httpRequestConfig struct {
+	client   *http.Client
+	url      string
+	body     []byte
+	headers  map[string]string
+	provider string
+	model    string
+}
+
+var sseRetryDelays = []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second}
+
+func httpDoSSE(ctx context.Context, cfg httpRequestConfig) (io.ReadCloser, error) {
+	maxRetries := len(sseRetryDelays)
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if err := sseRetryWait(ctx, cfg, attempt); err != nil {
+			return nil, err
+		}
+
+		body, err, retry := sseAttempt(ctx, cfg, attempt)
+		if err != nil {
+			return nil, err
+		}
+		if retry != nil {
+			lastErr = retry
+			continue
+		}
+		return body, nil
 	}
-	return nil
+
+	return nil, fmt.Errorf("SSE request failed after %d retries: %w", maxRetries, lastErr)
+}
+
+func sseRetryWait(ctx context.Context, cfg httpRequestConfig, attempt int) error {
+	if attempt == 0 {
+		log.Info().Str("provider", cfg.provider).Str("model", cfg.model).Msg("SSE stream request started")
+		return nil
+	}
+	delay := sseRetryDelays[attempt-1]
+	log.Warn().Str("provider", cfg.provider).Int("attempt", attempt).Dur("delay", delay).Msg("Retrying SSE connection after transient error")
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func isTransientStatus(code int) bool {
+	return code == 429 || code == 500 || code == 502 || code == 503 || code == 504
+}
+
+func sseAttempt(ctx context.Context, cfg httpRequestConfig, attempt int) (io.ReadCloser, error, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.url, bytes.NewReader(cfg.body))
+	if err != nil {
+		return nil, err, nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	for k, v := range cfg.headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	resp, err := cfg.client.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err, nil
+		}
+		return nil, nil, err
+	}
+
+	if isTransientStatus(resp.StatusCode) {
+		payload, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		retryErr := fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
+		log.Warn().Str("provider", cfg.provider).Int("status", resp.StatusCode).Int("attempt", attempt+1).Msg("SSE retryable error")
+		return nil, nil, retryErr
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("stream request status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload))), nil
+	}
+
+	return resp.Body, nil, nil
+}
+
+func parseSSEStream(ctx context.Context, reader io.Reader, ch chan<- StreamEvent) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			trySend(ctx, ch, StreamEvent{Type: EventDone})
+			return
+		}
+
+		var chunk chatCompletionStreamResponse
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			log.Warn().Err(err).Str("data", data).Msg("Failed to parse SSE chunk")
+			continue
+		}
+		if chunk.Usage != nil {
+			trySend(ctx, ch, StreamEvent{
+				Type:         EventUsage,
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+			})
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		if !emitDelta(ctx, ch, chunk.Choices[0].Delta) {
+			return
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		trySend(ctx, ch, StreamEvent{Type: EventError, Err: err})
+		return
+	}
+	trySend(ctx, ch, StreamEvent{Type: EventDone})
+}
+
+func emitDelta(ctx context.Context, ch chan<- StreamEvent, delta chatCompletionStreamDelta) bool {
+	reasoning := delta.Reasoning
+	if reasoning == "" {
+		reasoning = delta.ReasoningContent
+	}
+	if reasoning != "" {
+		if !trySend(ctx, ch, StreamEvent{Type: EventReasoningDelta, Content: reasoning}) {
+			return false
+		}
+	}
+	if delta.Content != "" {
+		if !trySend(ctx, ch, StreamEvent{Type: EventContentDelta, Content: delta.Content}) {
+			return false
+		}
+	}
+	for _, tc := range delta.ToolCalls {
+		if tc.Function.Name != "" {
+			if !trySend(ctx, ch, StreamEvent{
+				Type: EventToolCallBegin, ToolCallIndex: tc.Index,
+				ToolCallID: tc.ID, ToolCallName: tc.Function.Name,
+			}) {
+				return false
+			}
+		}
+		if tc.Function.Arguments != "" {
+			if !trySend(ctx, ch, StreamEvent{
+				Type: EventToolCallDelta, ToolCallIndex: tc.Index,
+				ToolCallArgs: tc.Function.Arguments,
+			}) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func trySend(ctx context.Context, ch chan<- StreamEvent, evt StreamEvent) bool {
+	select {
+	case ch <- evt:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }

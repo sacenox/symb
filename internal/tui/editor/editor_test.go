@@ -17,7 +17,7 @@ func TestLineWidthWithTabs(t *testing.T) {
 	ed.LineNumStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#1c1c1c"))
 	ed.CursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00AA00"))
 
-	content := "\t\tcreds, err := config.LoadCredentials()\n\t\tfmt.Printf(\"Error loading credentials: %v\\n\", err)\n\t\t\tapiKey := creds.GetAPIKey(providerCfg.APIKeyName)\n\t\t\tfactory = provider.NewOpenCodeFactory(name, providerCfg.Model, apiKey)"
+	content := "\t\tcreds, err := config.LoadCredentials()\n\t\tfmt.Printf(\"Error loading credentials: %v\\n\", err)\n\t\t\tfactory = provider.NewOllamaFactory(name, providerCfg.Endpoint)"
 
 	ed.SetWidth(50)
 	ed.SetHeight(6)
