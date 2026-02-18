@@ -247,7 +247,14 @@ type Model struct {
 	fileModal *modal.Model
 	// Keybinds modal
 	keybindsModal *modal.Model
-	searcher      *filesearch.Searcher
+	// Models modal
+	modelsModal *modal.Model
+	searcher    *filesearch.Searcher
+
+	// Provider switching
+	registry         *provider.Registry
+	providerOpts     provider.Options
+	currentModelName string
 	// Pending tool calls: maps tool call ID → arguments for line extraction
 	pendingToolCalls map[string]provider.ToolCall
 
@@ -281,7 +288,7 @@ type Model struct {
 // New creates a new TUI model.
 // If resumeHistory is non-nil, the session is being resumed and messages are
 // loaded from the database instead of creating a fresh system prompt.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message, registry *provider.Registry, providerOpts provider.Options) Model {
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -357,7 +364,10 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		fileTracker:  ft,
 		tsIndex:      idx,
 
-		searcher: newSearcherOrNil("."),
+		searcher:         newSearcherOrNil("."),
+		registry:         registry,
+		providerOpts:     providerOpts,
+		currentModelName: modelID,
 
 		streamEntryStart: -1,
 

@@ -63,9 +63,10 @@ func main() {
 
 	providerName, providerCfg := resolveProvider(cfg, registry)
 
-	prov, err := registry.Create(providerName, providerCfg.Model, provider.Options{
+	providerOpts := provider.Options{
 		Temperature: providerCfg.Temperature,
-	})
+	}
+	prov, err := registry.Create(providerName, providerCfg.Model, providerOpts)
 	if err != nil {
 		fmt.Printf("Error creating provider: %v\n", err)
 		os.Exit(1)
@@ -134,7 +135,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad, resumeHistory),
+		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad, resumeHistory, registry, providerOpts),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {

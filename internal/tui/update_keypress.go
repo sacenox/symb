@@ -23,6 +23,7 @@ func (m *Model) keyPressHandlers() map[string]func(*Model) (Model, tea.Cmd, bool
 		"enter":        (*Model).handleEnter,
 		"ctrl+f":       (*Model).handleCtrlF,
 		"ctrl+h":       (*Model).handleCtrlH,
+		"ctrl+m":       (*Model).handleCtrlM,
 	}
 }
 
@@ -93,6 +94,13 @@ func (m *Model) handleCtrlF() (Model, tea.Cmd, bool) {
 func (m *Model) handleCtrlH() (Model, tea.Cmd, bool) {
 	m.openKeybindsModal()
 	return *m, nil, true
+}
+
+func (m *Model) handleCtrlM() (Model, tea.Cmd, bool) {
+	if m.turnCancel != nil || m.turnPending || m.undoInFlight {
+		return *m, nil, false
+	}
+	return *m, m.fetchModelsCmd(), true
 }
 
 func (m *Model) flushAndQuit() tea.Cmd {

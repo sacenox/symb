@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/exp/golden"
+	"github.com/xonecas/symb/internal/provider"
 )
 
 // stripANSI removes ANSI escape codes for golden file comparison
@@ -26,7 +27,7 @@ func TestLayout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New(nil, nil, nil, "test-model", nil, "test-session", nil, nil, nil, "test-provider", nil, nil)
+			m := New(nil, nil, nil, "test-model", nil, "test-session", nil, nil, nil, "test-provider", nil, nil, nil, provider.Options{})
 			updated, _ := m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
 			m = updated.(Model)
 

@@ -80,11 +80,72 @@ func (p *OllamaProvider) ChatStream(ctx context.Context, messages []Message, too
 	return ch, nil
 }
 
+func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
+	baseURL := strings.TrimRight(p.baseURL, "/v1")
+	url := baseURL + "/api/tags"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list models status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var listResp ollamaListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
+		return nil, err
+	}
+
+	models := make([]Model, len(listResp.Models))
+	for i, m := range listResp.Models {
+		models[i] = Model{
+			Name:       m.Name,
+			Size:       m.Size,
+			Digest:     m.Digest,
+			ModifiedAt: m.ModifiedAt,
+			Format:     m.Details.Format,
+			Family:     m.Details.Family,
+			ParamSize:  m.Details.ParamSize,
+			QuantLevel: m.Details.QuantLevel,
+		}
+	}
+	return models, nil
+}
+
 func (p *OllamaProvider) Close() error {
 	if p.httpClient != nil {
 		p.httpClient.CloseIdleConnections()
 	}
 	return nil
+}
+
+type ollamaListResponse struct {
+	Models []ollamaModel `json:"models"`
+}
+
+type ollamaModel struct {
+	Name       string             `json:"name"`
+	Size       int64              `json:"size"`
+	Digest     string             `json:"digest"`
+	ModifiedAt time.Time          `json:"modified_at"`
+	Details    ollamaModelDetails `json:"details"`
+}
+
+type ollamaModelDetails struct {
+	Format     string `json:"format"`
+	Family     string `json:"family"`
+	ParamSize  string `json:"parameter_size"`
+	QuantLevel string `json:"quantization_level"`
 }
 
 type ollamaChatRequest struct {

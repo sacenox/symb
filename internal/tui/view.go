@@ -17,12 +17,12 @@ func (m Model) View() tea.View {
 		content = m.keybindsModal.View(m.width, m.height)
 	case m.fileModal != nil:
 		content = m.fileModal.View(m.width, m.height)
+	case m.modelsModal != nil:
+		content = m.modelsModal.View(m.width, m.height)
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
-	// Keyboard enhancements are automatically enabled in v2 (Kitty protocol).
-	// This gives us ctrl+shift+c/v disambiguation.
 	return v
 }
 

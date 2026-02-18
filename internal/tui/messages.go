@@ -59,6 +59,17 @@ type storeBatch struct {
 type llmHistoryMsg struct{ msg provider.Message }
 type llmErrorMsg struct{ err error }
 
+type modelsFetchedMsg struct {
+	models []provider.Model
+	err    error
+}
+
+type modelSwitchedMsg struct {
+	modelName string
+	prov      provider.Provider
+	err       error
+}
+
 type userMsgSavedMsg struct {
 	convIdx int
 	dbMsgID int64

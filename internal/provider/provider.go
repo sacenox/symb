@@ -87,6 +87,17 @@ type StreamEvent struct {
 	Err error
 }
 
+type Model struct {
+	Name       string
+	Size       int64
+	Digest     string
+	ModifiedAt time.Time
+	Format     string
+	Family     string
+	ParamSize  string
+	QuantLevel string
+}
+
 // Provider defines the interface for LLM providers.
 type Provider interface {
 	// Name returns the provider's identifier.
@@ -96,6 +107,9 @@ type Provider interface {
 	// The channel is closed after EventDone or EventError is sent.
 	// Pass nil tools for simple chat without tool calling.
 	ChatStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error)
+
+	// ListModels returns available models from the provider.
+	ListModels(ctx context.Context) ([]Model, error)
 
 	// Close closes idle HTTP connections and cleans up resources.
 	Close() error

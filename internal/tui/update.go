@@ -40,6 +40,10 @@ func (m Model) handleModalMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if mdl, cmd, handled := m.updateFileModal(msg); handled {
 		return mdl, cmd, true
 	}
+	// Models modal intercepts all input when open.
+	if mdl, cmd, handled := m.updateModelsModal(msg); handled {
+		return mdl, cmd, true
+	}
 	return m, nil, false
 }
 
@@ -97,6 +101,10 @@ func (m Model) handleSystemEvent(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case gitBranchMsg:
 		mdl, cmd := m.handleGitBranch(msg)
 		return mdl, cmd, true
+	case modelsFetchedMsg:
+		return m.handleModelsFetched(msg), nil, true
+	case modelSwitchedMsg:
+		return m.handleModelSwitched(msg), nil, true
 	}
 	return m, nil, false
 }

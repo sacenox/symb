@@ -55,8 +55,12 @@ func (m Model) renderStatusBar(b *strings.Builder, bgFill lipgloss.Style) {
 		rightParts = append(rightParts, m.styles.Error.Render("✗ "+errText))
 	}
 
-	// Provider config name
-	rightParts = append(rightParts, m.styles.StatusText.Render(m.providerConfigName))
+	// Provider config name + model
+	providerLabel := m.providerConfigName
+	if m.currentModelName != "" {
+		providerLabel += "/" + m.currentModelName
+	}
+	rightParts = append(rightParts, m.styles.StatusText.Render(providerLabel))
 
 	// Animated braille spinner — red on error, accent otherwise
 	frame := brailleFrames[m.spinFrame%len(brailleFrames)]

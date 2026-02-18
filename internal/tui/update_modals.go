@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/xonecas/symb/internal/filesearch"
+	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/tui/modal"
 )
 
@@ -45,6 +46,7 @@ func (m *Model) openKeybindsModal() {
 	items := []modal.Item{
 		{Name: "ctrl+h", Desc: "keybinds"},
 		{Name: "ctrl+f", Desc: "file search"},
+		{Name: "ctrl+m", Desc: "switch model"},
 		{Name: "ctrl+s", Desc: "save editor (send diff) [experimental]"},
 		{Name: "ctrl+shift+c", Desc: "copy selection"},
 		{Name: "ctrl+shift+v", Desc: "paste"},
@@ -133,4 +135,117 @@ func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return *m, nil, true
 	}
 	return *m, nil, false
+}
+
+func (m *Model) fetchModelsCmd() tea.Cmd {
+	return func() tea.Msg {
+		models, err := m.provider.ListModels(context.Background())
+		return modelsFetchedMsg{models: models, err: err}
+	}
+}
+
+func (m *Model) openModelsModal(models []provider.Model) {
+	items := make([]modal.Item, len(models))
+	for i, model := range models {
+		desc := model.ParamSize
+		if model.QuantLevel != "" {
+			if desc != "" {
+				desc += ", "
+			}
+			desc += model.QuantLevel
+		}
+		items[i] = modal.Item{Name: model.Name, Desc: desc}
+	}
+	searchFn := func(query string) []modal.Item {
+		if query == "" {
+			return items
+		}
+		q := strings.ToLower(query)
+		var filtered []modal.Item
+		for _, item := range items {
+			name := strings.ToLower(item.Name)
+			desc := strings.ToLower(item.Desc)
+			if strings.Contains(name, q) || strings.Contains(desc, q) {
+				filtered = append(filtered, item)
+			}
+		}
+		return filtered
+	}
+	md := modal.New(searchFn, "Model: ", modal.Colors{
+		Fg:     palette.Fg,
+		Bg:     palette.Bg,
+		Dim:    palette.Dim,
+		SelFg:  palette.Bg,
+		SelBg:  palette.Fg,
+		Border: palette.Border,
+	})
+	md.WidthPct = 60
+	m.modelsModal = &md
+}
+
+func (m *Model) updateModelsModal(msg tea.Msg) (Model, tea.Cmd, bool) {
+	if m.modelsModal == nil {
+		return *m, nil, false
+	}
+	action, cmd := m.modelsModal.HandleMsg(msg)
+	switch a := action.(type) {
+	case modal.ActionClose:
+		m.modelsModal = nil
+		return *m, nil, true
+	case modal.ActionSelect:
+		m.modelsModal = nil
+		return *m, m.switchModelCmd(a.Item.Name), true
+	}
+	if cmd != nil {
+		return *m, cmd, true
+	}
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.MouseMsg:
+		return *m, nil, true
+	}
+	return *m, nil, false
+}
+
+func (m *Model) switchModelCmd(modelName string) tea.Cmd {
+	registry := m.registry
+	providerConfigName := m.providerConfigName
+	providerOpts := m.providerOpts
+	oldProv := m.provider
+
+	return func() tea.Msg {
+		if registry == nil {
+			return modelSwitchedMsg{err: provider.ErrProviderNotFound}
+		}
+		newProv, err := registry.Create(providerConfigName, modelName, providerOpts)
+		if err != nil {
+			return modelSwitchedMsg{err: err}
+		}
+		if oldProv != nil {
+			oldProv.Close()
+		}
+		return modelSwitchedMsg{modelName: modelName, prov: newProv}
+	}
+}
+
+func (m *Model) handleModelsFetched(msg modelsFetchedMsg) tea.Model {
+	if msg.err != nil {
+		m.lastNetError = "Failed to list models: " + msg.err.Error()
+		return m
+	}
+	if len(msg.models) == 0 {
+		m.lastNetError = "No models available"
+		return m
+	}
+	m.openModelsModal(msg.models)
+	return m
+}
+
+func (m *Model) handleModelSwitched(msg modelSwitchedMsg) tea.Model {
+	if msg.err != nil {
+		m.lastNetError = "Failed to switch model: " + msg.err.Error()
+		return m
+	}
+	m.provider = msg.prov
+	m.currentModelName = msg.modelName
+	return m
 }
