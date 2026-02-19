@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/rs/zerolog/log"
 )
 
 // handleKeyPress processes key events. Returns (model, cmd, true) if handled.
@@ -97,6 +98,7 @@ func (m *Model) handleCtrlH() (Model, tea.Cmd, bool) {
 }
 
 func (m *Model) handleCtrlM() (Model, tea.Cmd, bool) {
+	log.Info().Bool("turnCancel", m.turnCancel != nil).Bool("turnPending", m.turnPending).Bool("undoInFlight", m.undoInFlight).Msg("handleCtrlM")
 	if m.turnCancel != nil || m.turnPending || m.undoInFlight {
 		return *m, nil, false
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/rs/zerolog/log"
 	"github.com/xonecas/symb/internal/filesearch"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/tui/modal"
@@ -139,7 +140,13 @@ func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 
 func (m *Model) fetchModelsCmd() tea.Cmd {
 	return func() tea.Msg {
+		log.Info().Str("provider", m.provider.Name()).Msg("fetchModelsCmd called")
 		models, err := m.provider.ListModels(context.Background())
+		if err != nil {
+			log.Error().Err(err).Msg("ListModels error")
+		} else {
+			log.Info().Int("count", len(models)).Msg("ListModels returned")
+		}
 		return modelsFetchedMsg{models: models, err: err}
 	}
 }
@@ -216,6 +223,7 @@ func (m *Model) switchModelCmd(modelName string) tea.Cmd {
 		if registry == nil {
 			return modelSwitchedMsg{err: provider.ErrProviderNotFound}
 		}
+		log.Info().Str("provider", providerConfigName).Str("model", modelName).Msg("switchModelCmd")
 		newProv, err := registry.Create(providerConfigName, modelName, providerOpts)
 		if err != nil {
 			return modelSwitchedMsg{err: err}
@@ -229,13 +237,16 @@ func (m *Model) switchModelCmd(modelName string) tea.Cmd {
 
 func (m *Model) handleModelsFetched(msg modelsFetchedMsg) tea.Model {
 	if msg.err != nil {
+		log.Error().Err(msg.err).Msg("handleModelsFetched error")
 		m.lastNetError = "Failed to list models: " + msg.err.Error()
 		return m
 	}
 	if len(msg.models) == 0 {
+		log.Warn().Msg("handleModelsFetched: no models")
 		m.lastNetError = "No models available"
 		return m
 	}
+	log.Info().Int("count", len(msg.models)).Msg("handleModelsFetched opening modal")
 	m.openModelsModal(msg.models)
 	return m
 }

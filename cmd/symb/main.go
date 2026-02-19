@@ -148,10 +148,17 @@ func main() {
 	}
 }
 
-func buildRegistry(cfg *config.Config, _ *config.Credentials) *provider.Registry {
+func buildRegistry(cfg *config.Config, creds *config.Credentials) *provider.Registry {
 	registry := provider.NewRegistry()
 	for name, providerCfg := range cfg.Providers {
-		registry.RegisterFactory(name, provider.NewOllamaFactory(name, providerCfg.Endpoint))
+		apiKey := creds.GetAPIKey(name)
+		if apiKey != "" {
+			log.Info().Str("provider", name).Bool("has_api_key", true).Msg("Registering ZenFactory")
+			registry.RegisterFactory(name, provider.NewZenFactory(name, apiKey, providerCfg.Endpoint))
+		} else {
+			log.Info().Str("provider", name).Bool("has_api_key", false).Msg("Registering OllamaFactory")
+			registry.RegisterFactory(name, provider.NewOllamaFactory(name, providerCfg.Endpoint))
+		}
 	}
 	return registry
 }

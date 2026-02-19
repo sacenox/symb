@@ -8,6 +8,9 @@ default_provider = "ollama-qwen"
 endpoint = "http://localhost:11434"
 model = "qwen3:8b"
 
+[providers.zen]
+model = "claude-sonnet-4-6"
+
 [ui]
 # TODO
 

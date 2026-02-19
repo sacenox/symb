@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // ErrProviderNotFound is returned when a requested provider doesn't exist.
@@ -139,8 +141,10 @@ func (r *Registry) RegisterFactory(name string, f Factory) {
 func (r *Registry) Create(name, model string, opts Options) (Provider, error) {
 	f, ok := r.factories[name]
 	if !ok {
+		log.Error().Str("name", name).Str("model", model).Msg("Registry.Create: factory not found")
 		return nil, ErrProviderNotFound
 	}
+	log.Info().Str("name", name).Str("model", model).Str("factory_type", "unknown").Msg("Registry.Create: calling factory")
 	return f.Create(model, opts), nil
 }
 

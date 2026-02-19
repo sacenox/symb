@@ -92,8 +92,14 @@ github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7
 github.com/rs/xid v1.6.0/go.mod h1:7XoLgs4eV+QndskICGsho+ADou8ySMSjJKDIan90Nz0=
 github.com/rs/zerolog v1.34.0 h1:k43nTLIwcTVQAncfCw4KZ2VY6ukYoZaBPNOE8txlOeY=
 github.com/rs/zerolog v1.34.0/go.mod h1:bJsvje4Z08ROH4Nhs5iH600c3IkWhwp44iRc54W6wYQ=
-github.com/sashabaranov/go-openai v1.41.2 h1:vfPRBZNMpnqu8ELsclWcAvF19lDNgh1t6TVfFFOPiSM=
-github.com/sashabaranov/go-openai v1.41.2/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.0-20260217230320-035924957efe h1:A5+tr2aMC9eLLknAOSEmtrzwqJE3oBAMtniY/jgzdLo=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.0-20260217230320-035924957efe/go.mod h1:MK7Zno/U0BRk1/YDHKisc3ZXoQhcTyGnU9SbEuQ/c34=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.0-20260218233948-be38230e6c9a h1:Pnr+ikm8pNBFb7HQpFKQW/p1N5MuuqRDZDjaSFZFfTg=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.0-20260218233948-be38230e6c9a/go.mod h1:MK7Zno/U0BRk1/YDHKisc3ZXoQhcTyGnU9SbEuQ/c34=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.1 h1:i0S5jrvDdsjr7+F7CeP88ahkZkq901nLg5leWj/jrf4=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.1/go.mod h1:MK7Zno/U0BRk1/YDHKisc3ZXoQhcTyGnU9SbEuQ/c34=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.2 h1:V6SOmoYmYLpQDxiqubKiGOQsG5pwBPj4uTdwlMcT8Go=
+github.com/sacenox/go-opencode-ai-zen-sdk v0.0.2/go.mod h1:MK7Zno/U0BRk1/YDHKisc3ZXoQhcTyGnU9SbEuQ/c34=
 github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 h1:6C8qej6f1bStuePVkLSFxoU22XBS165D3klxlzRg8F4=
 github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82/go.mod h1:xe4pgH49k4SsmkQq5OT8abwhWmnzkhpgnXeekbx2efw=
 github.com/sourcegraph/jsonrpc2 v0.2.1 h1:2GtljixMQYUYCmIg7W9aF2dFmniq/mOr2T9tFRh6zSQ=
