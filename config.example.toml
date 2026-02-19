@@ -9,6 +9,8 @@ endpoint = "http://localhost:11434"
 model = "qwen3:8b"
 
 [providers.zen]
+# TODO: currently fails with an error when zen has no endoint. It should be optional, fix
+endpoint = "https://opencode.ai/zen/v1"
 model = "glm-5"
 
 [ui]
