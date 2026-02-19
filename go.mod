@@ -12,7 +12,7 @@ require (
 	github.com/charmbracelet/x/exp/golden v0.0.0-20260209194814-eeb2896ac759
 	github.com/charmbracelet/x/powernap v0.0.0-20260209132835-6b065b8ba62c
 	github.com/rs/zerolog v1.34.0
-	github.com/sacenox/go-opencode-ai-zen-sdk v0.0.4-0.20260219155140-c28731c633ea
+	github.com/sacenox/go-opencode-ai-zen-sdk v0.0.4-0.20260219161442-9af6c03957e5
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	modernc.org/sqlite v1.45.0
 	mvdan.cc/sh/v3 v3.12.0

@@ -165,7 +165,6 @@ func gitStatusCounts() (added int, modified int, removed int) {
 	return added, modified, removed
 }
 
-
 // gitBranchCmd runs git to detect the current branch and dirty status.
 func gitBranchCmd() tea.Cmd {
 	return func() tea.Msg {

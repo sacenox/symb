@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/lsp"
@@ -39,7 +40,7 @@ func NewSubAgentTool() mcp.Tool {
 
 // SubAgentHandler handles SubAgent tool calls.
 type SubAgentHandler struct {
-	provider     provider.Provider
+	provider     *atomic.Pointer[provider.Provider]
 	lspManager   *lsp.Manager
 	deltaTracker *delta.Tracker
 	sh           *shell.Shell
@@ -48,7 +49,7 @@ type SubAgentHandler struct {
 
 // NewSubAgentHandler creates a handler for the SubAgent tool.
 func NewSubAgentHandler(
-	prov provider.Provider,
+	prov *atomic.Pointer[provider.Provider],
 	lspManager *lsp.Manager,
 	deltaTracker *delta.Tracker,
 	sh *shell.Shell,
@@ -118,7 +119,7 @@ func (h *SubAgentHandler) Handle(ctx context.Context, arguments json.RawMessage)
 	subCtx, subCancel := context.WithCancel(context.Background())
 	defer subCancel()
 	result, err := subagent.Run(subCtx, subagent.Options{
-		Provider:      h.provider,
+		Provider:      *h.provider.Load(),
 		Proxy:         subProxy,
 		Tools:         filteredTools,
 		Prompt:        args.Prompt,

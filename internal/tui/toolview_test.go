@@ -11,7 +11,7 @@ import (
 // on a tool result entry opens the tool view modal.
 func TestToolViewModalOpensOnViewClick(t *testing.T) {
 	initTheme("vulcan")
-	m := New(nil, nil, nil, "test", nil, "s", nil, nil, nil, "p", nil, nil, nil, provider.Options{}, "vulcan")
+	m := New(nil, nil, nil, nil, "test", nil, "s", nil, nil, nil, "p", nil, nil, nil, provider.Options{}, "vulcan")
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated.(Model)
 

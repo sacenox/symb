@@ -323,6 +323,10 @@ func (m *Model) handleModelSwitched(msg modelSwitchedMsg) tea.Model {
 		return m
 	}
 	m.provider = msg.prov
+	if m.sharedProvider != nil {
+		prov := msg.prov
+		m.sharedProvider.Store(&prov)
+	}
 	m.currentModelName = msg.modelName
 	if msg.providerName != "" {
 		m.providerConfigName = msg.providerName

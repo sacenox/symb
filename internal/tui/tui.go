@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"regexp"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -217,6 +218,7 @@ type Model struct {
 	providerOpts     provider.Options
 	currentModelName string
 	cachedModels     []provider.TaggedModel // cached across all providers
+	sharedProvider   *atomic.Pointer[provider.Provider]
 	// Pending tool calls: maps tool call ID → arguments for line extraction
 	pendingToolCalls map[string]provider.ToolCall
 
@@ -238,8 +240,8 @@ type Model struct {
 	gitModified        int
 	gitRemoved         int
 
-	lastNetError       string // Last LLM network error (truncated for display)
-	llmInFlight        bool   // True while an LLM turn is in progress
+	lastNetError string // Last LLM network error (truncated for display)
+	llmInFlight  bool   // True while an LLM turn is in progress
 
 	// Statusbar animation
 	spinFrame   int       // Current braille spinner frame index
@@ -249,7 +251,7 @@ type Model struct {
 // New creates a new TUI model.
 // If resumeHistory is non-nil, the session is being resumed and messages are
 // loaded from the database instead of creating a fresh system prompt.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message, registry *provider.Registry, providerOpts provider.Options, syntaxTheme string) Model {
+func New(prov provider.Provider, sharedProvider *atomic.Pointer[provider.Provider], proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message, registry *provider.Registry, providerOpts provider.Options, syntaxTheme string) Model {
 	initTheme(syntaxTheme)
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
@@ -313,6 +315,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 		registry:         registry,
 		providerOpts:     providerOpts,
 		currentModelName: modelID,
+		sharedProvider:   sharedProvider,
 
 		streamEntryStart: -1,
 

@@ -3,6 +3,17 @@
 Timeout shouldn't interrupt subagents, this is breaking the subagent tool.
 
 ```
+→  SubAgent(max_iterations=8, prompt=Explore `internal/delta/delta.go` and `i…, type=explore)
+→  SubAgent(max_iterations=8, prompt=Explore `internal/tui/messages.go` focus…, type=explore)
+→  SubAgent(max_iterations=8, prompt=Explore `internal/llm/loop.go` for perfo…, type=explore)
+→  SubAgent(max_iterations=8, prompt=Explore `internal/store/session.go` and …, type=explore)
+←  sub-agent failed: LLM stream failed: Post "https://opencode.ai/zen/v1/chat/completions": http2: timeout awaiting response headers  view
+←  sub-agent failed: LLM stream failed: zen: request failed with status 429  view
+←  sub-agent failed: LLM stream failed: zen: request failed with status 429  view
+←  sub-agent failed: LLM stream failed: Post "https://opencode.ai/zen/v1/chat/completions": http2: timeout awaiting response headers  view
+```
+
+```
 ←  sub-agent failed: LLM stream failed: context deadline exceeded (Client.Timeout or context cancellation while reading body)
 ```
 
@@ -20,6 +31,8 @@ exceeded while awaiting headers)  view
 
 We need to be smarter and take a snapshot when the user sends a new message. And save it as a restore point
 instead of granularly tracking each change that happens in a turn.
+
+- [ ]: reasoning is not shown on some models from Zen?
 
 ---
 

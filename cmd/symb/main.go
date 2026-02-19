@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -73,6 +74,12 @@ func main() {
 	}
 	defer prov.Close()
 
+	// sharedProvider is the single source of truth for the active provider.
+	// Both the TUI and SubAgentHandler read/write it so model switches are
+	// immediately visible to sub-agents.
+	sharedProvider := &atomic.Pointer[provider.Provider]{}
+	sharedProvider.Store(&prov)
+
 	svc := setupServices(cfg, creds)
 	defer svc.proxy.Close()
 	defer svc.lspManager.StopAll(context.Background())
@@ -95,7 +102,7 @@ func main() {
 	// Register SubAgent tool after obtaining the tools list.
 	// SubAgent needs access to provider and all tools to spawn isolated sub-agents.
 	subAgentHandler := mcptools.NewSubAgentHandler(
-		prov,
+		sharedProvider,
 		svc.lspManager,
 		svc.deltaTracker,
 		svc.shell,
@@ -133,7 +140,7 @@ func main() {
 	}
 
 	p := tea.NewProgram(
-		tui.New(prov, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad, resumeHistory, registry, providerOpts, cfg.UI.SyntaxThemeOrDefault()),
+		tui.New(prov, sharedProvider, svc.proxy, tools, providerCfg.Model, svc.webCache, sessionID, tsIndex, svc.deltaTracker, svc.fileTracker, providerName, svc.scratchpad, resumeHistory, registry, providerOpts, cfg.UI.SyntaxThemeOrDefault()),
 		tea.WithFilter(tui.MouseEventFilter),
 	)
 	svc.lspManager.SetCallback(func(absPath string, lines map[int]int) {
