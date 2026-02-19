@@ -30,7 +30,7 @@ func (m *Model) openFileModal() {
 		}
 		return items
 	}
-	md := modal.New(searchFn, "Open: ", modal.Colors{
+	md := modal.New(searchFn, "File: ", modal.Colors{
 		Fg:     palette.Fg,
 		Bg:     palette.Bg,
 		Dim:    palette.Dim,
@@ -46,7 +46,7 @@ func (m *Model) openFileModal() {
 func (m *Model) openKeybindsModal() {
 	items := []modal.Item{
 		{Name: "ctrl+h", Desc: "keybinds"},
-		{Name: "ctrl+f", Desc: "file search"},
+		{Name: "@", Desc: "file search"},
 		{Name: "ctrl+m", Desc: "switch model"},
 		{Name: "ctrl+shift+c", Desc: "copy selection"},
 		{Name: "ctrl+shift+v", Desc: "paste"},
@@ -118,9 +118,16 @@ func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return *m, nil, false
 	}
 	action, cmd := m.fileModal.HandleMsg(msg)
-	switch action.(type) {
-	case modal.ActionClose, modal.ActionSelect:
+	switch a := action.(type) {
+	case modal.ActionClose:
 		m.fileModal = nil
+		m.atOffset = 0
+		return *m, nil, true
+	case modal.ActionSelect:
+		m.fileModal = nil
+		m.atOffset = 0
+		m.agentInput.InsertText(a.Item.Name)
+		m.agentInput.Focus()
 		return *m, nil, true
 	}
 	if cmd != nil {

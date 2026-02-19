@@ -219,6 +219,16 @@ func (m *Model) textInRange(start, end pos) string {
 	return sb.String()
 }
 
+// CursorOffset returns the rune offset of the cursor from the beginning of the document.
+func (m Model) CursorOffset() int {
+	offset := 0
+	for i := 0; i < m.row && i < len(m.lines); i++ {
+		offset += len(m.lines[i]) + 1 // +1 for newline
+	}
+	offset += m.col
+	return offset
+}
+
 // DeleteSelection removes the selected text and positions the cursor at the
 // start of the deleted range. Returns true if a selection was deleted.
 func (m *Model) DeleteSelection() bool {

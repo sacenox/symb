@@ -37,9 +37,11 @@ delete, paste, tab indent)
 
 Agent input, simple multiline textarea with markdown highlighting.
 
+// TODO:
 Use a special key `@` to spawn an autocomplete/filesearch modal. This can match files, skills, commands or subagents.
 When the user selects a match with `Enter` it replaces the @ with the selected item once the message is sent to the, includes hashes when injected into the user message.
 Start with file search only for the initial implementation.
+Remove the ctrl+f keybind
 
 ### Search modal
 

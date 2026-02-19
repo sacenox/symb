@@ -21,7 +21,7 @@ func (m *Model) keyPressHandlers() map[string]func(*Model) (Model, tea.Cmd, bool
 		"ctrl+shift+v": (*Model).handleCtrlShiftV,
 		"esc":          (*Model).handleEsc,
 		"enter":        (*Model).handleEnter,
-		"ctrl+f":       (*Model).handleCtrlF,
+		"@":            (*Model).handleAtSign,
 		"ctrl+h":       (*Model).handleCtrlH,
 		"ctrl+m":       (*Model).handleCtrlM,
 	}
@@ -65,19 +65,22 @@ func (m *Model) cancelProgramCmd() tea.Cmd {
 
 func (m *Model) handleEnter() (Model, tea.Cmd, bool) {
 	if m.agentInput.Value() != "" && m.turnCancel == nil && !m.turnPending && !m.undoInFlight {
-		userMsg := m.agentInput.Value()
+		display := m.agentInput.Value()
 		m.agentInput.Reset()
-		return *m, m.sendToLLM(userMsg), true
+		return *m, m.sendToLLM(display, expandAtMentions(display)), true
 	}
 	return Model{}, nil, false
 }
 
-func (m *Model) handleCtrlF() (Model, tea.Cmd, bool) {
-	if m.searcher != nil {
-		m.openFileModal()
-		return *m, nil, true
+func (m *Model) handleAtSign() (Model, tea.Cmd, bool) {
+	if m.searcher == nil || !m.agentInput.Focused() {
+		return Model{}, nil, false
 	}
-	return *m, nil, false
+	m.agentInput.DeleteSelection()
+	m.agentInput.InsertText("@")
+	m.atOffset = m.agentInput.CursorOffset() // offset is now just after the @
+	m.openFileModal()
+	return *m, nil, true
 }
 
 func (m *Model) handleCtrlH() (Model, tea.Cmd, bool) {

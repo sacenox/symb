@@ -22,7 +22,10 @@ import (
 // ELM messages
 // ---------------------------------------------------------------------------
 
-type llmUserMsg struct{ content string }
+type llmUserMsg struct {
+	display string // raw text shown in conversation (with @tokens)
+	content string // expanded text sent to LLM (@ tokens replaced with file content)
+}
 
 type llmAssistantMsg struct {
 	reasoning string
@@ -155,8 +158,8 @@ func gitBranchTick() tea.Cmd {
 	})
 }
 
-func (m Model) sendToLLM(userInput string) tea.Cmd {
-	return func() tea.Msg { return llmUserMsg{content: userInput} }
+func (m Model) sendToLLM(display, content string) tea.Cmd {
+	return func() tea.Msg { return llmUserMsg{display: display, content: content} }
 }
 
 func (m Model) waitForLLMUpdate() tea.Cmd {
@@ -229,6 +232,12 @@ func (m Model) runLLMTurn(deps llmTurnDeps, extra []provider.Message) {
 	}
 	history = ensureSystemMessage(history, deps.systemMsg)
 	if len(extra) > 0 {
+		// extra carries the current user message in its expanded form. The DB
+		// already saved the display form as the last entry, so trim it to avoid
+		// sending a duplicate to the LLM.
+		if n := len(history); n > 0 && history[n-1].Role == "user" {
+			history = history[:n-1]
+		}
 		history = append(history, extra...)
 	}
 

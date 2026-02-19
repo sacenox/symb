@@ -23,7 +23,8 @@ func (m Model) handleLLMUser(msg llmUserMsg) (tea.Model, tea.Cmd) {
 // handleUserMsg records a user message in the conversation display.
 func (m *Model) handleUserMsg(msg llmUserMsg) (Model, tea.Cmd) {
 	now := time.Now()
-	userMsg := provider.Message{Role: "user", Content: msg.content, CreatedAt: now}
+	llmMsg := provider.Message{Role: "user", Content: msg.content, CreatedAt: now}
+	storeMsg := provider.Message{Role: "user", Content: msg.display, CreatedAt: now}
 
 	convIdx := len(m.convEntries)
 
@@ -39,7 +40,7 @@ func (m *Model) handleUserMsg(msg llmUserMsg) (Model, tea.Cmd) {
 	})
 
 	m.appendText("")
-	m.appendText(highlightMarkdown(msg.content, m.styles.Text)...)
+	m.appendText(highlightMarkdown(msg.display, m.styles.Text)...)
 	wasBottom := m.appendText("")
 	m.turnInputTokens = 0
 	m.turnOutputTokens = 0
@@ -47,24 +48,24 @@ func (m *Model) handleUserMsg(msg llmUserMsg) (Model, tea.Cmd) {
 	if wasBottom {
 		m.scrollOffset = 0
 	}
-	cmd := m.saveUserMessageCmd(userMsg, convIdx)
+	cmd := m.saveUserMessageCmd(llmMsg, storeMsg, convIdx)
 	return *m, cmd
 }
 
-func (m *Model) saveUserMessageCmd(userMsg provider.Message, convIdx int) tea.Cmd {
+func (m *Model) saveUserMessageCmd(llmMsg, storeMsg provider.Message, convIdx int) tea.Cmd {
 	store := m.store
 	sessionID := m.sessionID
 	if store == nil {
 		return func() tea.Msg {
-			return userMsgSavedMsg{convIdx: convIdx, dbMsgID: 0, userMsg: userMsg}
+			return userMsgSavedMsg{convIdx: convIdx, dbMsgID: 0, userMsg: llmMsg}
 		}
 	}
 	return func() tea.Msg {
-		id, err := store.SaveMessageSync(sessionID, messageToStore(userMsg))
+		id, err := store.SaveMessageSync(sessionID, messageToStore(storeMsg))
 		if err != nil {
-			return userMsgSavedMsg{convIdx: convIdx, dbMsgID: 0, userMsg: userMsg, err: err}
+			return userMsgSavedMsg{convIdx: convIdx, dbMsgID: 0, userMsg: llmMsg, err: err}
 		}
-		return userMsgSavedMsg{convIdx: convIdx, dbMsgID: id, userMsg: userMsg}
+		return userMsgSavedMsg{convIdx: convIdx, dbMsgID: id, userMsg: llmMsg}
 	}
 }
 
@@ -84,10 +85,11 @@ func (m Model) handleUserMsgSaved(msg userMsgSavedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.llmInFlight = true
 	m.turnCtx, m.turnCancel = context.WithCancel(context.Background())
-	var extra []provider.Message
-	if msg.dbMsgID == 0 {
-		extra = append(extra, msg.userMsg)
-	}
+	// Always supply the current user message via extra so the LLM receives the
+	// expanded form (@ mentions replaced with file content). When the store is
+	// present the display form was saved to DB; we need to exclude it from the
+	// loaded history to avoid sending a duplicate.
+	extra := []provider.Message{msg.userMsg}
 	return m, tea.Batch(m.processLLMWithExtra(extra), m.waitForLLMUpdate())
 }
 

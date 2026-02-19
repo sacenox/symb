@@ -203,6 +203,7 @@ type Model struct {
 
 	// File finder modal
 	fileModal *modal.Model
+	atOffset  int // rune offset where @ was typed (for file modal replacement)
 	// Keybinds modal
 	keybindsModal *modal.Model
 	// Models modal
