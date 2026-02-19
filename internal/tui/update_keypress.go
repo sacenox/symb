@@ -19,7 +19,6 @@ func (m *Model) keyPressHandlers() map[string]func(*Model) (Model, tea.Cmd, bool
 		"ctrl+c":       (*Model).handleCtrlC,
 		"ctrl+shift+c": (*Model).handleCtrlShiftC,
 		"ctrl+shift+v": (*Model).handleCtrlShiftV,
-		"ctrl+s":       (*Model).handleCtrlS,
 		"esc":          (*Model).handleEsc,
 		"enter":        (*Model).handleEnter,
 		"ctrl+f":       (*Model).handleCtrlF,
@@ -43,24 +42,13 @@ func (m *Model) handleCtrlShiftV() (Model, tea.Cmd, bool) {
 	return *m, tea.ReadClipboard, true
 }
 
-func (m *Model) handleCtrlS() (Model, tea.Cmd, bool) {
-	if m.turnCancel == nil && !m.turnPending && !m.undoInFlight {
-		return *m, m.sendDiffToLLM(), true
-	}
-	return *m, nil, true
-}
-
 func (m *Model) handleEsc() (Model, tea.Cmd, bool) {
 	if m.llmInFlight {
 		cmd := m.cancelTurnCmd()
 		m.cancelTurn()
 		return *m, tea.Batch(cmd, m.waitForLLMUpdate()), true
 	}
-	if m.focus == focusInput {
-		m.agentInput.Blur()
-	} else {
-		m.editor.Blur()
-	}
+	m.agentInput.Blur()
 	return *m, nil, true
 }
 
@@ -76,7 +64,7 @@ func (m *Model) cancelProgramCmd() tea.Cmd {
 }
 
 func (m *Model) handleEnter() (Model, tea.Cmd, bool) {
-	if m.focus == focusInput && m.agentInput.Value() != "" && m.turnCancel == nil && !m.turnPending && !m.undoInFlight {
+	if m.agentInput.Value() != "" && m.turnCancel == nil && !m.turnPending && !m.undoInFlight {
 		userMsg := m.agentInput.Value()
 		m.agentInput.Reset()
 		return *m, m.sendToLLM(userMsg), true

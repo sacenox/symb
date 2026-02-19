@@ -34,20 +34,16 @@ func (m Model) renderContent() string {
 		return ""
 	}
 
-	ly := m.layout
 	contentH := m.height - statusRows
 	var b strings.Builder
 
-	editorLines := strings.Split(m.editor.View(), "\n")
 	inputLines := strings.Split(m.agentInput.View(), "\n")
 	convLines := m.wrappedConvLines()
 	startLine := m.visibleStartLine()
 	bgFill := m.styles.BgFill
 
 	for row := 0; row < contentH; row++ {
-		m.renderEditorRow(&b, editorLines, row, ly.editor.Dx(), bgFill)
-		b.WriteString(m.styles.Border.Render("│"))
-		m.renderRightPaneRow(&b, convLines, inputLines, row, startLine, bgFill)
+		m.renderPaneRow(&b, convLines, inputLines, row, startLine, bgFill)
 		b.WriteByte('\n')
 	}
 

@@ -48,12 +48,11 @@ func (m *Model) openKeybindsModal() {
 		{Name: "ctrl+h", Desc: "keybinds"},
 		{Name: "ctrl+f", Desc: "file search"},
 		{Name: "ctrl+m", Desc: "switch model"},
-		{Name: "ctrl+s", Desc: "save editor (send diff) [experimental]"},
 		{Name: "ctrl+shift+c", Desc: "copy selection"},
 		{Name: "ctrl+shift+v", Desc: "paste"},
 		{Name: "ctrl+c", Desc: "quit"},
 		{Name: "esc", Desc: "cancel/blur"},
-		{Name: "enter", Desc: "send message in input, newline on editor"},
+		{Name: "enter", Desc: "send message"},
 		{Name: "shift+enter", Desc: "newline in input"},
 		{Name: "tab", Desc: "indent"},
 		{Name: "backspace", Desc: "delete backward"},
@@ -119,14 +118,10 @@ func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 		return *m, nil, false
 	}
 	action, cmd := m.fileModal.HandleMsg(msg)
-	switch a := action.(type) {
-	case modal.ActionClose:
+	switch action.(type) {
+	case modal.ActionClose, modal.ActionSelect:
 		m.fileModal = nil
 		return *m, nil, true
-	case modal.ActionSelect:
-		m.fileModal = nil
-		openCmd := m.openFile(a.Item.Name, 0)
-		return *m, openCmd, true
 	}
 	if cmd != nil {
 		return *m, cmd, true

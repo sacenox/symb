@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -9,10 +8,7 @@ import (
 
 // renderStatusBar writes the status separator and bar.
 func (m Model) renderStatusBar(b *strings.Builder, bgFill lipgloss.Style) {
-	divX := m.layout.div.Min.X
-	b.WriteString(m.styles.Border.Render(strings.Repeat("─", divX)))
-	b.WriteString(m.styles.Border.Render("┴"))
-	b.WriteString(m.styles.Border.Render(strings.Repeat("─", m.width-divX-1)))
+	b.WriteString(m.styles.Border.Render(strings.Repeat("─", m.width)))
 	b.WriteByte('\n')
 
 	// -- Left segments --
@@ -25,20 +21,6 @@ func (m Model) renderStatusBar(b *strings.Builder, bgFill lipgloss.Style) {
 			branch += "*"
 		}
 		leftParts = append(leftParts, m.styles.StatusText.Render(" "+branch))
-	}
-
-	// LSP diagnostics for current editor file
-	if m.lspErrors > 0 || m.lspWarnings > 0 {
-		var diags []string
-		if m.lspErrors > 0 {
-			diags = append(diags, m.styles.Error.Render(fmt.Sprintf("✗ %d", m.lspErrors)))
-		}
-		if m.lspWarnings > 0 {
-			diags = append(diags, m.styles.Warning.Render(fmt.Sprintf("⚠ %d", m.lspWarnings)))
-		}
-		leftParts = append(leftParts, strings.Join(diags, m.styles.StatusText.Render(" ")))
-	} else if m.editorFilePath != "" {
-		leftParts = append(leftParts, m.styles.StatusText.Render(m.editorFilePath))
 	}
 
 	left := strings.Join(leftParts, m.styles.StatusText.Render("  "))

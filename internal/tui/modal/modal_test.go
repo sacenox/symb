@@ -123,7 +123,10 @@ func TestDebounceFiresSearch(t *testing.T) {
 	m.HandleMsg(key('x'))
 	seq := m.seq
 	// Fire matching debounce.
-	m.HandleMsg(debounceMsg{seq: seq})
+	_, cmd := m.HandleMsg(debounceMsg{seq: seq})
+	if cmd != nil {
+		cmd() // execute the search command
+	}
 	if !called {
 		t.Fatal("expected search to be called")
 	}

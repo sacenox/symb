@@ -25,23 +25,15 @@ throttle on wheel/motion events.
 ╰─────────────────────────────────────────────╯
 ```
 
-// TODO: Remove editor pane. keep the editor for agent input
-Editor component (`internal/tui/editor`): full editing capability (insert,
-delete, paste, tab indent) gated behind `ReadOnly` flag. Left pane is read-only
-viewer. Input pane uses same component with `ReadOnly=false`.
-
-Make a generic modal with inputbox + list combo for re-use. Then use that to make the file search one.
-(It will be used for a command box maybe)
-
-// TODO: Drop editor pane, use full with.
-//       Bigger refactor, means making a modal to view tool results
-//       Filesearch modal now becomes an autocomple, an inserts the file into the prompt when sent. User triggers the modal with `@`
+### Log
 
 Conversation log, an interactive conversation log where the user can click on tool messages to open a modal
 and view the contents of that tool call (call and results). Streams results in modal if tool is running.
 
-
 ### Agent input interactivity:
+
+Editor component (`internal/tui/editor`): full editing capability (insert,
+delete, paste, tab indent) 
 
 Agent input, simple multiline textarea with markdown highlighting.
 
@@ -75,6 +67,7 @@ Status bar, a simple bar showing the current git status current model and animat
 Left:
 
 - Show current branch + dirty status in status bar. (needs to be updated every X frames/time) to be responsive
+- Count of files added/changed/removed in git tracking // TODO
 
 Right (right aligned text)
 

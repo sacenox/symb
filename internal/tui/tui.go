@@ -26,33 +26,24 @@ import (
 // layout holds computed rectangles for every TUI region.
 // Recomputed from terminal dimensions on every resize.
 type layout struct {
-	editor image.Rectangle // Left pane: code viewer
-	conv   image.Rectangle // Right pane: conversation log
-	sep    image.Rectangle // Right pane: separator between conv and input
-	input  image.Rectangle // Right pane: agent input
-	div    image.Rectangle // Vertical divider column (1-wide)
+	conv  image.Rectangle // Conversation log
+	sep   image.Rectangle // Separator between conv and input
+	input image.Rectangle // Agent input
 }
 
 const (
 	inputRows       = 3 // Agent input height
 	statusRows      = 2 // Status separator + status bar
-	minPaneWidth    = 20
 	maxDisplayTurns = 5 // Max conversation turns kept in memory; older turns live in DB
 
 	roleAssistant = "assistant"
 )
 
-// generateLayout computes all regions from terminal size and divider position.
-func generateLayout(width, height, divX int) layout {
+// generateLayout computes all regions from terminal size.
+func generateLayout(width, height int) layout {
 	contentH := height - statusRows
 	if contentH < 1 {
 		contentH = 1
-	}
-
-	rightX := divX + 1
-	rightW := width - rightX
-	if rightW < 1 {
-		rightW = 1
 	}
 
 	sepY := contentH - inputRows - 1
@@ -65,41 +56,15 @@ func generateLayout(width, height, divX int) layout {
 	}
 
 	return layout{
-		editor: image.Rect(0, 0, divX, contentH),
-		div:    image.Rect(divX, 0, divX+1, contentH),
-		conv:   image.Rect(rightX, 0, rightX+rightW, sepY),
-		sep:    image.Rect(rightX, sepY, rightX+rightW, sepY+1),
-		input:  image.Rect(rightX, inputY, rightX+rightW, inputY+inputRows),
+		conv:  image.Rect(0, 0, width, sepY),
+		sep:   image.Rect(0, sepY, width, sepY+1),
+		input: image.Rect(0, inputY, width, inputY+inputRows),
 	}
 }
 
 // inRect returns true if screen point (x,y) is inside r.
 func inRect(x, y int, r image.Rectangle) bool {
 	return image.Pt(x, y).In(r)
-}
-
-// ---------------------------------------------------------------------------
-// Focus
-// ---------------------------------------------------------------------------
-
-type focus int
-
-const (
-	focusInput  focus = iota // Default: agent input has focus
-	focusEditor              // Code viewer has focus
-)
-
-// setFocus switches focus between editor and input panes.
-func (m *Model) setFocus(f focus) {
-	m.focus = f
-	switch f {
-	case focusEditor:
-		m.agentInput.Blur()
-		m.editor.Focus()
-	case focusInput:
-		m.editor.Blur()
-		m.agentInput.Focus()
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -186,13 +151,10 @@ type Model struct {
 	width, height int
 
 	// Sub-models
-	editor     editor.Model
 	agentInput editor.Model
 
 	// Layout
 	layout layout
-	divX   int // Divider X position (resizable)
-	focus  focus
 	styles Styles
 
 	// LLM
@@ -239,9 +201,6 @@ type Model struct {
 	fileTracker    FileReadResetter // for clearing read-tracking on undo
 	tsIndex        *treesitter.Index
 
-	// Editor state
-	editorFilePath string // absolute path of the file currently shown in the editor
-
 	// File finder modal
 	fileModal *modal.Model
 	// Keybinds modal
@@ -260,9 +219,6 @@ type Model struct {
 	// Pending tool calls: maps tool call ID → arguments for line extraction
 	pendingToolCalls map[string]provider.ToolCall
 
-	// Mouse state
-	resizingPane bool
-
 	// Conversation selection
 	convSel      *convSelection
 	convDragging bool
@@ -277,8 +233,6 @@ type Model struct {
 	providerConfigName string // TOML config key (e.g. "zen-pickle")
 	gitBranch          string // Current git branch name
 	gitDirty           bool   // Working tree has uncommitted changes
-	lspErrors          int    // Error count for current editor file
-	lspWarnings        int    // Warning count for current editor file
 	lastNetError       string // Last LLM network error (truncated for display)
 	llmInFlight        bool   // True while an LLM turn is in progress
 
@@ -296,21 +250,6 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
 	selStyle := sty.Selection
-
-	ed := editor.New()
-	ed.ShowLineNumbers = true
-	ed.ReadOnly = false
-	ed.Language = "markdown"
-	ed.SyntaxTheme = syntaxTheme
-	ed.CursorStyle = cursorStyle
-	ed.SelectionStyle = selStyle
-	ed.LineNumStyle = lipgloss.NewStyle().Foreground(ColorBorder)
-	ed.BgColor = ColorBg
-	ed.MarkAddStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec964")).Background(ColorBg)
-	ed.MarkChgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Background(ColorBg)
-	ed.MarkDelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")).Background(ColorBg)
-	ed.DiagErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
-	ed.DiagWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b"))
 
 	ai := editor.New()
 	ai.Placeholder = "Ask anything... (CTRL+h for keybinds)"
@@ -343,10 +282,8 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	}
 
 	return Model{
-		editor:     ed,
 		agentInput: ai,
 		styles:     sty,
-		focus:      focusInput,
 
 		provider:    prov,
 		mcpProxy:    proxy,

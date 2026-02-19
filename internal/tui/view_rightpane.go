@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// renderRightPaneRow writes one row of the right pane (conv / sep / input).
-func (m Model) renderRightPaneRow(b *strings.Builder, convLines, inputLines []string, row, startLine int, bgFill lipgloss.Style) {
+// renderPaneRow writes one row of the single pane (conv / sep / input).
+func (m Model) renderPaneRow(b *strings.Builder, convLines, inputLines []string, row, startLine int, bgFill lipgloss.Style) {
 	ly := m.layout
 	rw := m.convWidth()
 

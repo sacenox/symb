@@ -1,15 +1,10 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/xonecas/symb/internal/highlight"
 )
 
 // ---------------------------------------------------------------------------
@@ -46,21 +41,6 @@ func mouseXY(msg tea.MouseMsg) (int, int) {
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	x, y := mouseXY(msg)
 
-	// --- Divider drag -------------------------------------------------------
-	if done, handled := m.handleDividerDrag(msg, x, y); handled {
-		return done, nil
-	}
-
-	// --- Focus switching on click -------------------------------------------
-	m.handleFocusClick(msg, x, y)
-
-	// --- Editor: forward with original coords (left pane starts at 0) -------
-	if inRect(x, y, m.layout.editor) {
-		var cmd tea.Cmd
-		m.editor, cmd = m.editor.Update(msg)
-		return m, cmd
-	}
-
 	// --- Input: translate coords to component-local -------------------------
 	if inRect(x, y, m.layout.input) {
 		translated := m.translateMouse(msg, m.layout.input.Min.X, m.layout.input.Min.Y)
@@ -77,49 +57,6 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDividerDrag tracks divider click/release and processes drag motion.
-// Returns (model, true) if the event was consumed by the divider.
-func (m *Model) handleDividerDrag(msg tea.MouseMsg, x, y int) (Model, bool) {
-	switch ev := msg.(type) {
-	case tea.MouseClickMsg:
-		if ev.Button == tea.MouseLeft && inRect(x, y, m.layout.div) {
-			m.resizingPane = true
-		}
-	case tea.MouseReleaseMsg:
-		m.resizingPane = false
-	default:
-	}
-	if m.resizingPane {
-		if _, ok := msg.(tea.MouseMotionMsg); ok {
-			if x >= minPaneWidth && x <= m.width-minPaneWidth {
-				m.divX = x
-				m.layout = generateLayout(m.width, m.height, m.divX)
-				m.updateComponentSizes()
-			}
-			return *m, true
-		}
-	}
-	return Model{}, false
-}
-
-// handleFocusClick switches focus when clicking in the editor or input panes.
-func (m *Model) handleFocusClick(msg tea.MouseMsg, x, y int) {
-	click, ok := msg.(tea.MouseClickMsg)
-	if !ok || click.Button != tea.MouseLeft {
-		return
-	}
-	switch {
-	case inRect(x, y, m.layout.editor):
-		m.setFocus(focusEditor)
-		m.agentInput.ClearSelection()
-		m.convSel = nil
-	case inRect(x, y, m.layout.input):
-		m.setFocus(focusInput)
-		m.editor.ClearSelection()
-		m.convSel = nil
-	}
-}
-
 // handleConvMouse handles mouse events within the conversation pane.
 func (m *Model) handleConvMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 	lines := m.wrappedConvLines()
@@ -131,7 +68,6 @@ func (m *Model) handleConvMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 			cp := m.convPosFromScreen(x, y, totalLines)
 			m.convDragging = true
 			m.convSel = &convSelection{anchor: cp, active: cp}
-			m.editor.ClearSelection()
 			m.agentInput.ClearSelection()
 		}
 	case tea.MouseMotionMsg:
@@ -322,66 +258,4 @@ func (m *Model) handleToolResultView(entry convEntry) tea.Cmd {
 	return func() tea.Msg {
 		return openToolViewMsg{title: title, content: entry.full}
 	}
-}
-
-// openFileAtCenter opens a file and positions the cursor in the middle of the
-// read range (for Read tool results).
-func (m *Model) openFileAtCenter(path string, startLine int, content string) tea.Cmd {
-	if sm := toolResultRangeRe.FindStringSubmatch(content); sm != nil {
-		start, _ := strconv.Atoi(sm[1])
-		end, _ := strconv.Atoi(sm[2])
-		if start > 0 && end >= start {
-			return m.openFile(path, (start+end)/2)
-		}
-	}
-	return m.openFile(path, startLine)
-}
-
-// showRawContent loads raw text content into the editor for viewing.
-func (m *Model) showRawContent(content, language string) {
-	m.editor.SetValue(content)
-	m.editor.Language = language
-	m.editor.SetGutterMarkers(nil)
-	m.editor.DiagnosticLines = nil
-	m.editorFilePath = ""
-	m.lspErrors = 0
-	m.lspWarnings = 0
-	m.setFocus(focusEditor)
-}
-
-// openFile loads a file into the editor. path is relative to cwd.
-func (m *Model) openFile(path string, lineNum int) tea.Cmd {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return nil
-	}
-
-	// Restrict to files within the working directory
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil
-	}
-	rel, err := filepath.Rel(wd, absPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return nil
-	}
-
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil
-	}
-
-	language := highlight.DetectLanguage(path)
-	m.editor.SetValue(string(content))
-	m.editor.Language = language
-	m.editor.SetGutterMarkers(GitFileMarkers(m.ctx, path))
-	m.editor.DiagnosticLines = nil
-	m.editorFilePath = absPath
-	m.lspErrors = 0
-	m.lspWarnings = 0
-	if lineNum > 0 {
-		m.editor.GotoLine(lineNum)
-	}
-	m.setFocus(focusEditor)
-	return nil
 }

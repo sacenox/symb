@@ -116,15 +116,11 @@ func (m Model) handleSystemEvent(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
-// forwardToSubModels sends a non-handled message to sub-editors.
+// forwardToSubModels sends a non-handled message to sub-models.
 func (m Model) forwardToSubModels(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
 	var cmd tea.Cmd
-	m.editor, cmd = m.editor.Update(msg)
-	cmds = append(cmds, cmd)
 	m.agentInput, cmd = m.agentInput.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func (m Model) handlePaste(msg tea.Msg) tea.Model {
@@ -141,17 +137,11 @@ func (m Model) handlePaste(msg tea.Msg) tea.Model {
 	return m
 }
 
-// insertPaste inserts pasted text into the focused component.
+// insertPaste inserts pasted text into the agent input.
 func (m *Model) insertPaste(text string) {
 	if text == "" {
 		return
 	}
-	switch m.focus {
-	case focusInput:
-		m.agentInput.DeleteSelection()
-		m.agentInput.InsertText(text)
-	case focusEditor:
-		m.editor.DeleteSelection()
-		m.editor.InsertText(text)
-	}
+	m.agentInput.DeleteSelection()
+	m.agentInput.InsertText(text)
 }

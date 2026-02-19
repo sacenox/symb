@@ -17,8 +17,6 @@ import (
 func (m *Model) copySelection() tea.Cmd {
 	var text string
 	switch {
-	case m.editor.HasSelection():
-		text = m.editor.SelectedText()
 	case m.agentInput.HasSelection():
 		text = m.agentInput.SelectedText()
 	case m.convSel != nil && !m.convSel.empty():
