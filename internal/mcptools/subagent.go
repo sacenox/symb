@@ -45,6 +45,7 @@ type SubAgentHandler struct {
 	deltaTracker *delta.Tracker
 	sh           *shell.Shell
 	allTools     []mcp.Tool
+	upstream     mcp.UpstreamClient
 }
 
 // NewSubAgentHandler creates a handler for the SubAgent tool.
@@ -54,6 +55,7 @@ func NewSubAgentHandler(
 	deltaTracker *delta.Tracker,
 	sh *shell.Shell,
 	allTools []mcp.Tool,
+	upstream mcp.UpstreamClient,
 ) *SubAgentHandler {
 	// Validate required dependencies
 	if prov == nil {
@@ -69,6 +71,7 @@ func NewSubAgentHandler(
 		deltaTracker: deltaTracker,
 		sh:           sh,
 		allTools:     allTools,
+		upstream:     upstream,
 	}
 }
 
@@ -94,8 +97,9 @@ func (h *SubAgentHandler) Handle(ctx context.Context, arguments json.RawMessage)
 	subEditHandler := NewEditHandler(subTracker, h.lspManager, h.deltaTracker)
 	subShellHandler := NewShellHandler(h.sh)
 
-	// Create proxy with sub-agent tools (filtered - no nested SubAgent)
-	subProxy := mcp.NewProxy(nil)
+	// Create proxy with sub-agent tools (filtered - no nested SubAgent).
+	// Pass upstream so tools like web_search_exa can be dispatched.
+	subProxy := mcp.NewProxy(h.upstream)
 	filteredTools := subagent.FilterToolsForType(h.allTools, args.Type)
 
 	// Register tools with sub-agent proxy

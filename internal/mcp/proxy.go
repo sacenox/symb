@@ -241,6 +241,13 @@ func (p *Proxy) HasUpstream() bool {
 	return p.upstream != nil
 }
 
+// Upstream returns the upstream client, or nil if none is configured.
+func (p *Proxy) Upstream() UpstreamClient {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.upstream
+}
+
 // LocalToolCount returns the number of registered local tools.
 func (p *Proxy) LocalToolCount() int {
 	p.mu.RLock()

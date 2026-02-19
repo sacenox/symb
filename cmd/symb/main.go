@@ -107,6 +107,7 @@ func main() {
 		svc.deltaTracker,
 		svc.shell,
 		tools,
+		svc.proxy.Upstream(),
 	)
 	svc.proxy.RegisterTool(mcptools.NewSubAgentTool(), subAgentHandler.Handle)
 
