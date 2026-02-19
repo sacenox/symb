@@ -1,29 +1,50 @@
 package tui
 
 import (
+	"image/color"
+
 	"charm.land/lipgloss/v2"
-	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/highlight"
 )
 
-// palette is computed once from the Chroma theme at init time.
-var palette = highlight.ThemePalette(constants.SyntaxTheme)
+// palette and syntaxThemeName are computed once when the TUI is initialised.
+var (
+	palette         highlight.Palette
+	syntaxThemeName string
+)
 
 // Semantic color palette — derived from the active Chroma syntax theme.
 // Grayscale ramp is a linear interpolation from theme bg to fg.
 // Accent is the most saturated token color; error is lerped from the theme Error token.
 var (
-	ColorHighlight = lipgloss.Color(palette.Accent)
-	ColorBg        = lipgloss.Color(palette.Bg)
-	ColorFg        = lipgloss.Color(palette.Fg)
-	ColorMuted     = lipgloss.Color(palette.Muted)
-	ColorDim       = lipgloss.Color(palette.Dim)
-	ColorBorder    = lipgloss.Color(palette.Border)
-	ColorSurface   = lipgloss.Color(palette.Accent)
-	ColorError     = lipgloss.Color(palette.Error)
-	ColorWarning   = lipgloss.Color(palette.Error) // same source, context differentiates
-	ColorLinkBg    = lipgloss.Color(palette.LinkBg)
+	ColorHighlight color.Color
+	ColorBg        color.Color
+	ColorFg        color.Color
+	ColorMuted     color.Color
+	ColorDim       color.Color
+	ColorBorder    color.Color
+	ColorSurface   color.Color
+	ColorError     color.Color
+	ColorWarning   color.Color
+	ColorLinkBg    color.Color
 )
+
+// initTheme sets the palette and color vars from the given Chroma theme name.
+// Must be called before DefaultStyles or any Color* variable is used.
+func initTheme(syntaxTheme string) {
+	syntaxThemeName = syntaxTheme
+	palette = highlight.ThemePalette(syntaxTheme)
+	ColorHighlight = lipgloss.Color(palette.Accent)
+	ColorBg = lipgloss.Color(palette.Bg)
+	ColorFg = lipgloss.Color(palette.Fg)
+	ColorMuted = lipgloss.Color(palette.Muted)
+	ColorDim = lipgloss.Color(palette.Dim)
+	ColorBorder = lipgloss.Color(palette.Border)
+	ColorSurface = lipgloss.Color(palette.Accent)
+	ColorError = lipgloss.Color(palette.Error)
+	ColorWarning = lipgloss.Color(palette.Error) // same source, context differentiates
+	ColorLinkBg = lipgloss.Color(palette.LinkBg)
+}
 
 // Styles holds all pre-built lipgloss styles used across the TUI.
 // Constructed once, stored in Model, avoids repeated allocations.

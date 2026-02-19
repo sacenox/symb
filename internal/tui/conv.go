@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/highlight"
 	"github.com/xonecas/symb/internal/provider"
 )
@@ -22,7 +21,7 @@ func (m Model) convWidth() int { return m.layout.conv.Dx() }
 // (fenced code blocks, block quotes, etc.) maintain correct state.
 // Rendering cost is bounded by the frame-loop tick (~16ms).
 func highlightMarkdown(text string, fallback lipgloss.Style) []string {
-	hl := highlight.Highlight(text, "markdown", constants.SyntaxTheme, palette.Bg)
+	hl := highlight.Highlight(text, "markdown", syntaxThemeName, palette.Bg)
 	if hl == text {
 		// Chroma produced no highlighting; apply fallback per line.
 		raw := strings.Split(text, "\n")

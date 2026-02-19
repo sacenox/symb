@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/xonecas/symb/internal/constants"
 	"github.com/xonecas/symb/internal/delta"
 	"github.com/xonecas/symb/internal/filesearch"
 	"github.com/xonecas/symb/internal/llm"
@@ -289,7 +288,8 @@ type Model struct {
 // New creates a new TUI model.
 // If resumeHistory is non-nil, the session is being resumed and messages are
 // loaded from the database instead of creating a fresh system prompt.
-func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message, registry *provider.Registry, providerOpts provider.Options) Model {
+func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID string, db *store.Cache, sessionID string, idx *treesitter.Index, dt *delta.Tracker, ft FileReadResetter, providerConfigName string, pad llm.ScratchpadReader, resumeHistory []provider.Message, registry *provider.Registry, providerOpts provider.Options, syntaxTheme string) Model {
+	initTheme(syntaxTheme)
 	sty := DefaultStyles()
 	cursorStyle := lipgloss.NewStyle().Foreground(ColorHighlight)
 
@@ -299,7 +299,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ed.ShowLineNumbers = true
 	ed.ReadOnly = false
 	ed.Language = "markdown"
-	ed.SyntaxTheme = constants.SyntaxTheme
+	ed.SyntaxTheme = syntaxTheme
 	ed.CursorStyle = cursorStyle
 	ed.SelectionStyle = selStyle
 	ed.LineNumStyle = lipgloss.NewStyle().Foreground(ColorBorder)
@@ -314,7 +314,7 @@ func New(prov provider.Provider, proxy *mcp.Proxy, tools []mcp.Tool, modelID str
 	ai.Placeholder = "Ask anything... (CTRL+h for keybinds)"
 	ai.SubmitOnEnter = true
 	ai.Language = "markdown"
-	ai.SyntaxTheme = constants.SyntaxTheme
+	ai.SyntaxTheme = syntaxTheme
 	ai.CursorStyle = cursorStyle
 	ai.SelectionStyle = selStyle
 	ai.PlaceholderSty = lipgloss.NewStyle().Foreground(ColorDim).Background(ColorBg)

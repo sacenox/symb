@@ -17,6 +17,23 @@ type Config struct {
 	Providers       map[string]ProviderConfig `toml:"providers"`
 	MCP             MCPConfig                 `toml:"mcp"`
 	Cache           CacheConfig               `toml:"cache"`
+	UI              UIConfig                  `toml:"ui"`
+}
+
+// UIConfig holds user-interface settings.
+type UIConfig struct {
+	// SyntaxTheme is the Chroma syntax highlighting theme used across the TUI.
+	// UI chrome colors are derived from this theme via highlight.ThemePalette.
+	// Defaults to "vulcan" if unset.
+	SyntaxTheme string `toml:"syntax_theme"`
+}
+
+// SyntaxThemeOrDefault returns the configured syntax theme or "vulcan" if unset.
+func (u UIConfig) SyntaxThemeOrDefault() string {
+	if u.SyntaxTheme == "" {
+		return "vulcan"
+	}
+	return u.SyntaxTheme
 }
 
 // CacheConfig holds web cache settings.
