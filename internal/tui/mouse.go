@@ -331,7 +331,7 @@ func (m *Model) handleToolResultView(entry convEntry) tea.Cmd {
 		// Show the command output in the editor as plain text.
 		m.showRawContent(entry.full, "text")
 		return nil
-	case "WebFetch", "WebSearch":
+	case "web_search_exa", "get_code_context_exa":
 		// Show search/fetch results as markdown.
 		m.showRawContent(entry.full, "markdown")
 		return nil

@@ -10,7 +10,6 @@ import (
 	"github.com/xonecas/symb/internal/mcp"
 	"github.com/xonecas/symb/internal/provider"
 	"github.com/xonecas/symb/internal/shell"
-	"github.com/xonecas/symb/internal/store"
 	"github.com/xonecas/symb/internal/subagent"
 )
 
@@ -44,8 +43,6 @@ type SubAgentHandler struct {
 	lspManager   *lsp.Manager
 	deltaTracker *delta.Tracker
 	sh           *shell.Shell
-	webCache     *store.Cache
-	exaKey       string
 	allTools     []mcp.Tool
 }
 
@@ -55,8 +52,6 @@ func NewSubAgentHandler(
 	lspManager *lsp.Manager,
 	deltaTracker *delta.Tracker,
 	sh *shell.Shell,
-	webCache *store.Cache,
-	exaKey string,
 	allTools []mcp.Tool,
 ) *SubAgentHandler {
 	// Validate required dependencies
@@ -66,15 +61,12 @@ func NewSubAgentHandler(
 	if sh == nil {
 		panic("SubAgentHandler: shell cannot be nil")
 	}
-	// lspManager, deltaTracker, webCache can be nil (handlers check internally)
 
 	return &SubAgentHandler{
 		provider:     prov,
 		lspManager:   lspManager,
 		deltaTracker: deltaTracker,
 		sh:           sh,
-		webCache:     webCache,
-		exaKey:       exaKey,
 		allTools:     allTools,
 	}
 }
@@ -120,10 +112,6 @@ func (h *SubAgentHandler) Handle(ctx context.Context, arguments json.RawMessage)
 			// Sub-agents get their own scratchpad
 			subPad := &Scratchpad{}
 			subProxy.RegisterTool(tool, MakeTodoWriteHandler(subPad))
-		case "WebFetch":
-			subProxy.RegisterTool(tool, MakeWebFetchHandler(h.webCache))
-		case "WebSearch":
-			subProxy.RegisterTool(tool, MakeWebSearchHandler(h.webCache, h.exaKey, ""))
 		}
 	}
 

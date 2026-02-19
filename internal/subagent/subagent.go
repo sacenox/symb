@@ -139,7 +139,7 @@ func FilterToolsForType(tools []mcp.Tool, agentType string) []mcp.Tool {
 	case "reviewer":
 		return filterByName(base, "Read", "Grep", "Shell")
 	case "web":
-		return filterByName(base, "WebSearch", "WebFetch")
+		return filterByName(base, "web_search_exa", "get_code_context_exa")
 	default:
 		return base
 	}

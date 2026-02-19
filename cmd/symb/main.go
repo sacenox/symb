@@ -99,8 +99,6 @@ func main() {
 		svc.lspManager,
 		svc.deltaTracker,
 		svc.shell,
-		svc.webCache,
-		svc.exaKey,
 		tools,
 	)
 	svc.proxy.RegisterTool(mcptools.NewSubAgentTool(), subAgentHandler.Handle)
@@ -192,13 +190,19 @@ type services struct {
 	deltaTracker *delta.Tracker
 	scratchpad   *mcptools.Scratchpad
 	shell        *shell.Shell
-	exaKey       string
 }
 
 func setupServices(cfg *config.Config, creds *config.Credentials) services {
+	exaKey := creds.GetAPIKey("exa_ai")
+
+	upstream := cfg.MCP.Upstream
+	if upstream == "" && exaKey != "" {
+		upstream = "https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa&exaApiKey=" + exaKey
+	}
+
 	var mcpClient mcp.UpstreamClient
-	if cfg.MCP.Upstream != "" {
-		mcpClient = mcp.NewClient(cfg.MCP.Upstream)
+	if upstream != "" {
+		mcpClient = mcp.NewClient(upstream)
 	}
 	proxy := mcp.NewProxy(mcpClient)
 	if err := proxy.Initialize(context.Background()); err != nil {
@@ -224,11 +228,6 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 	editHandler := mcptools.NewEditHandler(fileTracker, lspManager, dt)
 	proxy.RegisterTool(mcptools.NewEditTool(), editHandler.Handle)
 
-	proxy.RegisterTool(mcptools.NewWebFetchTool(), mcptools.MakeWebFetchHandler(webCache))
-
-	exaKey := creds.GetAPIKey("exa_ai")
-	proxy.RegisterTool(mcptools.NewWebSearchTool(), mcptools.MakeWebSearchHandler(webCache, exaKey, ""))
-
 	// Shell tool — in-process POSIX interpreter with command blocking.
 	sh := shell.New("", shell.DefaultBlockFuncs())
 	shellHandler := mcptools.NewShellHandler(sh)
@@ -249,7 +248,6 @@ func setupServices(cfg *config.Config, creds *config.Credentials) services {
 		deltaTracker: dt,
 		scratchpad:   pad,
 		shell:        sh,
-		exaKey:       exaKey,
 	}
 }
 
