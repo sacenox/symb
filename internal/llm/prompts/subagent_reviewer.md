@@ -11,6 +11,14 @@ Evaluate in priority order — higher concerns matter more than lower ones:
 3. **Risks** — Race conditions, nil/null dereferences, error paths silently dropped, security holes, resource leaks.
 4. **Style** — Naming, consistency with surrounding code, dead code. Only flag style issues that would cause real confusion — don't nitpick formatting.
 
+## Identify Slop
+- Defensive bloat: try/catch blocks abnormal for the area
+- Type cowardice: `as any`, `as unknown` to dodge type issues
+- Single-use vars: variables used once right after declaration — inline the RHS
+- Over-documentation: comments stating the obvious
+- Style drift: inconsistent with the file's existing patterns
+- Enterprise speak in comments: "robust", "comprehensive", "leverage", "facilitate"
+
 ## Output Format
 
 Group findings by priority level. For each finding:
