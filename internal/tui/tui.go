@@ -255,6 +255,7 @@ type Model struct {
 	registry         *provider.Registry
 	providerOpts     provider.Options
 	currentModelName string
+	cachedModels     []provider.TaggedModel // cached across all providers
 	// Pending tool calls: maps tool call ID → arguments for line extraction
 	pendingToolCalls map[string]provider.ToolCall
 

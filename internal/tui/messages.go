@@ -60,14 +60,15 @@ type llmHistoryMsg struct{ msg provider.Message }
 type llmErrorMsg struct{ err error }
 
 type modelsFetchedMsg struct {
-	models []provider.Model
+	models []provider.TaggedModel
 	err    error
 }
 
 type modelSwitchedMsg struct {
-	modelName string
-	prov      provider.Provider
-	err       error
+	modelName    string
+	providerName string
+	prov         provider.Provider
+	err          error
 }
 
 type userMsgSavedMsg struct {

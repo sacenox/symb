@@ -161,3 +161,42 @@ func (r *Registry) List() []string {
 	}
 	return names
 }
+
+// TaggedModel pairs a provider config name with a model.
+type TaggedModel struct {
+	ProviderName string
+	Model        Model
+}
+
+// ListAllModels concurrently fetches models from every registered provider and
+// returns the combined list. Errors from individual providers are logged and
+// skipped so a single unavailable provider does not block the rest.
+func (r *Registry) ListAllModels(ctx context.Context, opts Options) []TaggedModel {
+	type result struct {
+		name   string
+		models []Model
+	}
+	ch := make(chan result, len(r.factories))
+	for name := range r.factories {
+		name := name
+		go func() {
+			prov := r.factories[name].Create("", opts)
+			models, err := prov.ListModels(ctx)
+			prov.Close()
+			if err != nil {
+				log.Warn().Str("provider", name).Err(err).Msg("ListAllModels: provider error")
+				ch <- result{name: name}
+				return
+			}
+			ch <- result{name: name, models: models}
+		}()
+	}
+	var all []TaggedModel
+	for range r.factories {
+		res := <-ch
+		for _, m := range res.models {
+			all = append(all, TaggedModel{ProviderName: res.name, Model: m})
+		}
+	}
+	return all
+}

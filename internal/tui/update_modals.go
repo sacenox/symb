@@ -139,29 +139,43 @@ func (m *Model) updateFileModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 }
 
 func (m *Model) fetchModelsCmd() tea.Cmd {
+	// If we have a cache, open the modal immediately with cached data and
+	// kick off a background refresh at the same time.
+	if len(m.cachedModels) > 0 {
+		cached := m.cachedModels
+		registry := m.registry
+		providerOpts := m.providerOpts
+		return tea.Batch(
+			func() tea.Msg { return modelsFetchedMsg{models: cached} },
+			func() tea.Msg {
+				log.Info().Msg("fetchModelsCmd: background refresh of all providers")
+				models := registry.ListAllModels(context.Background(), providerOpts)
+				log.Info().Int("count", len(models)).Msg("fetchModelsCmd: background refresh done")
+				return modelsFetchedMsg{models: models}
+			},
+		)
+	}
+	registry := m.registry
+	providerOpts := m.providerOpts
 	return func() tea.Msg {
-		log.Info().Str("provider", m.provider.Name()).Msg("fetchModelsCmd called")
-		models, err := m.provider.ListModels(context.Background())
-		if err != nil {
-			log.Error().Err(err).Msg("ListModels error")
-		} else {
-			log.Info().Int("count", len(models)).Msg("ListModels returned")
-		}
-		return modelsFetchedMsg{models: models, err: err}
+		log.Info().Msg("fetchModelsCmd: fetching all providers")
+		models := registry.ListAllModels(context.Background(), providerOpts)
+		log.Info().Int("count", len(models)).Msg("fetchModelsCmd: all providers returned")
+		return modelsFetchedMsg{models: models}
 	}
 }
 
-func (m *Model) openModelsModal(models []provider.Model) {
+func (m *Model) openModelsModal(models []provider.TaggedModel) {
 	items := make([]modal.Item, len(models))
-	for i, model := range models {
-		desc := model.ParamSize
-		if model.QuantLevel != "" {
-			if desc != "" {
-				desc += ", "
-			}
-			desc += model.QuantLevel
+	for i, pm := range models {
+		desc := pm.ProviderName
+		if pm.Model.ParamSize != "" {
+			desc += " · " + pm.Model.ParamSize
 		}
-		items[i] = modal.Item{Name: model.Name, Desc: desc}
+		if pm.Model.QuantLevel != "" {
+			desc += " · " + pm.Model.QuantLevel
+		}
+		items[i] = modal.Item{Name: pm.ProviderName + "/" + pm.Model.Name, Desc: desc}
 	}
 	searchFn := func(query string) []modal.Item {
 		if query == "" {
@@ -213,11 +227,23 @@ func (m *Model) updateModelsModal(msg tea.Msg) (Model, tea.Cmd, bool) {
 	return *m, nil, false
 }
 
-func (m *Model) switchModelCmd(modelName string) tea.Cmd {
+// switchModelCmd accepts a selection of the form "providerName/modelName" as
+// produced by openModelsModal, or a bare model name (falls back to the current
+// provider config name for backwards compatibility).
+func (m *Model) switchModelCmd(selection string) tea.Cmd {
 	registry := m.registry
-	providerConfigName := m.providerConfigName
+	currentProviderConfigName := m.providerConfigName
 	providerOpts := m.providerOpts
 	oldProv := m.provider
+
+	// Parse "providerName/modelName". Use SplitN so model names containing
+	// additional slashes (e.g. "org/repo/model") are preserved intact.
+	providerConfigName := currentProviderConfigName
+	modelName := selection
+	if parts := strings.SplitN(selection, "/", 2); len(parts) == 2 {
+		providerConfigName = parts[0]
+		modelName = parts[1]
+	}
 
 	return func() tea.Msg {
 		if registry == nil {
@@ -231,7 +257,7 @@ func (m *Model) switchModelCmd(modelName string) tea.Cmd {
 		if oldProv != nil {
 			oldProv.Close()
 		}
-		return modelSwitchedMsg{modelName: modelName, prov: newProv}
+		return modelSwitchedMsg{modelName: modelName, providerName: providerConfigName, prov: newProv}
 	}
 }
 
@@ -246,6 +272,12 @@ func (m *Model) handleModelsFetched(msg modelsFetchedMsg) tea.Model {
 		m.lastNetError = "No models available"
 		return m
 	}
+	// Update cache whenever we receive a fresh (non-empty) list.
+	m.cachedModels = msg.models
+	// Don't clobber an already-open modal (background refresh case).
+	if m.modelsModal != nil {
+		return m
+	}
 	log.Info().Int("count", len(msg.models)).Msg("handleModelsFetched opening modal")
 	m.openModelsModal(msg.models)
 	return m
@@ -258,5 +290,8 @@ func (m *Model) handleModelSwitched(msg modelSwitchedMsg) tea.Model {
 	}
 	m.provider = msg.prov
 	m.currentModelName = msg.modelName
+	if msg.providerName != "" {
+		m.providerConfigName = msg.providerName
+	}
 	return m
 }
