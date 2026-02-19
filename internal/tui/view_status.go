@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -20,7 +21,16 @@ func (m Model) renderStatusBar(b *strings.Builder, bgFill lipgloss.Style) {
 		if m.gitDirty {
 			branch += "*"
 		}
-		leftParts = append(leftParts, m.styles.StatusText.Render(" "+branch))
+		branchPart := m.styles.StatusText.Render(" " + branch)
+		if m.gitAdded+m.gitModified+m.gitRemoved > 0 {
+			counts := strings.Join([]string{
+				m.styles.StatusAdd.Render("+" + strconv.Itoa(m.gitAdded)),
+				m.styles.StatusMod.Render("~" + strconv.Itoa(m.gitModified)),
+				m.styles.StatusDel.Render("-" + strconv.Itoa(m.gitRemoved)),
+			}, m.styles.StatusText.Render(" "))
+			branchPart = strings.Join([]string{branchPart, counts}, m.styles.StatusText.Render(" "))
+		}
+		leftParts = append(leftParts, branchPart)
 	}
 
 	left := strings.Join(leftParts, m.styles.StatusText.Render("  "))

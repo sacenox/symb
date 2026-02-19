@@ -234,6 +234,10 @@ type Model struct {
 	providerConfigName string // TOML config key (e.g. "zen-pickle")
 	gitBranch          string // Current git branch name
 	gitDirty           bool   // Working tree has uncommitted changes
+	gitAdded           int
+	gitModified        int
+	gitRemoved         int
+
 	lastNetError       string // Last LLM network error (truncated for display)
 	llmInFlight        bool   // True while an LLM turn is in progress
 

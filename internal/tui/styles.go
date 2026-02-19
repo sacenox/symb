@@ -68,6 +68,10 @@ type Styles struct {
 
 	// Status bar
 	StatusText lipgloss.Style // Status bar text
+	StatusAdd  lipgloss.Style // Statusbar added count
+	StatusMod  lipgloss.Style // Statusbar modified count
+	StatusDel  lipgloss.Style // Statusbar removed count
+
 }
 
 // DefaultStyles builds the complete style set.
@@ -89,5 +93,8 @@ func DefaultStyles() Styles {
 		Clickable: lipgloss.NewStyle().Background(ColorLinkBg).Foreground(ColorHighlight),
 
 		StatusText: bg.Foreground(ColorDim),
+		StatusAdd:  bg.Foreground(lipgloss.Color("2")),
+		StatusMod:  bg.Foreground(lipgloss.Color("3")),
+		StatusDel:  bg.Foreground(lipgloss.Color("1")),
 	}
 }

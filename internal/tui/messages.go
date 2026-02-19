@@ -112,8 +112,11 @@ type LSPDiagnosticsMsg struct {
 
 // gitBranchMsg carries the current git branch and dirty status.
 type gitBranchMsg struct {
-	branch string
-	dirty  bool
+	branch   string
+	dirty    bool
+	added    int
+	modified int
+	removed  int
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +130,42 @@ func frameTick() tea.Cmd {
 	})
 }
 
+func gitStatusCounts() (added int, modified int, removed int) {
+	out, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil {
+		return 0, 0, 0
+	}
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return 0, 0, 0
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "??") {
+			added++
+			continue
+		}
+		if len(line) < 2 {
+			continue
+		}
+		x := line[0]
+		y := line[1]
+		if x == 'A' || y == 'A' {
+			added++
+		}
+		if x == 'M' || y == 'M' || x == 'R' || y == 'R' || x == 'C' || y == 'C' {
+			modified++
+		}
+		if x == 'D' || y == 'D' {
+			removed++
+		}
+	}
+	return added, modified, removed
+}
+
+
 // gitBranchCmd runs git to detect the current branch and dirty status.
 func gitBranchCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -138,7 +177,8 @@ func gitBranchCmd() tea.Cmd {
 		if err := exec.Command("git", "diff", "--quiet", "HEAD").Run(); err != nil {
 			dirty = true // exit code 1 = dirty
 		}
-		return gitBranchMsg{branch: branch, dirty: dirty}
+		added, modified, removed := gitStatusCounts()
+		return gitBranchMsg{branch: branch, dirty: dirty, added: added, modified: modified, removed: removed}
 	}
 }
 
@@ -154,7 +194,8 @@ func gitBranchTick() tea.Cmd {
 		if err := exec.Command("git", "diff", "--quiet", "HEAD").Run(); err != nil {
 			dirty = true
 		}
-		return gitBranchMsg{branch: branch, dirty: dirty}
+		added, modified, removed := gitStatusCounts()
+		return gitBranchMsg{branch: branch, dirty: dirty, added: added, modified: modified, removed: removed}
 	})
 }
 

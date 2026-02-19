@@ -11,6 +11,11 @@ Timeout shouldn't interrupt subagents, this is breaking the subagent tool.
 exceeded while awaiting headers)  view
 ```
 
+```
+→  SubAgent(max_iterations=5, prompt=Find status bar branch name label and gi…, type=explore)
+←  sub-agent failed: LLM stream failed: Post "https://opencode.ai/zen/v1/chat/completions": unexpected EOF  view
+```
+
 - [ ]: Undo tracking is too slow, every turn feels like an eternity.
 
 We need to be smarter and take a snapshot when the user sends a new message. And save it as a restore point

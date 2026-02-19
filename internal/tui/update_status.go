@@ -13,5 +13,8 @@ func (m *Model) handleLSPDiag(_ LSPDiagnosticsMsg) Model {
 func (m Model) handleGitBranch(msg gitBranchMsg) (tea.Model, tea.Cmd) {
 	m.gitBranch = msg.branch
 	m.gitDirty = msg.dirty
+	m.gitAdded = msg.added
+	m.gitModified = msg.modified
+	m.gitRemoved = msg.removed
 	return m, gitBranchTick()
 }
