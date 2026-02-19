@@ -7,8 +7,7 @@ on one side, code editor on the other. Fast, low memory, not a distraction.
 
 ### TUI (BubbleTea, ELM architecture)
 
-Split-pane layout: editor left, conversation + input right. Draggable divider.
-Click-to-focus between panes. Alt-screen, mouse cell-motion mode with 15ms
+Alt-screen, mouse cell-motion mode with 15ms
 throttle on wheel/motion events.
 
 ```

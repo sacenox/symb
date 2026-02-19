@@ -261,6 +261,38 @@ func (m *Model) switchModelCmd(selection string) tea.Cmd {
 	}
 }
 
+func (m *Model) openToolViewModal(title, content string) {
+	tv := modal.NewToolView(title, content, modal.Colors{
+		Fg:     palette.Fg,
+		Bg:     palette.Bg,
+		Dim:    palette.Dim,
+		SelFg:  palette.Bg,
+		SelBg:  palette.Fg,
+		Border: palette.Border,
+	})
+	m.toolViewModal = &tv
+}
+
+func (m *Model) updateToolViewModal(msg tea.Msg) (Model, tea.Cmd, bool) {
+	if m.toolViewModal == nil {
+		return *m, nil, false
+	}
+	action, cmd := m.toolViewModal.HandleMsg(msg)
+	switch action.(type) {
+	case modal.ActionClose:
+		m.toolViewModal = nil
+		return *m, nil, true
+	}
+	if cmd != nil {
+		return *m, cmd, true
+	}
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.MouseMsg:
+		return *m, nil, true
+	}
+	return *m, nil, false
+}
+
 func (m *Model) handleModelsFetched(msg modelsFetchedMsg) tea.Model {
 	if msg.err != nil {
 		log.Error().Err(msg.err).Msg("handleModelsFetched error")

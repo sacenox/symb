@@ -248,7 +248,9 @@ type Model struct {
 	keybindsModal *modal.Model
 	// Models modal
 	modelsModal *modal.Model
-	searcher    *filesearch.Searcher
+	// Tool viewer modal
+	toolViewModal *modal.ToolView
+	searcher      *filesearch.Searcher
 
 	// Provider switching
 	registry         *provider.Registry

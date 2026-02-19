@@ -92,6 +92,12 @@ type tickMsg time.Time
 // undoMsg is sent when the user clicks the undo control.
 type undoMsg struct{}
 
+// openToolViewMsg is sent when the user clicks the [view] button on a tool result.
+type openToolViewMsg struct {
+	title   string
+	content string
+}
+
 // llmBatchMsg carries multiple messages drained from updateChan in one go.
 type llmBatchMsg []tea.Msg
 

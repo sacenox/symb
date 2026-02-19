@@ -313,43 +313,15 @@ func (m *Model) isClickOnViewLabel(display string, col int) bool {
 	return col >= viewStart && col < lw
 }
 
-// handleToolResultView opens the appropriate content in the editor for a
-// tool result [view] click, based on the tool type.
+// handleToolResultView returns a Cmd that opens the tool view modal.
 func (m *Model) handleToolResultView(entry convEntry) tea.Cmd {
-	switch entry.toolName {
-	case "Read":
-		// Open file with cursor in the middle of the read range.
-		if entry.filePath != "" {
-			return m.openFileAtCenter(entry.filePath, entry.line, entry.full)
-		}
-	case "Edit":
-		// Open file with cursor at the end of the changes.
-		if entry.filePath != "" {
-			return m.openFile(entry.filePath, entry.line)
-		}
-	case "Shell":
-		// Show the command output in the editor as plain text.
-		m.showRawContent(entry.full, "text")
-		return nil
-	case "web_search_exa", "get_code_context_exa":
-		// Show search/fetch results as markdown.
-		m.showRawContent(entry.full, "markdown")
-		return nil
-	case "SubAgent":
-		// Show the subagent's response as markdown.
-		m.showRawContent(entry.full, "markdown")
-		return nil
-	default:
-		// Fallback: try file path, then show raw content.
-		if entry.filePath != "" {
-			return m.openFile(entry.filePath, entry.line)
-		}
-		m.showRawContent(entry.full, "text")
-		return nil
+	title := entry.toolName
+	if title == "" {
+		title = "Tool Result"
 	}
-	// Fallback for tools with no file path.
-	m.showRawContent(entry.full, "text")
-	return nil
+	return func() tea.Msg {
+		return openToolViewMsg{title: title, content: entry.full}
+	}
 }
 
 // openFileAtCenter opens a file and positions the cursor in the middle of the

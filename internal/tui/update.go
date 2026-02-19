@@ -44,6 +44,10 @@ func (m Model) handleModalMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if mdl, cmd, handled := m.updateModelsModal(msg); handled {
 		return mdl, cmd, true
 	}
+	// Tool viewer modal intercepts all input when open.
+	if mdl, cmd, handled := m.updateToolViewModal(msg); handled {
+		return mdl, cmd, true
+	}
 	return m, nil, false
 }
 
@@ -96,6 +100,9 @@ func (m Model) handleSystemEvent(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case undoMsg:
 		mdl, cmd := m.handleUndo()
 		return mdl, cmd, true
+	case openToolViewMsg:
+		m.openToolViewModal(msg.title, msg.content)
+		return m, nil, true
 	case undoResultMsg:
 		return m.handleUndoResult(msg), nil, true
 	case gitBranchMsg:

@@ -19,6 +19,8 @@ func (m Model) View() tea.View {
 		content = m.fileModal.View(m.width, m.height)
 	case m.modelsModal != nil:
 		content = m.modelsModal.View(m.width, m.height)
+	case m.toolViewModal != nil:
+		content = m.toolViewModal.View(m.width, m.height)
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
