@@ -1,0 +1,18 @@
+# Symb Example Configuration File
+
+# Default provider (optional - if not set, first provider in map is used)
+default_provider = "ollama-qwen"
+
+# Ollama providers (local)
+[providers.ollama-qwen]
+endpoint = "http://localhost:11434"
+model = "qwen3:8b"
+
+[providers.zen]
+model = "glm-5"
+
+[ui]
+# TODO
+
+[cache]
+ttl_hours = 24
