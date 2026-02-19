@@ -20,6 +20,7 @@ type Message struct {
 	Reasoning    string     // Model reasoning/thinking content (optional)
 	ToolCalls    []ToolCall // For assistant messages with tool calls
 	ToolCallID   string     // For tool result messages
+	FunctionName string     // For tool result messages: name of the called function (required by Gemini)
 	CreatedAt    time.Time  // Message timestamp
 	InputTokens  int        // Token usage for this LLM call (assistant messages only)
 	OutputTokens int        // Token usage for this LLM call (assistant messages only)

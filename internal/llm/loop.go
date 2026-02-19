@@ -307,10 +307,11 @@ func executeToolCalls(ctx context.Context, proxy *mcp.Proxy, toolCalls []provide
 		if err != nil {
 			// Add error result to history
 			toolMsg := provider.Message{
-				Role:       "tool",
-				Content:    fmt.Sprintf("Error: %v", err),
-				ToolCallID: toolCall.ID,
-				CreatedAt:  time.Now(),
+				Role:         "tool",
+				Content:      fmt.Sprintf("Error: %v", err),
+				ToolCallID:   toolCall.ID,
+				FunctionName: toolCall.Name,
+				CreatedAt:    time.Now(),
 			}
 			if onMessage != nil {
 				onMessage(toolMsg)
@@ -325,10 +326,11 @@ func executeToolCalls(ctx context.Context, proxy *mcp.Proxy, toolCalls []provide
 
 			// Add error result to history
 			toolMsg := provider.Message{
-				Role:       "tool",
-				Content:    errText,
-				ToolCallID: toolCall.ID,
-				CreatedAt:  time.Now(),
+				Role:         "tool",
+				Content:      errText,
+				ToolCallID:   toolCall.ID,
+				FunctionName: toolCall.Name,
+				CreatedAt:    time.Now(),
 			}
 			if onMessage != nil {
 				onMessage(toolMsg)
@@ -342,10 +344,11 @@ func executeToolCalls(ctx context.Context, proxy *mcp.Proxy, toolCalls []provide
 
 		// Add tool result to history
 		toolMsg := provider.Message{
-			Role:       "tool",
-			Content:    resultText,
-			ToolCallID: toolCall.ID,
-			CreatedAt:  time.Now(),
+			Role:         "tool",
+			Content:      resultText,
+			ToolCallID:   toolCall.ID,
+			FunctionName: toolCall.Name,
+			CreatedAt:    time.Now(),
 		}
 		if onMessage != nil {
 			onMessage(toolMsg)
