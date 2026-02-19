@@ -33,15 +33,16 @@ and view the contents of that tool call (call and results). Streams results in m
 ### Agent input interactivity:
 
 Editor component (`internal/tui/editor`): full editing capability (insert,
-delete, paste, tab indent) 
+delete, paste, tab indent)
 
 Agent input, simple multiline textarea with markdown highlighting.
 
-// TODO:
 Use a special key `@` to spawn an autocomplete/filesearch modal. This can match files, skills, commands or subagents.
 When the user selects a match with `Enter` it replaces the @ with the selected item once the message is sent to the, includes hashes when injected into the user message.
 Start with file search only for the initial implementation.
 Remove the ctrl+f keybind
+
+TODO: Call shell commands and send the content as the user message with `!` as the first character in the input
 
 ### Search modal
 
@@ -131,7 +132,7 @@ Used for exa.ai tools
 ### Git Integration
 
 // TODO: Reconsider git integration without the editor pane
-//       Use git diffs and worktrees for edits?
+// Use git diffs and worktrees for edits?
 
 - git markers in the number column for editted files in the editor (needs work but does what it's meant to do)
 - TODO: Read includes diff for the file (or diff status, we need to consider token usage) edit tool includes updated file diff after change
@@ -166,6 +167,7 @@ symbols/scope to LLM as auto-context instead of whole files.
 // TODO: Interrupted messages should still show the message footer in the TUI
 
 - User can interrupt the LLM on exit or via `ESC` when an assitant is replying
+- Should complete the assistant message with "Agent interrupted before answering" as the content.
 
 ### Shell Execution Tool
 
