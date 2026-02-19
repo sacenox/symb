@@ -1,9 +1,22 @@
-- [ ]: Clean up prompts:
+- [ ]: Investigate:
 
-Move tool usage to the tool description instead of duplicating instructions.
-Compact prompts to the essentials, leave personal customization for the agents.md files.
+Timeout shouldn't interrupt subagents, this is breaking the subagent tool.
 
-- [ ]: Improve our internal review subagent: https://blakesmith.me/2015/02/09/code-review-essentials-for-software-teams.html
+```
+←  sub-agent failed: LLM stream failed: context deadline exceeded (Client.Timeout or context cancellation while reading body)
+```
+
+```
+←  sub-agent failed: LLM stream failed: Post "https://opencode.ai/zen/v1/chat/completions": context deadline exceeded (Client.Timeout
+exceeded while awaiting headers)  view
+```
+
+- [ ]: Undo tracking is too slow, every turn feels like an eternity.
+
+We need to be smarter and take a snapshot when the user sends a new message. And save it as a restore point
+instead of granularly tracking each change that happens in a turn.
+
+---
 
 - [ ]: Resize input with mouse
 
@@ -14,13 +27,3 @@ Compact prompts to the essentials, leave personal customization for the agents.m
 - [ ]: tool calls preview in pane (toggle?)
 
 - [ ]: Cleanup readme with recent design changes
-
-- [ ]: Investigate:
-
-Timeout shouldn't interrupt subagents.
-
-```
-←  sub-agent failed: LLM stream failed: context deadline exceeded (Client.Timeout or context cancellation while reading body)
-```
-
-We just did a big change in the codebase, new provider stack,

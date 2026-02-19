@@ -47,7 +47,14 @@ func NewEditTool() mcp.Tool {
 Each line from Read is tagged as "linenum:hash|content". Use "line:hash" strings as anchors.
 Exactly one operation per call: replace, insert, delete, or create.
 If a hash does not match, the file changed since you read it — re-Read and retry.
-After each edit you receive fresh hashes — use those for subsequent edits, not the old ones.`,
+After each edit you receive fresh hashes — use those for subsequent edits, not the old ones.
+Never use Shell to write files — always use Edit.
+
+Operations:
+- replace: replace lines from start anchor to end anchor with content
+- insert: insert content after the 'after' anchor line
+- delete: delete lines from start anchor to end anchor
+- create: create a new file with content (fails if file exists; no anchors needed)`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

@@ -24,12 +24,12 @@ type SubAgentArgs struct {
 func NewSubAgentTool() mcp.Tool {
 	return mcp.Tool{
 		Name:        "SubAgent",
-		Description: `Spawn a sub-agent to handle a focused task. The sub-agent runs with the same tools but cannot spawn further sub-agents. Use this to decompose complex tasks into smaller, manageable pieces. The sub-agent's work is returned as a summary.`,
+		Description: `Spawn a sub-agent to handle a focused task. The sub-agent runs in isolated context with the same tools but cannot spawn further sub-agents. Use this to decompose complex tasks or delegate exploration — their tool usage doesn't consume your context window. The sub-agent's work is returned as a summary.`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"prompt":         {"type": "string", "description": "Task description for the sub-agent. Be specific about what needs to be accomplished and the expected output format."},
-				"type":           {"type": "string", "enum": ["explore", "editor", "reviewer", "web"], "description": "Subagent type. explore=read-only codebase search, editor=surgical code changes, reviewer=code review, web=documentation/API research. Omit for general tasks."},
+				"type":           {"type": "string", "enum": ["explore", "editor", "reviewer", "web"], "description": "Subagent type controls available tools and prompt. explore=read-only codebase search (Read, Grep, Shell); editor=surgical code changes (Read, Edit, Grep, Shell); reviewer=code review, read-only; web=documentation/API research (WebSearch, WebFetch). Omit for general tasks with all tools."},
 				"max_iterations": {"type": "integer", "description": "Maximum tool rounds for the sub-agent (default: 5)"}
 			},
 			"required": ["prompt"]
@@ -115,7 +115,9 @@ func (h *SubAgentHandler) Handle(ctx context.Context, arguments json.RawMessage)
 		}
 	}
 
-	result, err := subagent.Run(ctx, subagent.Options{
+	subCtx, subCancel := context.WithCancel(context.Background())
+	defer subCancel()
+	result, err := subagent.Run(subCtx, subagent.Options{
 		Provider:      h.provider,
 		Proxy:         subProxy,
 		Tools:         filteredTools,

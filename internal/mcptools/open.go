@@ -29,7 +29,7 @@ type ReadArgs struct {
 func NewReadTool() mcp.Tool {
 	return mcp.Tool{
 		Name:        "Read",
-		Description: `Reads a file and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Read a file before editing it with Edit. Use start/end for line ranges.`,
+		Description: `Reads a file and returns hashline-tagged content. Each line is returned as "linenum:hash|content". You MUST Read a file before editing it with Edit. Use start/end for line ranges. Output is capped at 500 lines / 20k characters — always use start/end on large files.`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

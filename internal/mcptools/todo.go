@@ -32,7 +32,7 @@ type TodoWriteArgs struct {
 func NewTodoWriteTool() mcp.Tool {
 	return mcp.Tool{
 		Name:        "TodoWrite",
-		Description: `Write or update your working plan/scratchpad. The content replaces any previous plan and is kept visible at the end of your context window. Use this to track goals, progress, and next steps — especially during multi-step tasks.`,
+		Description: `Write or update your working plan/scratchpad. The content replaces any previous plan and is kept visible at the end of your context window. Use this to track goals, progress, and next steps for tasks with 3+ steps. Rewrite it as you complete steps to stay focused. Skip for simple single-step tasks.`,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
