@@ -236,7 +236,7 @@ func newToolCallAccumulator() *toolCallAccumulator {
 func (a *toolCallAccumulator) begin(evt provider.StreamEvent) {
 	pos := len(a.calls)
 	a.byIndex[evt.ToolCallIndex] = pos
-	a.calls = append(a.calls, provider.ToolCall{ID: evt.ToolCallID, Name: evt.ToolCallName})
+	a.calls = append(a.calls, provider.ToolCall{ID: evt.ToolCallID, Name: evt.ToolCallName, ThoughtSignature: evt.ToolCallSignature})
 	a.argBuilders = append(a.argBuilders, "")
 }
 

@@ -35,9 +35,10 @@ type Tool struct {
 
 // ToolCall represents a tool call made by the LLM.
 type ToolCall struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Arguments        json.RawMessage `json:"arguments"`
+	ThoughtSignature string          `json:"thought_signature,omitempty"`
 }
 
 // ChatResponse represents the response from a chat completion.
@@ -77,10 +78,11 @@ type StreamEvent struct {
 	Content string
 
 	// Tool call fields (for EventToolCallBegin, EventToolCallDelta).
-	ToolCallIndex int    // Index of the tool call in the response (from OpenAI spec)
-	ToolCallID    string // Set on EventToolCallBegin
-	ToolCallName  string // Set on EventToolCallBegin
-	ToolCallArgs  string // Argument fragment on EventToolCallDelta
+	ToolCallIndex     int    // Index of the tool call in the response (from OpenAI spec)
+	ToolCallID        string // Set on EventToolCallBegin
+	ToolCallName      string // Set on EventToolCallBegin
+	ToolCallSignature string // Optional thought signature for Gemini tool calls
+	ToolCallArgs      string // Argument fragment on EventToolCallDelta
 
 	// Token usage (for EventUsage).
 	InputTokens  int

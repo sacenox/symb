@@ -80,10 +80,11 @@ func (p *ZenProvider) ChatStream(ctx context.Context, messages []Message, tools 
 				evt = StreamEvent{Type: EventReasoningDelta, Content: d.Content}
 			case zen.DeltaToolCallBegin:
 				evt = StreamEvent{
-					Type:          EventToolCallBegin,
-					ToolCallIndex: d.ToolCallIndex,
-					ToolCallID:    d.ToolCallID,
-					ToolCallName:  d.ToolCallName,
+					Type:              EventToolCallBegin,
+					ToolCallIndex:     d.ToolCallIndex,
+					ToolCallID:        d.ToolCallID,
+					ToolCallName:      d.ToolCallName,
+					ToolCallSignature: d.ToolCallSignature,
 				}
 			case zen.DeltaToolCallArgumentsDelta:
 				evt = StreamEvent{
@@ -179,9 +180,10 @@ func toZenMessages(messages []Message) []zen.NormalizedMessage {
 			nm.ToolCalls = make([]zen.NormalizedToolCall, len(m.ToolCalls))
 			for j, tc := range m.ToolCalls {
 				nm.ToolCalls[j] = zen.NormalizedToolCall{
-					ID:        tc.ID,
-					Name:      tc.Name,
-					Arguments: tc.Arguments,
+					ID:               tc.ID,
+					Name:             tc.Name,
+					Arguments:        tc.Arguments,
+					ThoughtSignature: tc.ThoughtSignature,
 				}
 			}
 		}
